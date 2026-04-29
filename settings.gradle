@@ -1,0 +1,34 @@
+rootProject.name = "Studium"
+
+include(
+        ":apps:gateway",
+        ":apps:auth-service",
+        ":apps:profile-service",
+        ":apps:education-service",
+        ":apps:schedule-service",
+        ":apps:assignment-service",
+        ":apps:testing-service",
+        ":apps:file-service",
+        ":apps:analytics-service",
+        ":apps:audit-service",
+        ":apps:notification-service",
+        ":libs:event-contracts",
+        ":libs:shared-web",
+        ":libs:shared-security"
+)
+
+project(":apps:gateway").projectDir = file("apps/gateway")
+project(":apps:auth-service").projectDir = file("apps/auth-service")
+project(":apps:profile-service").projectDir = file("apps/profile-service")
+project(":apps:education-service").projectDir = file("apps/education-service")
+project(":apps:schedule-service").projectDir = file("apps/schedule-service")
+project(":apps:assignment-service").projectDir = file("apps/assignment-service")
+project(":apps:testing-service").projectDir = file("apps/testing-service")
+project(":apps:file-service").projectDir = file("apps/file-service")
+project(":apps:analytics-service").projectDir = file("apps/analytics-service")
+project(":apps:audit-service").projectDir = file("apps/audit-service")
+project(":apps:notification-service").projectDir = file("apps/notification-service")
+
+project(":libs:event-contracts").projectDir = file("libs/event-contracts")
+project(":libs:shared-web").projectDir = file("libs/shared-web")
+project(":libs:shared-security").projectDir = file("libs/shared-security")

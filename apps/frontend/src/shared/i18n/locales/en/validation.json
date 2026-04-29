@@ -1,0 +1,9 @@
+{
+  "email": "Enter a valid email address.",
+  "displayNameLength": "Display name must be between 1 and 100 characters.",
+  "invalidTimezone": "Enter a valid timezone.",
+  "maxFileSize": "The selected file is too large.",
+  "minLength": "The entered value is too short.",
+  "password": "Password must contain at least 8 characters.",
+  "required": "This field is required."
+}

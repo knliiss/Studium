@@ -1,0 +1,16 @@
+package dev.knalis.education.config;
+
+import dev.knalis.shared.security.keys.RsaPublicKeyLoader;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.security.interfaces.RSAPublicKey;
+
+@Configuration
+public class JwtKeyConfig {
+    
+    @Bean
+    public RSAPublicKey rsaPublicKey(EducationJwtProperties properties, RsaPublicKeyLoader loader) {
+        return loader.load(properties.getPublicKeyPath());
+    }
+}

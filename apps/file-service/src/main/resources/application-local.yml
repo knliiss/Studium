@@ -1,0 +1,4 @@
+app:
+  file:
+    internal:
+      shared-secret: ${FILE_INTERNAL_SHARED_SECRET:change-me}

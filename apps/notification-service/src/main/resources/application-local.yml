@@ -1,0 +1,4 @@
+app:
+  notification:
+    internal:
+      shared-secret: ${NOTIFICATION_INTERNAL_SHARED_SECRET:change-me}

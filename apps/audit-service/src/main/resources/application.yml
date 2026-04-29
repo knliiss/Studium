@@ -1,0 +1,57 @@
+server:
+  port: ${AUDIT_PORT:8090}
+  shutdown: graceful
+
+spring:
+  application:
+    name: audit-service
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${AUDIT_DB_SCHEMA:audit}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 2s
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+
+app:
+  audit:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    internal:
+      shared-secret: ${AUDIT_INTERNAL_SHARED_SECRET:change-me}

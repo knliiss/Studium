@@ -1,0 +1,88 @@
+server:
+  port: ${FILE_PORT:8083}
+  shutdown: graceful
+
+spring:
+  application:
+    name: file-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${FILE_DB_SCHEMA:file}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+  servlet:
+    multipart:
+      max-file-size: ${FILE_MAX_MULTIPART_SIZE:25MB}
+      max-request-size: ${FILE_MAX_MULTIPART_SIZE:25MB}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+
+app:
+  file:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    storage:
+      endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${MINIO_ROOT_USER:minio}
+      secret-key: ${MINIO_ROOT_PASSWORD:minio123}
+      public-bucket: ${MINIO_BUCKET_PUBLIC:public}
+      private-bucket: ${MINIO_BUCKET_PRIVATE:private}
+    upload:
+      avatar-max-size-bytes: ${PROFILE_MAX_AVATAR_SIZE_BYTES:5242880}
+      general-max-size-bytes: ${FILE_MAX_GENERAL_SIZE_BYTES:20971520}
+      allowed-avatar-content-types:
+        - image/jpeg
+        - image/png
+        - image/webp
+      allowed-general-content-types:
+        - image/jpeg
+        - image/png
+        - image/webp
+        - application/pdf
+        - text/plain
+        - application/zip
+        - application/json
+    quota:
+      max-files-per-user: ${FILE_MAX_FILES_PER_USER:500}
+      max-avatar-files-per-user: ${FILE_MAX_AVATAR_FILES_PER_USER:10}
+      max-total-bytes-per-user: ${FILE_MAX_TOTAL_BYTES_PER_USER:524288000}
+    scan:
+      enabled: ${FILE_SCAN_ENABLED:false}
+    cleanup:
+      enabled: ${FILE_CLEANUP_ENABLED:true}
+      dry-run: ${FILE_CLEANUP_DRY_RUN:false}
+      uploaded-retention: ${FILE_UPLOADED_RETENTION:24h}
+      orphaned-retention: ${FILE_ORPHANED_RETENTION:168h}
+      rejected-retention: ${FILE_REJECTED_RETENTION:168h}
+      deleted-metadata-retention: ${FILE_DELETED_METADATA_RETENTION:336h}
+      batch-size: ${FILE_CLEANUP_BATCH_SIZE:100}
+      schedule-delay: ${FILE_CLEANUP_SCHEDULE_DELAY:30m}
+    internal:
+      shared-secret: ${FILE_INTERNAL_SHARED_SECRET}

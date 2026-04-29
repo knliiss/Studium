@@ -1,0 +1,72 @@
+﻿# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Java
+out/
+**/out/
+*.class
+
+# IDE
+.idea/
+**/.idea/
+*.iml
+.vscode/
+.gradle-local
+.gradle-local/caches/*
+
+# OS
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Frontend
+apps/frontend/node_modules/
+apps/frontend/dist/
+apps/frontend/.next/
+apps/frontend/coverage/
+apps/frontend/*.tsbuildinfo
+
+# Env / local config
+.env
+.env.*
+!.env.example
+infra/env/*.local
+infra/env/*.env
+!infra/env/*.example
+
+# Keys / secrets
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+infra/env/keys/*.pem
+apps/**/src/main/resources/keys/*.pem
+
+# Docker / temp
+*.pid
+*.seed
+*.tmp
+*.temp
+
+# Coverage / reports
+coverage/
+**/coverage/
+reports/
+**/reports/
+
+# Test artifacts
+test-output/
+**/test-output/
+
+# Misc
+*.swp
+*.swo

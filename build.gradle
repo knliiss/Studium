@@ -1,0 +1,60 @@
+plugins {
+    id "org.springframework.boot" version "3.5.0" apply false
+    id "io.spring.dependency-management" version "1.1.7" apply false
+}
+
+ext {
+    springBootVersion = "3.5.0"
+    springCloudVersion = findProperty("springCloudVersion") ?: "2025.0.2"
+}
+
+allprojects {
+    group = "dev.knalis"
+    version = "1.0.0"
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    if (tasks.findByName("prepareKotlinBuildScriptModel") == null) {
+        tasks.register("prepareKotlinBuildScriptModel") {
+            group = "ide"
+            description = "No-op task for IDE Kotlin DSL model compatibility"
+        }
+    }
+
+    pluginManager.withPlugin("java") {
+        apply plugin: "io.spring.dependency-management"
+
+        dependencyManagement {
+            imports {
+                mavenBom "org.springframework.boot:spring-boot-dependencies:${springBootVersion}"
+                mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+            }
+        }
+
+        dependencies {
+            compileOnly "org.projectlombok:lombok"
+            annotationProcessor "org.projectlombok:lombok"
+            testCompileOnly "org.projectlombok:lombok"
+            testAnnotationProcessor "org.projectlombok:lombok"
+        }
+
+        java {
+            toolchain {
+                languageVersion = JavaLanguageVersion.of(21)
+            }
+            withSourcesJar()
+        }
+
+        tasks.withType(JavaCompile).configureEach {
+            options.encoding = "UTF-8"
+        }
+
+        tasks.withType(Test).configureEach {
+            useJUnitPlatform()
+        }
+    }
+}

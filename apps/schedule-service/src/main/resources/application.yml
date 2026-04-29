@@ -1,0 +1,97 @@
+server:
+  port: ${SCHEDULE_PORT:8088}
+  shutdown: graceful
+
+spring:
+  application:
+    name: schedule-service
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${SCHEDULE_DB_SCHEMA:schedule}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 2s
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      retries: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    listener:
+      ack-mode: record
+      missing-topics-fatal: false
+      observation-enabled: true
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: dev.knalis.contracts.event
+    template:
+      observation-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+
+app:
+  kafka:
+    topics:
+      schedule-override-created: schedule.override-created.v1
+      schedule-lesson-cancelled: schedule.lesson-cancelled.v1
+      schedule-lesson-replaced: schedule.lesson-replaced.v1
+      schedule-extra-lesson-created: schedule.extra-lesson-created.v1
+    outbox:
+      enabled: ${SCHEDULE_OUTBOX_ENABLED:true}
+      batch-size: ${SCHEDULE_OUTBOX_BATCH_SIZE:50}
+      publish-interval: ${SCHEDULE_OUTBOX_PUBLISH_INTERVAL:2s}
+      processing-timeout: ${SCHEDULE_OUTBOX_PROCESSING_TIMEOUT:30s}
+      send-timeout: ${SCHEDULE_OUTBOX_SEND_TIMEOUT:10s}
+      max-attempts: ${SCHEDULE_OUTBOX_MAX_ATTEMPTS:10}
+      initial-retry-delay: ${SCHEDULE_OUTBOX_INITIAL_RETRY_DELAY:1s}
+      max-retry-delay: ${SCHEDULE_OUTBOX_MAX_RETRY_DELAY:5m}
+      published-retention: ${SCHEDULE_OUTBOX_PUBLISHED_RETENTION:168h}
+      cleanup-interval: ${SCHEDULE_OUTBOX_CLEANUP_INTERVAL:1h}
+  schedule:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    audit-service:
+      base-url: ${SCHEDULE_AUDIT_SERVICE_BASE_URL:http://localhost:8090}
+      connect-timeout: ${SCHEDULE_AUDIT_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${SCHEDULE_AUDIT_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${AUDIT_INTERNAL_SHARED_SECRET}

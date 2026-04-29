@@ -1,0 +1,434 @@
+name: studium-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: studium-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: studium-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: studium-kafka
+    ports:
+      - "${KAFKA_PORT:-29092}:${KAFKA_PORT:-29092}"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:${KAFKA_PORT:-29092},CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${KAFKA_PORT:-29092}
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: studium-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  db-init:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./init/init-db.sh:/scripts/init-db.sh:ro
+    entrypoint: ["bash", "/scripts/init-db.sh"]
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ./init/init-kafka.sh:/scripts/init-kafka.sh:ro
+    entrypoint: ["bash", "/scripts/init-kafka.sh"]
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file:
+      - ../../.env
+    volumes:
+      - ./init/init-minio.sh:/scripts/init-minio.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/init-minio.sh"]
+
+  auth-service:
+    build:
+      context: ../../apps/auth-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      AUTH_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
+      JWT_PRIVATE_KEY_PATH: file:/opt/keys/private.pem
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${AUTH_PORT:-8081}:8081"
+
+  profile-service:
+    build:
+      context: ../../apps/profile-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MINIO_ENDPOINT: http://minio:9000
+      FILE_SERVICE_BASE_URL: http://file-service:8083
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "${PROFILE_PORT:-8082}:8082"
+
+  education-service:
+    build:
+      context: ../../apps/education-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      EDUCATION_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${EDUCATION_PORT:-8085}:8085"
+
+  schedule-service:
+    build:
+      context: ../../apps/schedule-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      SCHEDULE_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
+      NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${SCHEDULE_PORT:-8088}:8088"
+
+  assignment-service:
+    build:
+      context: ../../apps/assignment-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FILE_SERVICE_BASE_URL: http://file-service:8083
+      ASSIGNMENT_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      ASSIGNMENT_NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
+      ASSIGNMENT_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      NOTIFICATION_INTERNAL_SHARED_SECRET: ${NOTIFICATION_INTERNAL_SHARED_SECRET:-change-me-notification-internal}
+      AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${ASSIGNMENT_PORT:-8086}:8086"
+
+  testing-service:
+    build:
+      context: ../../apps/testing-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      TESTING_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      TESTING_NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
+      TESTING_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      NOTIFICATION_INTERNAL_SHARED_SECRET: ${NOTIFICATION_INTERNAL_SHARED_SECRET:-change-me-notification-internal}
+      AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${TESTING_PORT:-8087}:8087"
+
+  file-service:
+    build:
+      context: ../../apps/file-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      MINIO_ENDPOINT: http://minio:9000
+      FILE_INTERNAL_SHARED_SECRET: ${FILE_INTERNAL_SHARED_SECRET:-change-me-file-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "${FILE_PORT:-8083}:8083"
+
+  analytics-service:
+    build:
+      context: ../../apps/analytics-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ANALYTICS_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${ANALYTICS_PORT:-8089}:8089"
+
+  audit-service:
+    build:
+      context: ../../apps/audit-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+      AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${AUDIT_PORT:-8090}:8090"
+
+  notification-service:
+    build:
+      context: ../../apps/notification-service
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      audit-service:
+        condition: service_started
+    ports:
+      - "${NOTIFICATION_PORT:-8084}:8084"
+
+  gateway:
+    build:
+      context: ../../apps/gateway
+    env_file:
+      - ../../.env
+    environment:
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      AUTH_PORT: 8081
+      PROFILE_PORT: 8082
+      EDUCATION_PORT: 8085
+      GATEWAY_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      GATEWAY_SCHEDULE_SERVICE_BASE_URL: http://schedule-service:8088
+      GATEWAY_ASSIGNMENT_SERVICE_BASE_URL: http://assignment-service:8086
+      GATEWAY_TESTING_SERVICE_BASE_URL: http://testing-service:8087
+      GATEWAY_AUTH_SERVICE_BASE_URL: http://auth-service:8081
+      GATEWAY_ANALYTICS_SERVICE_BASE_URL: http://analytics-service:8089
+      GATEWAY_NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
+      GATEWAY_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      SCHEDULE_PORT: 8088
+      ASSIGNMENT_PORT: 8086
+      TESTING_PORT: 8087
+      FILE_PORT: 8083
+      ANALYTICS_PORT: 8089
+      NOTIFICATION_PORT: 8084
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      auth-service:
+        condition: service_started
+      profile-service:
+        condition: service_started
+      education-service:
+        condition: service_started
+      schedule-service:
+        condition: service_started
+      assignment-service:
+        condition: service_started
+      testing-service:
+        condition: service_started
+      file-service:
+        condition: service_started
+      analytics-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+
+  frontend:
+    build:
+      context: ../../apps/frontend
+      args:
+        VITE_API_BASE_URL: ${FRONTEND_VITE_API_BASE_URL:-http://localhost:8080}
+    depends_on:
+      gateway:
+        condition: service_started
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

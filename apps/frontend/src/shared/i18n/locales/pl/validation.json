@@ -1,0 +1,9 @@
+{
+  "email": "Wpisz prawidłowy adres email.",
+  "displayNameLength": "Nazwa wyświetlana musi mieć od 1 do 100 znaków.",
+  "invalidTimezone": "Wpisz prawidłową strefę czasową.",
+  "maxFileSize": "Wybrany plik jest zbyt duży.",
+  "minLength": "Wprowadzona wartość jest zbyt krótka.",
+  "password": "Hasło musi zawierać co najmniej 8 znaków.",
+  "required": "To pole jest wymagane."
+}

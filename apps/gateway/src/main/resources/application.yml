@@ -1,0 +1,201 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: gateway
+  main:
+    web-application-type: reactive
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 2s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      retries: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    listener:
+      ack-mode: record
+      missing-topics-fatal: false
+      observation-enabled: true
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: dev.knalis.contracts.event
+    template:
+      observation-enabled: true
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: auth-service
+              uri: http://auth-service:${AUTH_PORT:8081}
+              predicates:
+                - Path=/api/auth/**
+            - id: auth-admin-service
+              uri: http://auth-service:${AUTH_PORT:8081}
+              predicates:
+                - Path=/api/admin/**
+            - id: profile-service
+              uri: http://profile-service:${PROFILE_PORT:8082}
+              predicates:
+                - Path=/api/profile/**
+            - id: education-service
+              uri: http://education-service:${EDUCATION_PORT:8085}
+              predicates:
+                - Path=/api/v1/education/**
+            - id: schedule-service
+              uri: http://schedule-service:${SCHEDULE_PORT:8088}
+              predicates:
+                - Path=/api/v1/schedule/**
+            - id: assignment-service
+              uri: http://assignment-service:${ASSIGNMENT_PORT:8086}
+              predicates:
+                - Path=/api/v1/assignments/**,/api/v1/submissions/**,/api/v1/grades/**
+            - id: testing-service
+              uri: http://testing-service:${TESTING_PORT:8087}
+              predicates:
+                - Path=/api/v1/testing/**
+            - id: file-service
+              uri: http://file-service:${FILE_PORT:8083}
+              predicates:
+                - Path=/api/files/**
+            - id: notification-service
+              uri: http://notification-service:${NOTIFICATION_PORT:8084}
+              predicates:
+                - Path=/api/notifications/**
+            - id: analytics-service
+              uri: http://analytics-service:${ANALYTICS_PORT:8089}
+              predicates:
+                - Path=/api/v1/analytics/**
+            - id: audit-service
+              uri: http://audit-service:${AUDIT_PORT:8090}
+              predicates:
+                - Path=/api/v1/audit/**
+            - id: notification-websocket
+              uri: ws://notification-service:${NOTIFICATION_PORT:8084}
+              predicates:
+                - Path=/ws/notifications,/ws/notifications/**
+          httpclient:
+            connect-timeout: 3000
+            response-timeout: 5s
+          metrics:
+            enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+    org.springframework.cloud.gateway: INFO
+
+app:
+  gateway:
+    kafka:
+      topics:
+        user-banned: auth.user-banned.v1
+        user-unbanned: auth.user-unbanned.v1
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    education-service:
+      base-url: ${GATEWAY_EDUCATION_SERVICE_BASE_URL:http://localhost:8085}
+      connect-timeout: ${GATEWAY_EDUCATION_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_EDUCATION_SERVICE_READ_TIMEOUT:5s}
+    schedule-service:
+      base-url: ${GATEWAY_SCHEDULE_SERVICE_BASE_URL:http://localhost:8088}
+      connect-timeout: ${GATEWAY_SCHEDULE_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_SCHEDULE_SERVICE_READ_TIMEOUT:5s}
+    assignment-service:
+      base-url: ${GATEWAY_ASSIGNMENT_SERVICE_BASE_URL:http://localhost:8086}
+      connect-timeout: ${GATEWAY_ASSIGNMENT_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_ASSIGNMENT_SERVICE_READ_TIMEOUT:5s}
+    testing-service:
+      base-url: ${GATEWAY_TESTING_SERVICE_BASE_URL:http://localhost:8087}
+      connect-timeout: ${GATEWAY_TESTING_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_TESTING_SERVICE_READ_TIMEOUT:5s}
+    auth-service:
+      base-url: ${GATEWAY_AUTH_SERVICE_BASE_URL:http://localhost:8081}
+      connect-timeout: ${GATEWAY_AUTH_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_AUTH_SERVICE_READ_TIMEOUT:5s}
+    analytics-service:
+      base-url: ${GATEWAY_ANALYTICS_SERVICE_BASE_URL:http://localhost:8089}
+      connect-timeout: ${GATEWAY_ANALYTICS_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_ANALYTICS_SERVICE_READ_TIMEOUT:5s}
+    notification-service:
+      base-url: ${GATEWAY_NOTIFICATION_SERVICE_BASE_URL:http://localhost:8084}
+      connect-timeout: ${GATEWAY_NOTIFICATION_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_NOTIFICATION_SERVICE_READ_TIMEOUT:5s}
+    audit-service:
+      base-url: ${GATEWAY_AUDIT_SERVICE_BASE_URL:http://localhost:8090}
+      connect-timeout: ${GATEWAY_AUDIT_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${GATEWAY_AUDIT_SERVICE_READ_TIMEOUT:5s}
+    rate-limit:
+      max-requests: ${GATEWAY_RATE_LIMIT_MAX_REQUESTS:120}
+      window: ${GATEWAY_RATE_LIMIT_WINDOW:1m}
+    redis:
+      ban-state-key-prefix:
+        gateway:ban-state:
+      rate-limit-key-prefix:
+        gateway:rate-limit:
+    cors:
+      allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+      allowed-methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowed-headers:
+        - Authorization
+        - Content-Type
+        - Accept
+        - Origin
+        - X-Requested-With
+        - X-Request-Id
+        - X-Correlation-Id
+      exposed-headers:
+        - X-Request-Id
+        - X-Correlation-Id
+        - Content-Disposition
+      allow-credentials: false
+      max-age: 1h
+    public-endpoints:
+      - /api/auth/login
+      - /api/auth/register
+      - /api/auth/refresh
+      - /api/auth/password-reset/request
+      - /api/auth/password-reset/confirm
+      - /api/auth/mfa/challenges/dispatch
+      - /api/auth/mfa/challenges/verify
+      - /api/auth/mfa/challenges/status
+      - /ws/notifications
+      - /ws/notifications/**
+      - /actuator/health
+      - /actuator/info
+      - /internal/gateway/ping

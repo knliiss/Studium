@@ -1,0 +1,117 @@
+server:
+  port: ${ASSIGNMENT_PORT:8086}
+  shutdown: graceful
+
+spring:
+  application:
+    name: assignment-service
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${ASSIGNMENT_DB_SCHEMA:assignment}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 2s
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      retries: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    listener:
+      ack-mode: record
+      missing-topics-fatal: false
+      observation-enabled: true
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: dev.knalis.contracts.event
+    template:
+      observation-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+
+app:
+  kafka:
+    topics:
+      assignment-created: assignment.assignment-created.v1
+      assignment-updated: assignment.assignment-updated.v1
+      grade-assigned: assignment.grade-assigned.v1
+      assignment-opened: assignment.assignment-opened.v1
+      assignment-submitted: assignment.assignment-submitted.v1
+      deadline-missed: academic.deadline-missed.v1
+    outbox:
+      enabled: ${ASSIGNMENT_OUTBOX_ENABLED:true}
+      batch-size: ${ASSIGNMENT_OUTBOX_BATCH_SIZE:50}
+      publish-interval: ${ASSIGNMENT_OUTBOX_PUBLISH_INTERVAL:2s}
+      processing-timeout: ${ASSIGNMENT_OUTBOX_PROCESSING_TIMEOUT:30s}
+      send-timeout: ${ASSIGNMENT_OUTBOX_SEND_TIMEOUT:10s}
+      max-attempts: ${ASSIGNMENT_OUTBOX_MAX_ATTEMPTS:10}
+      initial-retry-delay: ${ASSIGNMENT_OUTBOX_INITIAL_RETRY_DELAY:1s}
+      max-retry-delay: ${ASSIGNMENT_OUTBOX_MAX_RETRY_DELAY:5m}
+      published-retention: ${ASSIGNMENT_OUTBOX_PUBLISHED_RETENTION:168h}
+      cleanup-interval: ${ASSIGNMENT_OUTBOX_CLEANUP_INTERVAL:1h}
+  assignment:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    file-service:
+      base-url: ${FILE_SERVICE_BASE_URL:http://localhost:8083}
+      connect-timeout: ${FILE_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${FILE_SERVICE_READ_TIMEOUT:5s}
+    education-service:
+      base-url: ${ASSIGNMENT_EDUCATION_SERVICE_BASE_URL:http://localhost:8085}
+      connect-timeout: ${ASSIGNMENT_EDUCATION_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${ASSIGNMENT_EDUCATION_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${EDUCATION_INTERNAL_SHARED_SECRET}
+    notification-service:
+      base-url: ${ASSIGNMENT_NOTIFICATION_SERVICE_BASE_URL:http://localhost:8084}
+      connect-timeout: ${ASSIGNMENT_NOTIFICATION_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${ASSIGNMENT_NOTIFICATION_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${NOTIFICATION_INTERNAL_SHARED_SECRET}
+    audit-service:
+      base-url: ${ASSIGNMENT_AUDIT_SERVICE_BASE_URL:http://localhost:8090}
+      connect-timeout: ${ASSIGNMENT_AUDIT_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${ASSIGNMENT_AUDIT_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${AUDIT_INTERNAL_SHARED_SECRET}
+    reminders:
+      enabled: ${ASSIGNMENT_REMINDERS_ENABLED:true}
+      check-interval: ${ASSIGNMENT_REMINDERS_CHECK_INTERVAL:30m}
+      lookback: ${ASSIGNMENT_REMINDERS_LOOKBACK:35m}

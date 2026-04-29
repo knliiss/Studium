@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+COMPOSE_FILE="$ROOT_DIR/infra/docker/docker-compose.local.yml"
+ENV_FILE="$ROOT_DIR/.env"
+ENV_EXAMPLE_FILE="$ROOT_DIR/.env.example"
+KEY_DIR="$ROOT_DIR/infra/keys"
+PRIVATE_KEY_FILE="$KEY_DIR/private.pem"
+PUBLIC_KEY_FILE="$KEY_DIR/public.pem"
+
+APP_SERVICES=(
+  auth-service
+  profile-service
+  education-service
+  schedule-service
+  assignment-service
+  testing-service
+  file-service
+  analytics-service
+  audit-service
+  notification-service
+  gateway
+  frontend
+)
+
+BOOTJAR_TASKS=(
+  :apps:auth-service:bootJar
+  :apps:profile-service:bootJar
+  :apps:education-service:bootJar
+  :apps:schedule-service:bootJar
+  :apps:assignment-service:bootJar
+  :apps:testing-service:bootJar
+  :apps:file-service:bootJar
+  :apps:analytics-service:bootJar
+  :apps:audit-service:bootJar
+  :apps:notification-service:bootJar
+  :apps:gateway:bootJar
+)
+
+SKIP_BUILD=false
+FRONTEND_ONLY=false
+
+usage() {
+  cat <<'USAGE'
+Usage: ./infra/scripts/local/start-local.sh [--skip-build|-s] [--frontend-only|-f]
+
+Starts the full local Studium stack:
+  1. Ensures .env exists
+  2. Ensures JWT RSA keys exist
+  3. Builds all bootable services unless --skip-build is used
+  4. Starts Docker Compose infrastructure, backend services, and the frontend container
+  5. Runs demo seed when DEMO_SEED_ENABLED=true
+
+Frontend-only refresh:
+  --frontend-only | -f
+    Rebuilds and restarts only the frontend container without restarting the rest of the stack.
+USAGE
+}
+
+compose() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+create_minimal_env() {
+  cat >"$ENV_FILE" <<'EOF'
+# Generated minimal local defaults
+GATEWAY_PORT=8080
+AUTH_PORT=8081
+PROFILE_PORT=8082
+FILE_PORT=8083
+NOTIFICATION_PORT=8084
+EDUCATION_PORT=8085
+ASSIGNMENT_PORT=8086
+TESTING_PORT=8087
+SCHEDULE_PORT=8088
+ANALYTICS_PORT=8089
+AUDIT_PORT=8090
+POSTGRES_DB=postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+AUTH_DB_SCHEMA=auth
+PROFILE_DB_SCHEMA=profile
+FILE_DB_SCHEMA=file
+NOTIFICATION_DB_SCHEMA=notification
+EDUCATION_DB_SCHEMA=education
+ASSIGNMENT_DB_SCHEMA=assignment
+TESTING_DB_SCHEMA=testing
+SCHEDULE_DB_SCHEMA=schedule
+ANALYTICS_DB_SCHEMA=analytics
+AUDIT_DB_SCHEMA=audit
+KAFKA_PORT=29092
+KAFKA_BOOTSTRAP_SERVERS=localhost:29092
+KAFKA_CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
+MINIO_PORT=9000
+MINIO_CONSOLE_PORT=9001
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD=minio123
+MINIO_BUCKET_PUBLIC=public
+MINIO_BUCKET_PRIVATE=private
+FRONTEND_PORT=3000
+FRONTEND_VITE_API_BASE_URL=http://localhost:8080
+JWT_ISSUER=dev.knalis.auth-service
+JWT_AUDIENCE=dev.knalis.api
+FILE_INTERNAL_SHARED_SECRET=change-me-file-internal
+NOTIFICATION_INTERNAL_SHARED_SECRET=change-me-notification-internal
+EDUCATION_INTERNAL_SHARED_SECRET=change-me-education-internal
+AUDIT_INTERNAL_SHARED_SECRET=change-me-audit-internal
+AUTH_OWNER_SEED_ENABLED=true
+AUTH_OWNER_USERNAME=owner
+AUTH_OWNER_EMAIL=owner@example.com
+AUTH_OWNER_PASSWORD=ChangeMe123!
+AUTH_MFA_ENABLED=true
+AUTH_MFA_ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+DEMO_SEED_ENABLED=true
+EOF
+  echo ".env.example missing, created minimal .env"
+}
+
+ensure_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    echo ".env already exists"
+    return
+  fi
+
+  if [[ -f "$ENV_EXAMPLE_FILE" ]]; then
+    cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
+    echo ".env created from .env.example"
+    return
+  fi
+
+  create_minimal_env
+}
+
+sync_missing_env_keys() {
+  if [[ ! -f "$ENV_EXAMPLE_FILE" ]]; then
+    return
+  fi
+
+  local appended_keys=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+
+    local key="${line%%=*}"
+    if [[ -z "$key" ]]; then
+      continue
+    fi
+
+    if ! rg -q "^${key}=" "$ENV_FILE"; then
+      printf '\n%s\n' "$line" >>"$ENV_FILE"
+      appended_keys+=("$key")
+    fi
+  done <"$ENV_EXAMPLE_FILE"
+
+  if (( ${#appended_keys[@]} > 0 )); then
+    echo "Appended missing .env keys from .env.example: ${appended_keys[*]}"
+  fi
+}
+
+load_env() {
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+}
+
+require_openssl() {
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "openssl is required to generate RSA keys. Install openssl and rerun the script." >&2
+    exit 1
+  fi
+}
+
+ensure_keys() {
+  mkdir -p "$KEY_DIR"
+
+  if [[ -f "$PRIVATE_KEY_FILE" && -f "$PUBLIC_KEY_FILE" ]]; then
+    echo "JWT RSA keys already exist"
+    return
+  fi
+
+  if [[ -f "$PRIVATE_KEY_FILE" && ! -f "$PUBLIC_KEY_FILE" ]]; then
+    require_openssl
+    openssl rsa -in "$PRIVATE_KEY_FILE" -pubout -out "$PUBLIC_KEY_FILE" >/dev/null 2>&1
+    chmod 644 "$PUBLIC_KEY_FILE"
+    echo "Generated public.pem from existing private.pem"
+    return
+  fi
+
+  if [[ ! -f "$PRIVATE_KEY_FILE" && -f "$PUBLIC_KEY_FILE" ]]; then
+    echo "infra/keys/public.pem exists but infra/keys/private.pem is missing. Restore the private key or remove the orphaned public key and rerun." >&2
+    exit 1
+  fi
+
+  require_openssl
+  openssl genrsa -out "$PRIVATE_KEY_FILE" 2048 >/dev/null 2>&1
+  openssl rsa -in "$PRIVATE_KEY_FILE" -pubout -out "$PUBLIC_KEY_FILE" >/dev/null 2>&1
+  chmod 600 "$PRIVATE_KEY_FILE"
+  chmod 644 "$PUBLIC_KEY_FILE"
+  echo "Generated JWT RSA key pair in infra/keys"
+}
+
+build_jars() {
+  if [[ "$SKIP_BUILD" == "true" ]]; then
+    echo "Skipping Gradle build"
+    return
+  fi
+
+  echo "Building boot JARs for all application services..."
+  (
+    cd "$ROOT_DIR"
+    ./gradlew "${BOOTJAR_TASKS[@]}"
+  )
+}
+
+seed_demo_data() {
+  if [[ "${DEMO_SEED_ENABLED:-true}" != "true" ]]; then
+    echo "Demo seed disabled via DEMO_SEED_ENABLED"
+    return
+  fi
+
+  echo "Running demo seed..."
+  "$ROOT_DIR/infra/scripts/local/seed-demo.sh"
+}
+
+start_frontend_only() {
+  echo "Rebuilding and starting only the frontend container..."
+  compose up -d --build --no-deps frontend
+  echo "Frontend container started successfully"
+}
+
+start_stack() {
+  local auth_replicas="${AUTH_REPLICAS:-1}"
+  local profile_replicas="${PROFILE_REPLICAS:-1}"
+  local education_replicas="${EDUCATION_REPLICAS:-1}"
+  local schedule_replicas="${SCHEDULE_REPLICAS:-1}"
+  local assignment_replicas="${ASSIGNMENT_REPLICAS:-1}"
+  local testing_replicas="${TESTING_REPLICAS:-1}"
+  local file_replicas="${FILE_REPLICAS:-1}"
+  local analytics_replicas="${ANALYTICS_REPLICAS:-1}"
+  local audit_replicas="${AUDIT_REPLICAS:-1}"
+  local notification_replicas="${NOTIFICATION_REPLICAS:-1}"
+  local gateway_replicas="${GATEWAY_REPLICAS:-1}"
+
+  echo "Starting infrastructure containers..."
+  compose up -d postgres redis kafka minio
+
+  echo "Initializing PostgreSQL schemas..."
+  compose run --rm db-init
+
+  echo "Initializing Kafka topics..."
+  compose run --rm kafka-init
+
+  echo "Initializing MinIO buckets..."
+  compose run --rm minio-init
+
+  echo "Starting application containers..."
+  compose up -d --build \
+    --scale auth-service="$auth_replicas" \
+    --scale profile-service="$profile_replicas" \
+    --scale education-service="$education_replicas" \
+    --scale schedule-service="$schedule_replicas" \
+    --scale assignment-service="$assignment_replicas" \
+    --scale testing-service="$testing_replicas" \
+    --scale file-service="$file_replicas" \
+    --scale analytics-service="$analytics_replicas" \
+    --scale audit-service="$audit_replicas" \
+    --scale notification-service="$notification_replicas" \
+    --scale gateway="$gateway_replicas" \
+    "${APP_SERVICES[@]}"
+
+  seed_demo_data
+  echo "Local stack started successfully"
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --skip-build|-s)
+      SKIP_BUILD=true
+      ;;
+    --frontend-only|-f)
+      FRONTEND_ONLY=true
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+ensure_env
+sync_missing_env_keys
+load_env
+ensure_keys
+if [[ "$FRONTEND_ONLY" == "true" ]]; then
+  start_frontend_only
+  exit 0
+fi
+
+build_jars
+start_stack

@@ -1,0 +1,104 @@
+server:
+  port: ${NOTIFICATION_PORT:8084}
+  shutdown: graceful
+
+spring:
+  application:
+    name: notification-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${NOTIFICATION_DB_SCHEMA:notification}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 2s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      retries: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    listener:
+      ack-mode: record
+      missing-topics-fatal: false
+      observation-enabled: true
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: dev.knalis.contracts.event
+    template:
+      observation-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+    org.springframework.web.socket: INFO
+
+app:
+  notification:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    kafka:
+      topics:
+        user-registered: auth.user-registered.v1
+        user-email-changed: auth.user-email-changed.v1
+        user-username-changed: auth.user-username-changed.v1
+        user-banned: auth.user-banned.v1
+        user-unbanned: auth.user-unbanned.v1
+        schedule-override-created: schedule.override-created.v1
+        schedule-lesson-cancelled: schedule.lesson-cancelled.v1
+        schedule-lesson-replaced: schedule.lesson-replaced.v1
+        schedule-extra-lesson-created: schedule.extra-lesson-created.v1
+        assignment-created: assignment.assignment-created.v1
+        assignment-updated: assignment.assignment-updated.v1
+        grade-assigned: assignment.grade-assigned.v1
+        test-published: testing.test-published.v1
+    education-service:
+      base-url: ${NOTIFICATION_EDUCATION_SERVICE_BASE_URL:http://localhost:8085}
+      connect-timeout: ${NOTIFICATION_EDUCATION_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${NOTIFICATION_EDUCATION_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${EDUCATION_INTERNAL_SHARED_SECRET}
+    realtime:
+      websocket-endpoint: /ws/notifications
+      user-destination: /queue/notifications
+      allowed-origin-patterns:
+        - "*"
+      redis-topic: ${NOTIFICATION_REDIS_TOPIC:notifications.live}
+      redis-fanout-enabled: ${NOTIFICATION_REDIS_FANOUT_ENABLED:true}
+      send-time-limit-ms: ${NOTIFICATION_WS_SEND_TIME_LIMIT_MS:15000}
+      send-buffer-size-limit-bytes: ${NOTIFICATION_WS_SEND_BUFFER_SIZE_LIMIT_BYTES:1048576}
+      message-size-limit-bytes: ${NOTIFICATION_WS_MESSAGE_SIZE_LIMIT_BYTES:65536}
+    internal:
+      shared-secret: ${NOTIFICATION_INTERNAL_SHARED_SECRET}

@@ -1,0 +1,9 @@
+app:
+  auth:
+    mfa:
+      encryption-key: ${AUTH_MFA_ENCRYPTION_KEY:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+    owner:
+      seed-enabled: ${AUTH_OWNER_SEED_ENABLED:true}
+      username: ${AUTH_OWNER_USERNAME:owner}
+      email: ${AUTH_OWNER_EMAIL:owner@example.com}
+      password: ${AUTH_OWNER_PASSWORD:ChangeMe123!}

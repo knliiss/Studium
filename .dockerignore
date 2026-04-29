@@ -1,0 +1,6 @@
+﻿.git
+.gradle
+build
+**/build
+apps/frontend/node_modules
+apps/frontend/dist

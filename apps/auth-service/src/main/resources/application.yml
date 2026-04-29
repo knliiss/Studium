@@ -1,0 +1,135 @@
+server:
+  port: ${AUTH_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${AUTH_DB_SCHEMA:auth}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 2s
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      retries: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        compression.type: lz4
+    template:
+      observation-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+
+app:
+  auth:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      private-key-path: ${JWT_PRIVATE_KEY_PATH:file:/opt/keys/private.pem}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    access-token-ttl: 10m
+    refresh-token-ttl: 14d
+    password-reset-token-ttl: 1h
+    rate-limit:
+      enabled: ${AUTH_RATE_LIMIT_ENABLED:true}
+      redis-key-prefix: ${AUTH_RATE_LIMIT_REDIS_KEY_PREFIX:auth:rate-limit:}
+      register-ip:
+        max-requests: ${AUTH_RATE_LIMIT_REGISTER_IP_MAX_REQUESTS:5}
+        window: ${AUTH_RATE_LIMIT_REGISTER_IP_WINDOW:10m}
+      login-ip:
+        max-requests: ${AUTH_RATE_LIMIT_LOGIN_IP_MAX_REQUESTS:20}
+        window: ${AUTH_RATE_LIMIT_LOGIN_IP_WINDOW:5m}
+      login-username:
+        max-requests: ${AUTH_RATE_LIMIT_LOGIN_USERNAME_MAX_REQUESTS:10}
+        window: ${AUTH_RATE_LIMIT_LOGIN_USERNAME_WINDOW:5m}
+      password-reset-ip:
+        max-requests: ${AUTH_RATE_LIMIT_PASSWORD_RESET_IP_MAX_REQUESTS:5}
+        window: ${AUTH_RATE_LIMIT_PASSWORD_RESET_IP_WINDOW:15m}
+      password-reset-email:
+        max-requests: ${AUTH_RATE_LIMIT_PASSWORD_RESET_EMAIL_MAX_REQUESTS:3}
+        window: ${AUTH_RATE_LIMIT_PASSWORD_RESET_EMAIL_WINDOW:15m}
+      mfa-dispatch:
+        max-requests: ${AUTH_RATE_LIMIT_MFA_DISPATCH_MAX_REQUESTS:10}
+        window: ${AUTH_RATE_LIMIT_MFA_DISPATCH_WINDOW:10m}
+      mfa-verify:
+        max-requests: ${AUTH_RATE_LIMIT_MFA_VERIFY_MAX_REQUESTS:20}
+        window: ${AUTH_RATE_LIMIT_MFA_VERIFY_WINDOW:10m}
+    mfa:
+      enabled: ${AUTH_MFA_ENABLED:true}
+      challenge-ttl: ${AUTH_MFA_CHALLENGE_TTL:5m}
+      max-verification-attempts: ${AUTH_MFA_MAX_VERIFICATION_ATTEMPTS:5}
+      totp-digits: ${AUTH_MFA_TOTP_DIGITS:6}
+      totp-time-step-seconds: ${AUTH_MFA_TOTP_TIME_STEP_SECONDS:30}
+      totp-window-steps: ${AUTH_MFA_TOTP_WINDOW_STEPS:1}
+      issuer: ${AUTH_MFA_ISSUER:Studium}
+      encryption-key: ${AUTH_MFA_ENCRYPTION_KEY}
+    owner:
+      seed-enabled: ${AUTH_OWNER_SEED_ENABLED:false}
+      username: ${AUTH_OWNER_USERNAME:}
+      email: ${AUTH_OWNER_EMAIL:}
+      password: ${AUTH_OWNER_PASSWORD:}
+    audit-service:
+      base-url: ${AUTH_AUDIT_SERVICE_BASE_URL:http://localhost:8090}
+      connect-timeout: ${AUTH_AUDIT_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${AUTH_AUDIT_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${AUDIT_INTERNAL_SHARED_SECRET}
+
+  kafka:
+    topics:
+      user-registered: auth.user-registered.v1
+      user-email-changed: auth.user-email-changed.v1
+      user-username-changed: auth.user-username-changed.v1
+      user-banned: auth.user-banned.v1
+      user-unbanned: auth.user-unbanned.v1
+    outbox:
+      enabled: ${AUTH_OUTBOX_ENABLED:true}
+      batch-size: ${AUTH_OUTBOX_BATCH_SIZE:50}
+      publish-interval: ${AUTH_OUTBOX_PUBLISH_INTERVAL:2s}
+      processing-timeout: ${AUTH_OUTBOX_PROCESSING_TIMEOUT:30s}
+      send-timeout: ${AUTH_OUTBOX_SEND_TIMEOUT:10s}
+      max-attempts: ${AUTH_OUTBOX_MAX_ATTEMPTS:10}
+      initial-retry-delay: ${AUTH_OUTBOX_INITIAL_RETRY_DELAY:1s}
+      max-retry-delay: ${AUTH_OUTBOX_MAX_RETRY_DELAY:5m}
+      published-retention: ${AUTH_OUTBOX_PUBLISHED_RETENTION:168h}
+      cleanup-interval: ${AUTH_OUTBOX_CLEANUP_INTERVAL:1h}
