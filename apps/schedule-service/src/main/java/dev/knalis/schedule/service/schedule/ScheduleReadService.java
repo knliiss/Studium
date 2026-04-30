@@ -8,15 +8,18 @@ import dev.knalis.schedule.entity.OverrideType;
 import dev.knalis.schedule.entity.ResolvedLessonSourceType;
 import dev.knalis.schedule.entity.ScheduleOverride;
 import dev.knalis.schedule.entity.ScheduleTemplate;
+import dev.knalis.schedule.entity.Subgroup;
 import dev.knalis.schedule.exception.ScheduleValidationException;
 import dev.knalis.schedule.repository.AcademicSemesterRepository;
 import dev.knalis.schedule.repository.LessonSlotRepository;
 import dev.knalis.schedule.repository.ScheduleOverrideRepository;
 import dev.knalis.schedule.repository.ScheduleTemplateRepository;
+import dev.knalis.schedule.service.slot.CanonicalLessonSlots;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -33,42 +36,100 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ScheduleReadService {
-    
+
     private final AcademicSemesterRepository academicSemesterRepository;
     private final ScheduleTemplateRepository scheduleTemplateRepository;
     private final ScheduleOverrideRepository scheduleOverrideRepository;
     private final LessonSlotRepository lessonSlotRepository;
-    
+    private final Clock clock;
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> getGroupWeek(UUID groupId, LocalDate startDate) {
         return resolve(groupId, null, null, null, startDate, startDate.plusDays(6), false);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> getGroupWeek(
+            UUID groupId,
+            LocalDate startDate,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(groupId, null, null, null, startDate, startDate.plusDays(6), false, includeUnpublishedFuture);
+    }
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> getGroupRange(UUID groupId, LocalDate dateFrom, LocalDate dateTo) {
         return resolve(groupId, null, null, null, dateFrom, dateTo, false);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> getGroupRange(
+            UUID groupId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(groupId, null, null, null, dateFrom, dateTo, false, includeUnpublishedFuture);
+    }
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> getTeacherWeek(UUID teacherId, LocalDate startDate) {
         return resolve(null, teacherId, null, null, startDate, startDate.plusDays(6), false);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> getTeacherWeek(
+            UUID teacherId,
+            LocalDate startDate,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(null, teacherId, null, null, startDate, startDate.plusDays(6), false, includeUnpublishedFuture);
+    }
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> getTeacherRange(UUID teacherId, LocalDate dateFrom, LocalDate dateTo) {
         return resolve(null, teacherId, null, null, dateFrom, dateTo, false);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> getTeacherRange(
+            UUID teacherId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(null, teacherId, null, null, dateFrom, dateTo, false, includeUnpublishedFuture);
+    }
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> getRoomWeek(UUID roomId, LocalDate startDate) {
         return resolve(null, null, roomId, null, startDate, startDate.plusDays(6), false);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> getRoomWeek(
+            UUID roomId,
+            LocalDate startDate,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(null, null, roomId, null, startDate, startDate.plusDays(6), false, includeUnpublishedFuture);
+    }
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> getRoomRange(UUID roomId, LocalDate dateFrom, LocalDate dateTo) {
         return resolve(null, null, roomId, null, dateFrom, dateTo, false);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> getRoomRange(
+            UUID roomId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(null, null, roomId, null, dateFrom, dateTo, false, includeUnpublishedFuture);
+    }
+
     @Transactional(readOnly = true)
     public List<ResolvedLessonResponse> search(
             UUID groupId,
@@ -80,7 +141,20 @@ public class ScheduleReadService {
     ) {
         return resolve(groupId, teacherId, roomId, lessonType, dateFrom, dateTo, true);
     }
-    
+
+    @Transactional(readOnly = true)
+    public List<ResolvedLessonResponse> search(
+            UUID groupId,
+            UUID teacherId,
+            UUID roomId,
+            LessonType lessonType,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean includeUnpublishedFuture
+    ) {
+        return resolve(groupId, teacherId, roomId, lessonType, dateFrom, dateTo, true, includeUnpublishedFuture);
+    }
+
     private List<ResolvedLessonResponse> resolve(
             UUID groupId,
             UUID teacherId,
@@ -90,6 +164,19 @@ public class ScheduleReadService {
             LocalDate dateTo,
             boolean search
     ) {
+        return resolve(groupId, teacherId, roomId, lessonType, dateFrom, dateTo, search, true);
+    }
+
+    private List<ResolvedLessonResponse> resolve(
+            UUID groupId,
+            UUID teacherId,
+            UUID roomId,
+            LessonType lessonType,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean search,
+            boolean includeUnpublishedFuture
+    ) {
         validateRange(dateFrom, dateTo);
         if (search && groupId == null && teacherId == null && roomId == null) {
             throw new ScheduleValidationException(
@@ -97,12 +184,15 @@ public class ScheduleReadService {
                     "At least one of groupId, teacherId, or roomId must be provided"
             );
         }
-        
-        List<AcademicSemester> semesters = academicSemesterRepository.findAllOverlapping(dateFrom, dateTo);
+
+        List<AcademicSemester> semesters = visibleSemesters(
+                academicSemesterRepository.findAllOverlapping(dateFrom, dateTo),
+                includeUnpublishedFuture
+        );
         if (semesters.isEmpty()) {
             return List.of();
         }
-        
+
         Map<UUID, AcademicSemester> semestersById = semesters.stream()
                 .collect(Collectors.toMap(AcademicSemester::getId, semester -> semester));
         List<UUID> semesterIds = semesters.stream().map(AcademicSemester::getId).toList();
@@ -112,7 +202,7 @@ public class ScheduleReadService {
                 dateFrom,
                 dateTo
         );
-        
+
         Map<OccurrenceKey, ScheduleOverride> templateOverrides = overrides.stream()
                 .filter(scheduleOverride -> scheduleOverride.getTemplateId() != null)
                 .collect(Collectors.toMap(
@@ -120,22 +210,22 @@ public class ScheduleReadService {
                         scheduleOverride -> scheduleOverride,
                         (left, right) -> left
                 ));
-        
+
         Set<UUID> appliedOverrideIds = new HashSet<>();
         List<ResolvedLessonResponse> resolvedLessons = new ArrayList<>();
-        
+
         for (ScheduleTemplate scheduleTemplate : templates) {
             AcademicSemester semester = semestersById.get(scheduleTemplate.getSemesterId());
             if (semester == null) {
                 continue;
             }
-            
+
             LocalDate rangeStart = max(dateFrom, semester.getStartDate(), semester.getWeekOneStartDate());
             LocalDate rangeEnd = min(dateTo, semester.getEndDate());
             if (rangeStart.isAfter(rangeEnd)) {
                 continue;
             }
-            
+
             LocalDate occurrenceDate = rangeStart.with(TemporalAdjusters.nextOrSame(scheduleTemplate.getDayOfWeek()));
             while (!occurrenceDate.isAfter(rangeEnd)) {
                 if (AcademicWeekSupport.matchesWeekType(semester, occurrenceDate, scheduleTemplate.getWeekType())) {
@@ -154,12 +244,12 @@ public class ScheduleReadService {
                 occurrenceDate = occurrenceDate.plusWeeks(1);
             }
         }
-        
+
         for (ScheduleOverride scheduleOverride : overrides) {
             if (scheduleOverride.getOverrideType() == OverrideType.CANCEL || appliedOverrideIds.contains(scheduleOverride.getId())) {
                 continue;
             }
-            
+
             AcademicSemester semester = semestersById.get(scheduleOverride.getSemesterId());
             if (semester == null) {
                 continue;
@@ -168,13 +258,14 @@ public class ScheduleReadService {
                     || !AcademicWeekSupport.isOnOrAfterWeekOne(semester, scheduleOverride.getDate())) {
                 continue;
             }
-            
+
             resolvedLessons.add(toResolvedLesson(scheduleOverride, semester));
         }
-        
+
         Map<UUID, Integer> slotNumbers = slotNumbers(resolvedLessons.stream().map(ResolvedLessonResponse::slotId).toList());
-        
+
         return resolvedLessons.stream()
+                .filter(response -> slotNumbers.containsKey(response.slotId()))
                 .filter(response -> groupId == null || groupId.equals(response.groupId()))
                 .filter(response -> teacherId == null || teacherId.equals(response.teacherId()))
                 .filter(response -> roomId == null || roomId.equals(response.roomId()))
@@ -186,7 +277,7 @@ public class ScheduleReadService {
                         .thenComparing(response -> response.groupId().toString()))
                 .toList();
     }
-    
+
     private ResolvedLessonResponse toResolvedLesson(
             ScheduleTemplate scheduleTemplate,
             AcademicSemester semester,
@@ -200,6 +291,7 @@ public class ScheduleReadService {
                 scheduleTemplate.getSubjectId(),
                 scheduleTemplate.getTeacherId(),
                 scheduleTemplate.getSlotId(),
+                normalizeSubgroup(scheduleTemplate.getSubgroup()),
                 AcademicWeekSupport.weekNumber(semester, date),
                 AcademicWeekSupport.resolvedWeekType(semester, date),
                 scheduleTemplate.getLessonType(),
@@ -212,7 +304,7 @@ public class ScheduleReadService {
                 null
         );
     }
-    
+
     private ResolvedLessonResponse toResolvedLesson(ScheduleOverride scheduleOverride, AcademicSemester semester) {
         return new ResolvedLessonResponse(
                 scheduleOverride.getDate(),
@@ -222,6 +314,7 @@ public class ScheduleReadService {
                 scheduleOverride.getSubjectId(),
                 scheduleOverride.getTeacherId(),
                 scheduleOverride.getSlotId(),
+                normalizeSubgroup(scheduleOverride.getSubgroup()),
                 AcademicWeekSupport.weekNumber(semester, scheduleOverride.getDate()),
                 AcademicWeekSupport.resolvedWeekType(semester, scheduleOverride.getDate()),
                 scheduleOverride.getLessonType(),
@@ -234,13 +327,13 @@ public class ScheduleReadService {
                 scheduleOverride.getOverrideType()
         );
     }
-    
+
     private void validateRange(LocalDate dateFrom, LocalDate dateTo) {
         if (dateTo.isBefore(dateFrom)) {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("dateFrom", dateFrom.toString());
             details.put("dateTo", dateTo.toString());
-            
+
             throw new ScheduleValidationException(
                     "INVALID_DATE_RANGE",
                     "dateTo must be on or after dateFrom",
@@ -248,28 +341,47 @@ public class ScheduleReadService {
             );
         }
     }
-    
+
     private Map<UUID, Integer> slotNumbers(Collection<UUID> slotIds) {
         return lessonSlotRepository.findAllById(slotIds).stream()
+                .filter(CanonicalLessonSlots::isCanonicalActiveSlot)
                 .collect(Collectors.toMap(LessonSlot::getId, LessonSlot::getNumber));
     }
-    
+
+    private List<AcademicSemester> visibleSemesters(
+            List<AcademicSemester> semesters,
+            boolean includeUnpublishedFuture
+    ) {
+        if (includeUnpublishedFuture) {
+            return semesters;
+        }
+
+        LocalDate today = LocalDate.now(clock);
+        return semesters.stream()
+                .filter(semester -> semester.isActive() || semester.isPublished() || !semester.getStartDate().isAfter(today))
+                .toList();
+    }
+
+    private Subgroup normalizeSubgroup(Subgroup subgroup) {
+        return subgroup == null ? Subgroup.ALL : subgroup;
+    }
+
     private String displayName(LessonType lessonType) {
         return lessonType == null ? null : lessonType.getDisplayName();
     }
-    
+
     private LocalDate max(LocalDate first, LocalDate second, LocalDate third) {
         return max(max(first, second), third);
     }
-    
+
     private LocalDate max(LocalDate first, LocalDate second) {
         return first.isAfter(second) ? first : second;
     }
-    
+
     private LocalDate min(LocalDate first, LocalDate second) {
         return first.isBefore(second) ? first : second;
     }
-    
+
     private record OccurrenceKey(UUID templateId, LocalDate date) {
     }
 }

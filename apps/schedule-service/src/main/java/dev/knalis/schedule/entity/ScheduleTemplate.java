@@ -30,68 +30,73 @@ import java.util.UUID;
                 @Index(name = "idx_schedule_templates_slot_id", columnList = "slotId"),
                 @Index(name = "idx_schedule_templates_day_of_week", columnList = "dayOfWeek"),
                 @Index(name = "idx_schedule_templates_week_type", columnList = "weekType"),
+                @Index(name = "idx_schedule_templates_subgroup", columnList = "subgroup"),
                 @Index(name = "idx_schedule_templates_active", columnList = "active"),
                 @Index(name = "idx_schedule_templates_status", columnList = "status")
         }
 )
 public class ScheduleTemplate {
-    
+
     @Id
     private UUID id;
-    
+
     @Column(nullable = false)
     private UUID semesterId;
-    
+
     @Column(nullable = false)
     private UUID groupId;
-    
+
     @Column(nullable = false)
     private UUID subjectId;
-    
+
     @Column(nullable = false)
     private UUID teacherId;
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private DayOfWeek dayOfWeek;
-    
+
     @Column(nullable = false)
     private UUID slotId;
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private WeekType weekType;
-    
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'ALL'")
+    private Subgroup subgroup = Subgroup.ALL;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private LessonType lessonType;
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private LessonFormat lessonFormat;
-    
+
     @Column
     private UUID roomId;
-    
+
     @Column(length = 500)
     private String onlineMeetingUrl;
-    
+
     @Column(length = 2000)
     private String notes;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ScheduleTemplateStatus status = ScheduleTemplateStatus.ACTIVE;
-    
+
     @Column(nullable = false)
     private boolean active = true;
-    
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
-    
+
     @Column(nullable = false)
     private Instant updatedAt;
-    
+
     @PrePersist
     public void prePersist() {
         Instant now = Instant.now();
@@ -101,11 +106,17 @@ public class ScheduleTemplate {
         if (createdAt == null) {
             createdAt = now;
         }
+        if (subgroup == null) {
+            subgroup = Subgroup.ALL;
+        }
         updatedAt = now;
     }
-    
+
     @PreUpdate
     public void preUpdate() {
+        if (subgroup == null) {
+            subgroup = Subgroup.ALL;
+        }
         updatedAt = Instant.now();
     }
 }

@@ -166,14 +166,15 @@ ensure_schedule_semester() {
   local end_date="$3"
   local week_one_start_date="$4"
   local active="$5"
+  local published="${6:-$active}"
   local existing_id
 
   existing_id="$(sql_scalar "select id::text from ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters where name = '${name}' limit 1;")"
   if [[ -z "$existing_id" ]]; then
     existing_id="$(new_uuid)"
-    sql_exec "insert into ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters (id, name, start_date, end_date, week_one_start_date, active, created_at, updated_at) values ('${existing_id}', '${name}', '${start_date}', '${end_date}', '${week_one_start_date}', ${active}, now(), now());"
+    sql_exec "insert into ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters (id, name, start_date, end_date, week_one_start_date, active, published, created_at, updated_at) values ('${existing_id}', '${name}', '${start_date}', '${end_date}', '${week_one_start_date}', ${active}, ${published}, now(), now());"
   else
-    sql_exec "update ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters set start_date = '${start_date}', end_date = '${end_date}', week_one_start_date = '${week_one_start_date}', active = ${active}, updated_at = now() where id = '${existing_id}';"
+    sql_exec "update ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters set start_date = '${start_date}', end_date = '${end_date}', week_one_start_date = '${week_one_start_date}', active = ${active}, published = ${published}, updated_at = now() where id = '${existing_id}';"
   fi
 
   printf '%s' "$existing_id"
@@ -432,10 +433,10 @@ JSON
 
 current_active_semester_id="$(sql_scalar "select id::text from ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters where active = true order by start_date desc limit 1;")"
 if [[ -z "$current_active_semester_id" ]]; then
-  current_active_semester_id="$(ensure_schedule_semester "Demo Current Semester" "$CURRENT_SEMESTER_START" "$CURRENT_SEMESTER_END" "$CURRENT_WEEK_ONE_START" true)"
+  current_active_semester_id="$(ensure_schedule_semester "Demo Current Semester" "$CURRENT_SEMESTER_START" "$CURRENT_SEMESTER_END" "$CURRENT_WEEK_ONE_START" true true)"
 fi
-past_semester_id="$(ensure_schedule_semester "Demo Past Semester" "$PAST_SEMESTER_START" "$PAST_SEMESTER_END" "$PAST_WEEK_ONE_START" false)"
-next_semester_id="$(ensure_schedule_semester "Demo Next Semester" "$NEXT_SEMESTER_START" "$NEXT_SEMESTER_END" "$NEXT_WEEK_ONE_START" false)"
+past_semester_id="$(ensure_schedule_semester "Demo Past Semester" "$PAST_SEMESTER_START" "$PAST_SEMESTER_END" "$PAST_WEEK_ONE_START" false true)"
+next_semester_id="$(ensure_schedule_semester "Demo Next Semester" "$NEXT_SEMESTER_START" "$NEXT_SEMESTER_END" "$NEXT_WEEK_ONE_START" false false)"
 semester_id="$current_active_semester_id"
 
 sql_exec "update ${SCHEDULE_DB_SCHEMA:-schedule}.lesson_slots set active = false, updated_at = now() where number not between 1 and 8 and active = true;"
@@ -451,20 +452,20 @@ room_one_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-
 room_two_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$owner_token" '{"code":"B-202","building":"South Campus","floor":2,"capacity":28,"active":true}')" | json_get id)"
 
 api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/templates" "$owner_token" "$(cat <<JSON
-{"semesterId":"${semester_id}","groupId":"${group_one_id}","subjectId":"${algorithms_subject_id}","teacherId":"${teacher_alpha_id}","dayOfWeek":"MONDAY","slotId":"${slot_one_id}","weekType":"ODD","lessonType":"LECTURE","lessonFormat":"OFFLINE","roomId":"${room_one_id}","notes":"Odd week in-person lecture.","active":true}
+{"semesterId":"${semester_id}","groupId":"${group_one_id}","subjectId":"${algorithms_subject_id}","teacherId":"${teacher_alpha_id}","dayOfWeek":"MONDAY","slotId":"${slot_one_id}","weekType":"ODD","subgroup":"ALL","lessonType":"LECTURE","lessonFormat":"OFFLINE","roomId":"${room_one_id}","notes":"Odd week in-person lecture.","active":true}
 JSON
 )" >/dev/null
 api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/templates" "$owner_token" "$(cat <<JSON
-{"semesterId":"${semester_id}","groupId":"${group_one_id}","subjectId":"${databases_subject_id}","teacherId":"${teacher_alpha_id}","dayOfWeek":"TUESDAY","slotId":"${slot_two_id}","weekType":"EVEN","lessonType":"PRACTICAL","lessonFormat":"ONLINE","onlineMeetingUrl":"https://meet.studium.local/sql-demo","notes":"Even week online practical.","active":true}
+{"semesterId":"${semester_id}","groupId":"${group_one_id}","subjectId":"${databases_subject_id}","teacherId":"${teacher_alpha_id}","dayOfWeek":"TUESDAY","slotId":"${slot_two_id}","weekType":"EVEN","subgroup":"ALL","lessonType":"PRACTICAL","lessonFormat":"ONLINE","onlineMeetingUrl":"https://meet.studium.local/sql-demo","notes":"Even week online practical.","active":true}
 JSON
 )" >/dev/null
 api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/templates" "$owner_token" "$(cat <<JSON
-{"semesterId":"${semester_id}","groupId":"${group_two_id}","subjectId":"${networks_subject_id}","teacherId":"${teacher_beta_id}","dayOfWeek":"WEDNESDAY","slotId":"${slot_three_id}","weekType":"ALL","lessonType":"LABORATORY","lessonFormat":"OFFLINE","roomId":"${room_two_id}","notes":"Weekly lab for second group.","active":true}
+{"semesterId":"${semester_id}","groupId":"${group_two_id}","subjectId":"${networks_subject_id}","teacherId":"${teacher_beta_id}","dayOfWeek":"WEDNESDAY","slotId":"${slot_three_id}","weekType":"ALL","subgroup":"ALL","lessonType":"LABORATORY","lessonFormat":"OFFLINE","roomId":"${room_two_id}","notes":"Weekly lab for second group.","active":true}
 JSON
 )" >/dev/null
 
 api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/overrides" "$owner_token" "$(cat <<JSON
-{"semesterId":"${semester_id}","overrideType":"EXTRA","date":"${TODAY}","groupId":"${group_one_id}","subjectId":"${algorithms_subject_id}","teacherId":"${teacher_alpha_id}","slotId":"${slot_one_id}","lessonType":"LECTURE","lessonFormat":"ONLINE","onlineMeetingUrl":"https://meet.studium.local/extra-lecture","notes":"Extra live dashboard lesson."}
+{"semesterId":"${semester_id}","overrideType":"EXTRA","date":"${TODAY}","groupId":"${group_one_id}","subjectId":"${algorithms_subject_id}","teacherId":"${teacher_alpha_id}","slotId":"${slot_one_id}","subgroup":"ALL","lessonType":"LECTURE","lessonFormat":"ONLINE","onlineMeetingUrl":"https://meet.studium.local/extra-lecture","notes":"Extra live dashboard lesson."}
 JSON
 )" >/dev/null
 

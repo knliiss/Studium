@@ -42,7 +42,11 @@ public class AssignmentController {
             Authentication authentication,
             @Valid @RequestBody CreateAssignmentRequest request
     ) {
-        return assignmentService.createAssignment(currentUserService.getCurrentUserId(authentication), request);
+        return assignmentService.createAssignment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                request
+        );
     }
     
     @PutMapping("/{id}")

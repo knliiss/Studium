@@ -3,6 +3,7 @@ package dev.knalis.testing.controller;
 import dev.knalis.shared.security.user.CurrentUserService;
 import dev.knalis.testing.dto.request.CreateTestResultRequest;
 import dev.knalis.testing.dto.request.OverrideTestResultScoreRequest;
+import dev.knalis.testing.dto.response.TestResultPageResponse;
 import dev.knalis.testing.dto.response.TestResultResponse;
 import dev.knalis.testing.service.result.TestResultService;
 import jakarta.validation.Valid;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -47,6 +49,23 @@ public class TestResultController {
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),
                 resultId
+        );
+    }
+
+    @GetMapping("/test/{testId}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestResultPageResponse getTestResultsByTest(
+            Authentication authentication,
+            @PathVariable("testId") UUID testId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return testResultService.getTestResultsByTest(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                testId,
+                page,
+                size
         );
     }
 

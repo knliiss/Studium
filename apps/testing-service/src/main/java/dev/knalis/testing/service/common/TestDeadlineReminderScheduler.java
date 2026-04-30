@@ -62,6 +62,10 @@ public class TestDeadlineReminderScheduler {
         SubjectResponse subject = educationServiceClient.getSubject(
                 educationServiceClient.getTopic(test.getTopicId()).subjectId()
         );
+        if (subject.groupId() == null) {
+            log.debug("Skipping test reminder for unbound subjectId={}", subject.id());
+            return;
+        }
         Instant reminderAt = test.getAvailableUntil().minus(reminderOffset);
         for (GroupStudentUserResponse student : educationServiceClient.getGroupStudents(subject.groupId())) {
             if (testResultRepository.existsByTestIdAndUserId(test.getId(), student.userId())) {

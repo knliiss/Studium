@@ -11,6 +11,7 @@ public record AcademicSemesterResponse(
         LocalDate endDate,
         LocalDate weekOneStartDate,
         boolean active,
+        boolean published,
         Instant createdAt,
         Instant updatedAt
 ) {

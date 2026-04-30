@@ -38,7 +38,11 @@ public class TestController {
     @PostMapping
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public TestResponse createTest(Authentication authentication, @Valid @RequestBody CreateTestRequest request) {
-        return testService.createTest(currentUserService.getCurrentUserId(authentication), request);
+        return testService.createTest(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                request
+        );
     }
     
     @GetMapping("/topic/{topicId}")

@@ -11,6 +11,7 @@ public record ResolvedLessonResponse(
         UUID subjectId,
         UUID teacherId,
         UUID slotId,
+        String subgroup,
         int weekNumber,
         String weekType,
         String lessonType,

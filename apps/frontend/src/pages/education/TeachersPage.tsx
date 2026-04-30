@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { useAuth } from '@/features/auth/useAuth'
-import { buildPlanningRange, loadAccessibleSubjects } from '@/pages/education/helpers'
+import { buildPlanningRange, buildTeacherDirectoryStats, loadSubjectScope } from '@/pages/education/helpers'
 import {
   adminUserService,
   analyticsService,
@@ -27,6 +27,10 @@ import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 import { MetricCard } from '@/widgets/common/MetricCard'
 
 type TeacherUser = AdminUserResponse | UserSummaryResponse
+interface TeacherDirectoryStats {
+  groupCount: number
+  subjectCount: number
+}
 
 const pageSize = 12
 
@@ -60,14 +64,14 @@ function TeacherListPage() {
     }),
     enabled: isAdmin,
   })
-  const accessibleSubjectsQuery = useQuery({
-    queryKey: ['teachers', 'subjects', primaryRole, session?.user.id],
-    queryFn: () => loadAccessibleSubjects(primaryRole, session?.user.id ?? ''),
-    enabled: Boolean(!isAdmin && session?.user.id),
+  const subjectScopeQuery = useQuery({
+    queryKey: ['teachers', 'subject-scope', isAdmin, primaryRole, session?.user.id],
+    queryFn: () => loadSubjectScope(primaryRole, session?.user.id ?? '', isAdmin),
+    enabled: Boolean(isAdmin || session?.user.id),
   })
   const teacherIds = useMemo(
-    () => Array.from(new Set((accessibleSubjectsQuery.data ?? []).flatMap((subject) => subject.teacherIds))),
-    [accessibleSubjectsQuery.data],
+    () => Array.from(new Set((subjectScopeQuery.data ?? []).flatMap((subject) => subject.teacherIds))),
+    [subjectScopeQuery.data],
   )
   const directoryQuery = useQuery({
     queryKey: ['teachers', 'directory', teacherIds.join(',')],
@@ -75,21 +79,24 @@ function TeacherListPage() {
     enabled: !isAdmin && teacherIds.length > 0,
   })
 
-  const subjectCountByTeacher = useMemo(() => {
-    const counter = new Map<string, number>()
-    for (const subject of accessibleSubjectsQuery.data ?? []) {
-      for (const id of subject.teacherIds) {
-        counter.set(id, (counter.get(id) ?? 0) + 1)
-      }
-    }
-    return counter
-  }, [accessibleSubjectsQuery.data])
+  const teacherStatsById = useMemo(
+    () => buildTeacherDirectoryStats(subjectScopeQuery.data ?? []),
+    [subjectScopeQuery.data],
+  )
 
-  if ((isAdmin && adminTeachersQuery.isLoading) || (!isAdmin && (accessibleSubjectsQuery.isLoading || directoryQuery.isLoading))) {
+  if (
+    subjectScopeQuery.isLoading
+    || (isAdmin && adminTeachersQuery.isLoading)
+    || (!isAdmin && directoryQuery.isLoading)
+  ) {
     return <LoadingState />
   }
 
-  if ((isAdmin && adminTeachersQuery.isError) || (!isAdmin && (accessibleSubjectsQuery.isError || directoryQuery.isError))) {
+  if (
+    subjectScopeQuery.isError
+    || (isAdmin && adminTeachersQuery.isError)
+    || (!isAdmin && directoryQuery.isError)
+  ) {
     return <ErrorState description={t('common.states.error')} title={t('navigation.shared.teachers')} />
   }
 
@@ -130,11 +137,11 @@ function TeacherListPage() {
       {visibleTeachers.length === 0 ? (
         <EmptyState description={t('teachers.empty')} title={t('navigation.shared.teachers')} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3">
           {visibleTeachers.map((teacher) => (
             <TeacherCard
               key={teacher.id}
-              assignedSubjectsCount={isAdmin ? undefined : subjectCountByTeacher.get(teacher.id)}
+              stats={teacherStatsById.get(teacher.id)}
               teacher={teacher}
             />
           ))}
@@ -160,30 +167,48 @@ function TeacherListPage() {
   )
 }
 
-function TeacherCard({ assignedSubjectsCount, teacher }: { assignedSubjectsCount?: number; teacher: TeacherUser }) {
+function TeacherCard({ stats, teacher }: { stats?: TeacherDirectoryStats; teacher: TeacherUser }) {
   const { t } = useTranslation()
   const displayName = getTeacherDisplayName(teacher)
+  const showUsername = displayName !== teacher.username
 
   return (
-    <Link to={`/teachers/${teacher.id}`}>
-      <Card className="h-full space-y-4 transition hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-soft)]">
-        <div className="flex items-start gap-3">
-          <UserAvatar
-            displayName={displayName}
-            email={teacher.email}
-            size="md"
-            username={teacher.username}
-          />
-          <div className="min-w-0">
-            <p className="truncate text-lg font-semibold text-text-primary">{displayName}</p>
-            <p className="truncate text-sm text-text-secondary">{teacher.email}</p>
+    <Link to={`/teachers/${teacher.id}`} className="group block h-full">
+      <Card className="flex h-full flex-col justify-between gap-4 transition hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-soft)] xl:flex-row xl:items-center">
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex items-start gap-3">
+            <UserAvatar
+              displayName={displayName}
+              email={teacher.email}
+              size="md"
+              username={teacher.username}
+            />
+            <div className="min-w-0">
+              <p className="truncate text-lg font-semibold text-text-primary">{displayName}</p>
+              {showUsername ? (
+                <p className="truncate text-sm text-text-muted">@{teacher.username}</p>
+              ) : null}
+              <p className="truncate text-sm text-text-secondary">{teacher.email}</p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-[16px] border border-border bg-surface-muted px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">
+                {t('teachers.assignedSubjects')}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-text-primary">{stats?.subjectCount ?? '—'}</p>
+            </div>
+            <div className="rounded-[16px] border border-border bg-surface-muted px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">
+                {t('teachers.connectedGroups')}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-text-primary">{stats?.groupCount ?? '—'}</p>
+            </div>
           </div>
         </div>
-        <div className="grid gap-3 text-sm text-text-secondary">
-          <p>{t('teachers.assignedSubjects')}: {assignedSubjectsCount ?? t('analytics.notEnoughDataYet')}</p>
-          <p>{t('teachers.scheduleLoad')}: {t('analytics.notEnoughDataYet')}</p>
-        </div>
-        <p className="text-sm font-semibold text-accent">{t('common.actions.open')}</p>
+        <span className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-[14px] border border-border bg-surface-muted px-4 text-sm font-medium text-text-primary transition group-hover:border-border-strong">
+          {t('common.actions.open')}
+        </span>
       </Card>
     </Link>
   )
@@ -208,13 +233,7 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
   })
   const allSubjectsQuery = useQuery({
     queryKey: ['teachers', 'detail-subjects', teacherId, primaryRole, session?.user.id],
-    queryFn: async () => {
-      if (isAdmin) {
-        const page = await educationService.listSubjects({ page: 0, size: 100, sortBy: 'name', direction: 'asc' })
-        return page.items
-      }
-      return loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
-    },
+    queryFn: () => loadSubjectScope(primaryRole, session?.user.id ?? '', isAdmin),
     enabled: Boolean(session?.user.id || isAdmin),
   })
   const scheduleQuery = useQuery({
@@ -241,17 +260,21 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
     enabled: groupIds.length > 0,
   })
 
-  if (teacherQuery.isLoading || allSubjectsQuery.isLoading || scheduleQuery.isLoading || groupsQuery.isLoading) {
+  if (teacherQuery.isLoading || allSubjectsQuery.isLoading) {
     return <LoadingState />
   }
 
-  if (teacherQuery.isError || allSubjectsQuery.isError || scheduleQuery.isError || groupsQuery.isError || !teacherQuery.data) {
+  if (teacherQuery.isError || allSubjectsQuery.isError || !teacherQuery.data) {
     return <ErrorState description={t('common.states.error')} title={t('navigation.shared.teachers')} />
   }
 
   const teacher = teacherQuery.data
   const displayName = getTeacherDisplayName(teacher)
   const lessons = scheduleQuery.data ?? []
+  const groups = groupsQuery.data ?? []
+  const groupNameById = new Map(groups.map((group) => [group.id, group.name]))
+  const nextLesson = lessons[0] ?? null
+  const showUsername = displayName !== teacher.username
 
   return (
     <div className="space-y-6">
@@ -266,18 +289,45 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
         {t('teachers.backToTeachers')}
       </Button>
 
-      <PageHeader
-        actions={(
-          <Link to={`/schedule?teacherId=${teacherId}`}>
-            <Button variant="secondary">
-              <CalendarDays className="mr-2 h-4 w-4" />
-              {t('navigation.shared.schedule')}
-            </Button>
-          </Link>
-        )}
-        description={teacher.email}
-        title={displayName}
-      />
+      <Card className="space-y-5">
+        <PageHeader
+          actions={(
+            <Link to={`/schedule/teachers/${teacherId}`}>
+              <Button variant="secondary">
+                <CalendarDays className="mr-2 h-4 w-4" />
+                {t('navigation.shared.schedule')}
+              </Button>
+            </Link>
+          )}
+          description={t('teachers.description')}
+          title={displayName}
+        />
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-4">
+            <UserAvatar
+              displayName={displayName}
+              email={teacher.email}
+              size="lg"
+              username={teacher.username}
+            />
+            <div className="space-y-1">
+              {showUsername ? (
+                <p className="text-sm font-medium text-text-muted">@{teacher.username}</p>
+              ) : null}
+              <p className="text-sm text-text-secondary">{teacher.email}</p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard title={t('teachers.assignedSubjects')} value={assignedSubjects.length} />
+            <MetricCard title={t('teachers.connectedGroups')} value={groupIds.length} />
+            <MetricCard title={t('teachers.upcomingLessons')} value={lessons.length} />
+            <MetricCard
+              title={t('education.nextLesson')}
+              value={nextLesson ? formatDate(nextLesson.date) : '—'}
+            />
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <main className="space-y-6">
@@ -305,7 +355,11 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
 
           <Card className="space-y-4">
             <PageHeader title={t('navigation.shared.schedule')} />
-            {lessons.length === 0 ? (
+            {scheduleQuery.isLoading ? (
+              <p className="text-sm leading-6 text-text-secondary">{t('common.states.loading')}</p>
+            ) : scheduleQuery.isError ? (
+              <p className="text-sm leading-6 text-text-secondary">{t('teachers.scheduleUnavailable')}</p>
+            ) : lessons.length === 0 ? (
               <EmptyState description={t('teachers.noSchedule')} title={t('navigation.shared.schedule')} />
             ) : (
               <div className="space-y-3">
@@ -315,6 +369,9 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
                     <div key={`${lesson.date}-${lesson.slotId}-${lesson.groupId}`} className="rounded-[16px] border border-border bg-surface-muted p-4">
                       <p className="font-semibold text-text-primary">{subject?.name ?? t('education.subject')}</p>
                       <p className="mt-1 text-sm text-text-secondary">{formatDate(lesson.date)}</p>
+                      <p className="mt-1 text-sm text-text-secondary">
+                        {groupNameById.get(lesson.groupId) ?? t('education.group')}
+                      </p>
                     </div>
                   )
                 })}
@@ -325,27 +382,16 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
 
         <aside className="space-y-5">
           <Card className="space-y-4">
-            <div className="flex items-center gap-3">
-              <UserAvatar
-                displayName={displayName}
-                email={teacher.email}
-                size="lg"
-                username={teacher.username}
-              />
-              <div>
-                <p className="font-semibold text-text-primary">{displayName}</p>
-                <p className="text-sm text-text-secondary">{teacher.username}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="space-y-4">
             <PageHeader title={t('navigation.shared.groups')} />
-            {(groupsQuery.data ?? []).length === 0 ? (
+            {groupsQuery.isLoading ? (
+              <p className="text-sm leading-6 text-text-secondary">{t('common.states.loading')}</p>
+            ) : groupsQuery.isError ? (
+              <p className="text-sm leading-6 text-text-secondary">{t('teachers.groupsUnavailable')}</p>
+            ) : groups.length === 0 ? (
               <EmptyState description={t('teachers.noGroups')} title={t('navigation.shared.groups')} />
             ) : (
               <div className="space-y-2">
-                {(groupsQuery.data ?? []).map((group) => (
+                {groups.map((group) => (
                   <Link key={group.id} className="block rounded-[14px] border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-text-primary" to={`/groups/${group.id}`}>
                     {group.name}
                   </Link>
@@ -356,7 +402,11 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
 
           <Card className="space-y-4">
             <PageHeader title={t('navigation.shared.analytics')} />
-            {analyticsQuery.data ? (
+            {analyticsQuery.isLoading ? (
+              <p className="text-sm leading-6 text-text-secondary">{t('common.states.loading')}</p>
+            ) : analyticsQuery.isError ? (
+              <EmptyState description={t('teachers.analyticsUnavailable')} title={t('navigation.shared.analytics')} />
+            ) : analyticsQuery.data ? (
               <div className="grid gap-3">
                 <MetricCard title={t('teachers.publishedAssignments')} value={analyticsQuery.data.publishedAssignmentsCount} />
                 <MetricCard title={t('teachers.publishedTests')} value={analyticsQuery.data.publishedTestsCount} />

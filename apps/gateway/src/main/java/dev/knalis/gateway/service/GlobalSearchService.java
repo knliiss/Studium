@@ -5,7 +5,9 @@ import dev.knalis.gateway.client.education.EducationServiceClient;
 import dev.knalis.gateway.client.testing.TestingServiceClient;
 import dev.knalis.gateway.dto.SearchItemResponse;
 import dev.knalis.gateway.dto.SearchPageResponse;
+import dev.knalis.gateway.exception.GatewayClientException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -37,11 +39,18 @@ public class GlobalSearchService {
             String sortBy,
             String direction
     ) {
-        int requestedWindowSize = Math.min(Math.max((Math.max(page, 0) + 1) * Math.max(size, 1), 1), 100);
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String normalizedQuery = query == null ? "" : query.trim();
+        if (normalizedQuery.isEmpty()) {
+            return Mono.just(emptyPage(safePage, safeSize));
+        }
+
+        int requestedWindowSize = Math.min(Math.max((safePage + 1) * safeSize, 1), 100);
         return Mono.zip(
-                        educationServiceClient.search(bearerToken, requestId, query, 0, requestedWindowSize),
-                        assignmentServiceClient.search(bearerToken, requestId, query, 0, requestedWindowSize),
-                        testingServiceClient.search(bearerToken, requestId, query, 0, requestedWindowSize)
+                        educationServiceClient.search(bearerToken, requestId, normalizedQuery, 0, requestedWindowSize),
+                        assignmentServiceClient.search(bearerToken, requestId, normalizedQuery, 0, requestedWindowSize),
+                        testingServiceClient.search(bearerToken, requestId, normalizedQuery, 0, requestedWindowSize)
                 )
                 .map(tuple -> {
                     List<SearchItemResponse> merged = Stream.concat(
@@ -75,8 +84,6 @@ public class GlobalSearchService {
                             .sorted(comparator(sortBy, direction))
                             .toList();
 
-                    int safePage = Math.max(page, 0);
-                    int safeSize = Math.min(Math.max(size, 1), 100);
                     int fromIndex = Math.min(safePage * safeSize, merged.size());
                     int toIndex = Math.min(fromIndex + safeSize, merged.size());
                     long totalElements = tuple.getT1().totalElements() + tuple.getT2().totalElements() + tuple.getT3().totalElements();
@@ -91,7 +98,31 @@ public class GlobalSearchService {
                             safePage == 0,
                             totalPages == 0 || safePage >= totalPages - 1
                     );
-                });
+                })
+                .onErrorMap(GatewayClientException.class, this::normalizeSearchException);
+    }
+
+    private SearchPageResponse emptyPage(int page, int size) {
+        return new SearchPageResponse(
+                List.of(),
+                page,
+                size,
+                0,
+                0,
+                true,
+                true
+        );
+    }
+
+    private GatewayClientException normalizeSearchException(GatewayClientException exception) {
+        if (exception.getStatus().is5xxServerError()) {
+            return new GatewayClientException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "DOWNSTREAM_UNAVAILABLE",
+                    "Search is temporarily unavailable"
+            );
+        }
+        return exception;
     }
 
     private Comparator<SearchItemResponse> comparator(String sortBy, String direction) {

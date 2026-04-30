@@ -58,6 +58,10 @@ public class AssignmentDeadlineReminderScheduler {
         SubjectResponse subject = educationServiceClient.getSubject(
                 educationServiceClient.getTopic(assignment.getTopicId()).subjectId()
         );
+        if (subject.groupId() == null) {
+            log.debug("Skipping assignment reminder for unbound subjectId={}", subject.id());
+            return;
+        }
         Instant reminderAt = assignment.getDeadline().minus(reminderOffset);
         for (GroupStudentUserResponse student : educationServiceClient.getGroupStudents(subject.groupId())) {
             if (submissionRepository.existsByAssignmentIdAndUserId(assignment.getId(), student.userId())) {

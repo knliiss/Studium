@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
-import { dashboardService, educationService, testingService } from '@/shared/api/services'
+import { dashboardService, educationService, testingService, userDirectoryService } from '@/shared/api/services'
 import { formatDateTime } from '@/shared/lib/format'
 import { toGroupOption, toSubjectOption, toTopicOption } from '@/shared/lib/picker-options'
 import { Button } from '@/shared/ui/Button'
@@ -18,8 +18,8 @@ import { SegmentedControl } from '@/shared/ui/SegmentedControl'
 import { Textarea } from '@/shared/ui/Textarea'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
-import { loadAccessibleGroups, loadAccessibleSubjects } from '@/pages/education/helpers'
-import type { QuestionType } from '@/shared/types/api'
+import { loadAccessibleGroups, loadAccessibleSubjects, loadManagedSubjects } from '@/pages/education/helpers'
+import type { QuestionType, TestGroupAvailabilityResponse } from '@/shared/types/api'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 
 interface TestManagementRow {
@@ -180,7 +180,10 @@ function ManagementTestsPage() {
     ? (accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
     : (adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
   const subjectOptions = isTeacher
-    ? (accessibleSubjectsQuery.data ?? []).map((subject) => toSubjectOption(subject, groupNameById.get(subject.groupId)))
+    ? (accessibleSubjectsQuery.data ?? []).map((subject) => toSubjectOption(
+        subject,
+        subject.groupId ? groupNameById.get(subject.groupId) : undefined,
+      ))
     : (adminSubjectsQuery.data?.items ?? []).map((subject) => toSubjectOption(subject))
   const topicOptions = (topicsQuery.data?.items ?? []).map((topic) => {
     const selectedSubject = subjectOptions.find((option) => option.value === selectedSubjectId)
@@ -353,6 +356,7 @@ function TestDetailPage({ testId }: { testId: string }) {
     feedback: '',
   })
   const [answerForm, setAnswerForm] = useState({ questionId: '', text: '', isCorrect: false })
+  const [resultOverrideForm, setResultOverrideForm] = useState({ resultId: '', score: 0, reason: '' })
   const testQuery = useQuery({
     queryKey: ['tests', testId],
     queryFn: () => testingService.getTest(testId),
@@ -392,6 +396,56 @@ function TestDetailPage({ testId }: { testId: string }) {
     queryKey: ['education', 'test-availability-groups', availabilityGroupIds],
     queryFn: async () => Promise.all(availabilityGroupIds.map((groupId) => educationService.getGroup(groupId))),
     enabled: !isStudent && availabilityGroupIds.length > 0,
+  })
+  const subjectScopeQuery = useQuery({
+    queryKey: ['education', 'test-detail-subject-scope', primaryRole, session?.user.id],
+    queryFn: () => isTeacher
+      ? loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
+      : loadManagedSubjects(),
+    enabled: Boolean(!isStudent && testQuery.data),
+  })
+  const testSubjectQuery = useQuery({
+    queryKey: ['education', 'test-detail-subject', testId, testQuery.data?.topicId, subjectScopeQuery.data?.length],
+    queryFn: async () => {
+      const test = testQuery.data
+      if (!test) {
+        return null
+      }
+
+      for (const subject of subjectScopeQuery.data ?? []) {
+        const topicsPage = await educationService.getTopicsBySubject(subject.id, {
+          page: 0,
+          size: 100,
+          sortBy: 'orderIndex',
+          direction: 'asc',
+        })
+        if (topicsPage.items.some((topic) => topic.id === test.topicId)) {
+          return subject
+        }
+      }
+
+      return null
+    },
+    enabled: Boolean(!isStudent && testQuery.data && subjectScopeQuery.data),
+  })
+  const connectedGroupsQuery = useQuery({
+    queryKey: ['education', 'test-connected-groups', testSubjectQuery.data?.groupIds.join(',')],
+    queryFn: async () => Promise.all((testSubjectQuery.data?.groupIds ?? []).map((groupId) => educationService.getGroup(groupId))),
+    enabled: Boolean(!isStudent && testSubjectQuery.data?.groupIds.length),
+  })
+  const testResultsQuery = useQuery({
+    queryKey: ['tests', testId, 'results'],
+    queryFn: () => testingService.getTestResultsByTest(testId, { page: 0, size: 50 }),
+    enabled: !isStudent,
+  })
+  const resultStudentIds = useMemo(
+    () => Array.from(new Set((testResultsQuery.data?.items ?? []).map((result) => result.userId))),
+    [testResultsQuery.data?.items],
+  )
+  const resultStudentsQuery = useQuery({
+    queryKey: ['tests', testId, 'result-students', resultStudentIds.join(',')],
+    queryFn: () => userDirectoryService.lookup(resultStudentIds),
+    enabled: resultStudentIds.length > 0,
   })
 
   const startMutation = useMutation({
@@ -457,26 +511,61 @@ function TestDetailPage({ testId }: { testId: string }) {
       setAnswerForm((current) => ({ ...current, text: '', isCorrect: false }))
     },
   })
+  const overrideResultMutation = useMutation({
+    mutationFn: () => testingService.overrideTestResultScore(resultOverrideForm.resultId, {
+      score: resultOverrideForm.score,
+      reason: resultOverrideForm.reason.trim() || undefined,
+    }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['tests', testId, 'results'] })
+      setResultOverrideForm({ resultId: '', score: 0, reason: '' })
+    },
+  })
 
-  if (testQuery.isLoading || questionsQuery.isLoading || (!isStudent && availabilityQuery.isLoading)) {
+  if (
+    testQuery.isLoading
+    || questionsQuery.isLoading
+    || (!isStudent && (
+      availabilityQuery.isLoading
+      || subjectScopeQuery.isLoading
+      || testSubjectQuery.isLoading
+      || connectedGroupsQuery.isLoading
+      || testResultsQuery.isLoading
+      || resultStudentsQuery.isLoading
+    ))
+  ) {
     return <LoadingState />
   }
 
-  if (testQuery.isError || questionsQuery.isError || (!isStudent && availabilityQuery.isError) || !testQuery.data) {
+  if (
+    testQuery.isError
+    || questionsQuery.isError
+    || (!isStudent && (
+      availabilityQuery.isError
+      || subjectScopeQuery.isError
+      || testSubjectQuery.isError
+      || connectedGroupsQuery.isError
+      || testResultsQuery.isError
+      || resultStudentsQuery.isError
+    ))
+    || !testQuery.data
+  ) {
     return <ErrorState title={t('navigation.shared.tests')} description={t('common.states.error')} />
   }
 
   const test = testQuery.data
   const questions = questionsQuery.data ?? []
   const availabilityRows = availabilityQuery.data ?? []
-  const groupNameById = new Map([
-    ...(accessibleGroupsQuery.data ?? []).map((group) => [group.id, group.name] as const),
-    ...(adminGroupSearchQuery.data?.items ?? []).map((group) => [group.id, group.name] as const),
-    ...(availabilityGroupsQuery.data ?? []).map((group) => [group.id, group.name] as const),
-  ])
+  const availabilityByGroupId = new Map(availabilityRows.map((availability) => [availability.groupId, availability]))
+  const resultStudentById = new Map((resultStudentsQuery.data ?? []).map((student) => [student.id, student]))
+  const availabilityGroupCards = (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : availabilityGroupsQuery.data ?? [])
+    .map((group) => ({
+      group,
+      availability: availabilityByGroupId.get(group.id) ?? null,
+    }))
   const groupOptions = isTeacher
-    ? (accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
-    : (adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
+    ? (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
+    : (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
   const usedPoints = questions.reduce((total, question) => total + question.points, 0)
   const remainingPoints = test.maxPoints - usedPoints
   const nextQuestionWouldExceed = usedPoints + questionForm.points > test.maxPoints
@@ -495,7 +584,7 @@ function TestDetailPage({ testId }: { testId: string }) {
     <div className="space-y-6">
       <Breadcrumbs items={[{ label: t('navigation.shared.tests'), to: '/tests' }, { label: test.title }]} />
       <Link to="/tests">
-        <Button variant="secondary">{t('common.actions.back')}</Button>
+        <Button variant="secondary">{t('testing.backToTests')}</Button>
       </Link>
       <PageHeader description={t('testing.detailDescription')} title={test.title} />
       <Card className="space-y-4">
@@ -633,33 +722,33 @@ function TestDetailPage({ testId }: { testId: string }) {
       {!isStudent ? (
         <Card className="space-y-4">
           <PageHeader description={t('availability.testDescription')} title={t('availability.title')} />
-          {availabilityRows.length === 0 ? (
+          {availabilityGroupCards.length === 0 ? (
             <EmptyState description={t('availability.testEmpty')} title={t('availability.title')} />
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {availabilityRows.map((availability) => (
+              {availabilityGroupCards.map(({ availability, group }) => (
                 <button
-                  key={availability.id}
+                  key={group.id}
                   className="rounded-[14px] border border-border bg-surface-muted p-4 text-left transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/15"
                   type="button"
                   onClick={() => setAvailabilityForm({
-                    groupId: availability.groupId,
-                    visible: availability.visible,
-                    availableFrom: toDateTimeLocal(availability.availableFrom),
-                    availableUntil: toDateTimeLocal(availability.availableUntil),
-                    deadline: toDateTimeLocal(availability.deadline),
-                    maxAttempts: availability.maxAttempts,
+                    groupId: group.id,
+                    visible: availability?.visible ?? false,
+                    availableFrom: toDateTimeLocal(availability?.availableFrom ?? test.availableFrom),
+                    availableUntil: toDateTimeLocal(availability?.availableUntil ?? test.availableUntil),
+                    deadline: toDateTimeLocal(availability?.deadline),
+                    maxAttempts: availability?.maxAttempts ?? test.maxAttempts,
                   })}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold text-text-primary">{groupNameById.get(availability.groupId) ?? t('education.group')}</p>
-                      <p className="mt-1 text-sm text-text-secondary">{t('testing.availableFrom')}: {formatDateTime(availability.availableFrom)}</p>
-                      <p className="text-sm text-text-secondary">{t('testing.availableUntil')}: {formatDateTime(availability.availableUntil)}</p>
-                      <p className="text-sm text-text-secondary">{t('testing.maxAttempts')}: {availability.maxAttempts}</p>
+                      <p className="font-semibold text-text-primary">{group.name}</p>
+                      <p className="mt-1 text-sm text-text-secondary">{t('testing.availableFrom')}: {availability?.availableFrom ? formatDateTime(availability.availableFrom) : t('availability.immediately')}</p>
+                      <p className="text-sm text-text-secondary">{t('testing.availableUntil')}: {availability?.availableUntil ? formatDateTime(availability.availableUntil) : '-'}</p>
+                      <p className="text-sm text-text-secondary">{t('testing.maxAttempts')}: {availability?.maxAttempts ?? test.maxAttempts}</p>
                     </div>
-                    <span className={availability.visible ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
-                      {availability.visible ? t('availability.visible') : t('availability.hidden')}
+                    <span className={availability?.visible ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
+                      {availability ? getTestAvailabilityStatus(availability, t) : t('availability.hidden')}
                     </span>
                   </div>
                 </button>
@@ -712,6 +801,71 @@ function TestDetailPage({ testId }: { testId: string }) {
           </Button>
         </Card>
       ) : null}
+      {!isStudent ? (
+        <Card className="space-y-4">
+          <PageHeader description={t('testing.resultReviewDescription')} title={t('testing.resultReview')} />
+          {(testResultsQuery.data?.items ?? []).length === 0 ? (
+            <EmptyState description={t('testing.noResultsToReview')} title={t('testing.resultReview')} />
+          ) : (
+            <DataTable
+              columns={[
+                { key: 'userId', header: t('testing.student'), render: (item) => resultStudentById.get(item.userId)?.username ?? t('education.unknownStudent') },
+                { key: 'score', header: t('common.labels.score'), render: (item) => `${item.score}/${test.maxPoints}` },
+                { key: 'autoScore', header: t('testing.autoScore'), render: (item) => item.autoScore },
+                { key: 'reviewedAt', header: t('testing.reviewedAt'), render: (item) => item.reviewedAt ? formatDateTime(item.reviewedAt) : t('testing.notReviewed') },
+                {
+                  key: 'actions',
+                  header: t('common.labels.actions'),
+                  render: (item) => (
+                    <Button
+                      variant="secondary"
+                      onClick={() => setResultOverrideForm({
+                        resultId: item.id,
+                        score: item.score,
+                        reason: item.manualOverrideReason ?? '',
+                      })}
+                    >
+                      {t('testing.reviewResult')}
+                    </Button>
+                  ),
+                },
+              ]}
+              rows={testResultsQuery.data?.items ?? []}
+            />
+          )}
+          {resultOverrideForm.resultId ? (
+            <div className="grid gap-4 xl:grid-cols-3">
+              <FormField label={t('common.labels.score')}>
+                <Input
+                  max={test.maxPoints}
+                  min={0}
+                  type="number"
+                  value={resultOverrideForm.score}
+                  onChange={(event) => setResultOverrideForm((current) => ({ ...current, score: Number(event.target.value) }))}
+                />
+              </FormField>
+              <FormField label={t('testing.overrideReason')}>
+                <Input
+                  value={resultOverrideForm.reason}
+                  onChange={(event) => setResultOverrideForm((current) => ({ ...current, reason: event.target.value }))}
+                />
+              </FormField>
+              <div className="flex items-end gap-3">
+                <Button
+                  disabled={resultOverrideForm.score < 0 || resultOverrideForm.score > test.maxPoints || overrideResultMutation.isPending}
+                  onClick={() => overrideResultMutation.mutate()}
+                >
+                  {t('testing.saveReview')}
+                </Button>
+                <Button variant="secondary" onClick={() => setResultOverrideForm({ resultId: '', score: 0, reason: '' })}>
+                  {t('common.actions.cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <p className="text-sm text-text-secondary">{t('testing.perQuestionReviewUnavailable')}</p>
+        </Card>
+      ) : null}
     </div>
   )
 }
@@ -727,4 +881,25 @@ function MetricRow({ label, value }: { label: string; value: number }) {
 
 function toDateTimeLocal(value: string | null | undefined) {
   return value ? value.slice(0, 16) : ''
+}
+
+function getTestAvailabilityStatus(
+  availability: TestGroupAvailabilityResponse,
+  t: (key: string) => string,
+) {
+  if (!availability.visible) {
+    return t('availability.hidden')
+  }
+
+  const now = Date.now()
+  const opensAt = availability.availableFrom ? new Date(availability.availableFrom).getTime() : null
+  const closesAt = availability.availableUntil ? new Date(availability.availableUntil).getTime() : null
+
+  if (opensAt && opensAt > now) {
+    return t('availability.opensLater')
+  }
+  if (closesAt && closesAt < now) {
+    return t('availability.closed')
+  }
+  return t('availability.open')
 }

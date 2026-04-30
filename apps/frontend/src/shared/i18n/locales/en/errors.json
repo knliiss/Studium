@@ -7,6 +7,7 @@
   "AUDIT_EVENT_NOT_FOUND": "The requested audit event was not found.",
   "BAD_CREDENTIALS": "Invalid username or password.",
   "DEADLINE_EXPIRED": "The deadline for this action has already passed.",
+  "DOWNSTREAM_UNAVAILABLE": "A required backend service is temporarily unavailable. Try again in a moment.",
   "EMAIL_ALREADY_EXISTS": "An account with this email already exists.",
   "ENTITY_NOT_FOUND": "The requested entity was not found.",
   "FILE_PREVIEW_NOT_AVAILABLE": "Preview is not available for this file.",

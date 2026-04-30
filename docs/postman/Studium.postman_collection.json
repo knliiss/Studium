@@ -1979,7 +1979,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/schedule/semesters/active",
-            "description": "Reads the currently active semester if demo seed created one. A 404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND is accepted so the runner can continue and reuse the semester created later in this folder."
+            "description": "Reads the currently active semester. Schedule foundation bootstrap should create one in local/demo setup."
           },
           "event": [
             {
@@ -2014,28 +2014,22 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status code is 200 or 404\", function () {",
-                  "  pm.expect([200, 404]).to.include(pm.response.code);",
+                  "pm.test(\"Status code is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
                   "});",
                   "",
                   "    const json = pm.response.json();",
-                  "    if (pm.response.code === 200) {",
-                  "      pm.test(\"Active semester contains id\", function () {",
-                  "        pm.expect(json.id).to.be.a(\"string\").and.not.empty;",
-                  "      });",
-                  "      if (json && json.id) {",
-                  "        pm.environment.set(\"semesterId\", json.id);",
-                  "      }",
-                  "      if (json && json.weekOneStartDate) {",
-                  "        pm.environment.set(\"weekStartDate\", json.weekOneStartDate);",
-                  "        const start = new Date(json.weekOneStartDate + \"T00:00:00Z\");",
-                  "        const weekEnd = new Date(start.getTime() + (6 * 24 * 60 * 60 * 1000));",
-                  "        pm.environment.set(\"weekEndDate\", weekEnd.toISOString().slice(0, 10));",
-                  "      }",
-                  "    } else {",
-                  "      pm.test(\"Missing active semester is reported clearly\", function () {",
-                  "        pm.expect(json.errorCode).to.eql(\"ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND\");",
-                  "      });",
+                  "    pm.test(\"Active semester contains id\", function () {",
+                  "      pm.expect(json.id).to.be.a(\"string\").and.not.empty;",
+                  "    });",
+                  "    if (json && json.id) {",
+                  "      pm.environment.set(\"semesterId\", json.id);",
+                  "    }",
+                  "    if (json && json.weekOneStartDate) {",
+                  "      pm.environment.set(\"weekStartDate\", json.weekOneStartDate);",
+                  "      const start = new Date(json.weekOneStartDate + \"T00:00:00Z\");",
+                  "      const weekEnd = new Date(start.getTime() + (6 * 24 * 60 * 60 * 1000));",
+                  "      pm.environment.set(\"weekEndDate\", weekEnd.toISOString().slice(0, 10));",
                   "    }"
                 ]
               }

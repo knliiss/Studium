@@ -290,6 +290,9 @@ export const scheduleService = {
     const response = await apiClient.put<ScheduleTemplateResponse>(`/api/v1/schedule/templates/${id}`, payload)
     return response.data
   },
+  async deleteTemplate(id: string) {
+    await apiClient.delete(`/api/v1/schedule/templates/${id}`)
+  },
   async listTemplatesBySemester(semesterId: string) {
     const response = await apiClient.get<ScheduleTemplateResponse[]>(`/api/v1/schedule/templates/semester/${semesterId}`)
     return response.data
@@ -456,6 +459,10 @@ export const testingService = {
   async getTestResult(id: string) {
     const response = await apiClient.get<TestResultResponse>(`/api/v1/testing/results/${id}`)
     return response.data
+  },
+  async getTestResultsByTest(testId: string, params: PaginationParams = {}) {
+    const response = await apiClient.get(`/api/v1/testing/results/test/${testId}`, { params })
+    return normalizePage<TestResultResponse>(response.data)
   },
   async overrideTestResultScore(id: string, payload: { score: number; reason?: string }) {
     const response = await apiClient.patch<TestResultResponse>(`/api/v1/testing/results/${id}/score`, payload)

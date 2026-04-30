@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 
 import { useAuth } from '@/features/auth/useAuth'
 import { adminUserService } from '@/shared/api/services'
-import { getLocalizedRequestErrorMessage } from '@/shared/lib/api-errors'
+import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { formatDateTime } from '@/shared/lib/format'
-import { hasAnyRole } from '@/shared/lib/roles'
-import type { Role } from '@/shared/types/api'
+import { isRoleAssignable, canManage } from '@/shared/lib/roles'
+import type { NormalizedApiError, Role } from '@/shared/types/api'
 import { Button } from '@/shared/ui/Button'
 import { Card } from '@/shared/ui/Card'
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog'
@@ -34,11 +34,10 @@ export function AdminUsersPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'BANNED'>('ALL')
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [apiError, setApiError] = useState<NormalizedApiError | null>(null)
   const [showRoleConfirm, setShowRoleConfirm] = useState(false)
   const roleFilterOptions: Role[] = ['OWNER', 'ADMIN', 'TEACHER', 'STUDENT', 'USER']
-  const assignableRoleOptions: Role[] = hasAnyRole(roles, ['OWNER'])
-    ? ['ADMIN', 'TEACHER', 'STUDENT', 'USER']
-    : ['TEACHER', 'STUDENT', 'USER']
+  const platformRoleOptions: Role[] = ['ADMIN', 'TEACHER', 'STUDENT', 'USER']
   const normalizedSearch = search.trim()
   const bannedFilter = statusFilter === 'ALL' ? undefined : statusFilter === 'BANNED'
 
@@ -100,8 +99,10 @@ export function AdminUsersPage() {
       await queryClient.invalidateQueries({ queryKey: ['admin-users', 'selected', selectedUserId] })
       setFeedbackMessage(t('adminUsers.rolesUpdatedSuccess'))
       setErrorMessage(null)
+      setApiError(null)
     },
     onError: (error) => {
+      setApiError(normalizeApiError(error))
       setErrorMessage(getLocalizedRequestErrorMessage(error, t))
       setFeedbackMessage(null)
     },
@@ -154,8 +155,9 @@ export function AdminUsersPage() {
     : Boolean(selectedUserBanStateQuery.data ?? (selectedUser?.status === 'BANNED'))
   const statusLabel = selectedUserIsBanned ? 'BANNED' : selectedUser?.disabled ? 'DISABLED' : 'ACTIVE'
   const hasHighPrivilege = selectedRoles.includes('ADMIN')
-  const invalidSelectedRoles = selectedRoles.includes('OWNER') || (!hasAnyRole(roles, ['OWNER']) && selectedRoles.includes('ADMIN'))
-  const canSaveRoles = Boolean(selectedUserId && selectedRoles.length > 0 && !invalidSelectedRoles)
+  const canManageTarget = selectedUser ? canManage(roles, selectedUser.roles) : false
+  const invalidSelectedRoles = selectedRoles.some((role) => !isRoleAssignable(roles, selectedUser?.roles ?? [], role))
+  const canSaveRoles = Boolean(selectedUserId && selectedRoles.length > 0 && !invalidSelectedRoles && canManageTarget)
 
   function resolveUserStatus(userId: string) {
     if (statusFilter === 'BANNED' || visibleBannedIds.has(userId)) {
@@ -210,7 +212,19 @@ export function AdminUsersPage() {
               <p className="text-sm font-semibold text-text-primary">{feedbackMessage}</p>
             </Card>
           ) : null}
-          {errorMessage ? (
+          {apiError && apiError.code === 'ACCESS_HIERARCHY_VIOLATION' ? (
+            <Card className="border-danger/30 bg-danger/5 px-4 py-3">
+              <p className="text-lg font-semibold text-danger">{t('adminUsers.hierarchyViolationTitle')}</p>
+              <p className="text-sm text-text-secondary">{t('adminUsers.hierarchyViolationMessage')}</p>
+              <details className="mt-2 text-xs text-text-muted">
+                <summary>{t('adminUsers.hierarchyViolationDetails')}</summary>
+                <div>
+                  <p>{apiError.message}</p>
+                  {apiError.requestId ? <p className="mt-1">{t('common.conflictRequestId', { id: apiError.requestId })}</p> : null}
+                </div>
+              </details>
+            </Card>
+          ) : errorMessage ? (
             <Card className="border-danger/30 bg-danger/5 px-4 py-3">
               <p className="text-sm font-semibold text-danger">{errorMessage}</p>
             </Card>
@@ -325,45 +339,57 @@ export function AdminUsersPage() {
                 <p>{t('adminUsers.createdAt')}: {formatDateTime(selectedUser.createdAt)}</p>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-text-secondary">{t('adminUsers.manageRoles')}</p>
-                <div className="grid gap-2">
-                  {assignableRoleOptions.map((role) => (
-                    <label key={role} className="flex items-center gap-2 text-sm text-text-secondary">
-                      <Input
-                        checked={selectedRoles.includes(role)}
-                        type="checkbox"
-                        onChange={(event) => {
-                          setSelectedRoles((current) => {
-                            if (event.target.checked) {
-                              return Array.from(new Set([...current, role]))
-                            }
-                            return current.filter((value) => value !== role)
-                          })
-                        }}
-                      />
-                      <span>{t(`common.roles.${role}`)}</span>
-                    </label>
-                  ))}
+              {canManageTarget ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-text-secondary">{t('adminUsers.manageRoles')}</p>
+                  <div className="grid gap-2">
+                    {platformRoleOptions.map((role) => {
+                      const disabled = !isRoleAssignable(roles, selectedUser?.roles ?? [], role)
+                      return (
+                        <label key={role} className="flex items-center gap-2 text-sm text-text-secondary">
+                          <Input
+                            aria-label={`role-${role}`}
+                            checked={selectedRoles.includes(role)}
+                            type="checkbox"
+                            disabled={disabled}
+                            onChange={(event) => {
+                              setSelectedRoles((current) => {
+                                if (event.target.checked) {
+                                  return Array.from(new Set([...current, role]))
+                                }
+                                return current.filter((value) => value !== role)
+                              })
+                            }}
+                          />
+                          <span>{t(`common.roles.${role}`)}</span>
+                          {disabled ? <span className="text-xs text-text-muted">{t('adminUsers.roleAssignmentTooltip')}</span> : null}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {invalidSelectedRoles ? (
+                    <Card className="border-danger/30 bg-danger/5 px-4 py-3">
+                      <p className="text-sm font-semibold text-danger">{t('adminUsers.roleAssignmentUnavailable')}</p>
+                    </Card>
+                  ) : null}
+                  <Button
+                    disabled={!canSaveRoles}
+                    onClick={() => {
+                      if (hasHighPrivilege) {
+                        setShowRoleConfirm(true)
+                        return
+                      }
+                      updateRoleMutation.mutate()
+                    }}
+                  >
+                    {t('adminUsers.updateRoles')}
+                  </Button>
                 </div>
-                {invalidSelectedRoles ? (
-                  <Card className="border-danger/30 bg-danger/5 px-4 py-3">
-                    <p className="text-sm font-semibold text-danger">{t('adminUsers.roleAssignmentUnavailable')}</p>
-                  </Card>
-                ) : null}
-                <Button
-                  disabled={!canSaveRoles}
-                  onClick={() => {
-                    if (hasHighPrivilege) {
-                      setShowRoleConfirm(true)
-                      return
-                    }
-                    updateRoleMutation.mutate()
-                  }}
-                >
-                  {t('adminUsers.updateRoles')}
-                </Button>
-              </div>
+              ) : (
+                <Card className="border-muted/30 bg-muted/2 px-4 py-3">
+                  <p className="text-sm text-text-muted">{t('adminUsers.manageRolesUnavailable')}</p>
+                </Card>
+              )}
 
               {!selectedUserIsBanned ? (
                 <FormField label={t('common.labels.reason')}>
@@ -389,7 +415,11 @@ export function AdminUsersPage() {
       </div>
 
       <ConfirmDialog
-        description={t('adminUsers.confirmRoleChange')}
+        description={
+          selectedRoles.includes('ADMIN') && !(selectedUser?.roles ?? []).includes('ADMIN')
+            ? t('adminUsers.confirmAssignAdmin')
+            : t('adminUsers.confirmRoleChange')
+        }
         open={showRoleConfirm}
         title={t('adminUsers.confirmRoleChangeTitle')}
         onCancel={() => setShowRoleConfirm(false)}

@@ -12,6 +12,7 @@ import org.springframework.web.server.ServerWebInputException;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 @RestControllerAdvice
 public class GatewayExceptionHandler {
@@ -110,6 +111,9 @@ public class GatewayExceptionHandler {
         String requestId = exchange.getAttribute(RequestIdFilter.REQUEST_ID_ATTRIBUTE);
         if (requestId == null || requestId.isBlank()) {
             requestId = exchange.getRequest().getHeaders().getFirst(RequestIdFilter.REQUEST_ID_HEADER);
+        }
+        if (requestId == null || requestId.isBlank()) {
+            requestId = UUID.randomUUID().toString();
         }
 
         ErrorResponse response = new ErrorResponse(

@@ -80,7 +80,9 @@ public class GatewaySecurityConfig {
                         .pathMatchers(HttpMethod.PUT, "/api/v1/submissions/*/comments/*").hasAnyRole("OWNER", "ADMIN", "TEACHER", "STUDENT")
                         .pathMatchers(HttpMethod.DELETE, "/api/v1/submissions/*/comments/*").hasAnyRole("OWNER", "ADMIN", "TEACHER", "STUDENT")
                         .pathMatchers("/api/v1/submissions/**").hasAnyRole("OWNER", "ADMIN", "STUDENT")
-                        .pathMatchers("/api/v1/testing/results/**").hasAnyRole("OWNER", "ADMIN", "STUDENT")
+                        .pathMatchers(HttpMethod.POST, "/api/v1/testing/results").hasAnyRole("OWNER", "ADMIN", "STUDENT")
+                        .pathMatchers(HttpMethod.GET, "/api/v1/testing/results/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")
+                        .pathMatchers(HttpMethod.PATCH, "/api/v1/testing/results/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")
                         .anyExchange().authenticated()
                 )
                 .exceptionHandling(exceptions -> exceptions

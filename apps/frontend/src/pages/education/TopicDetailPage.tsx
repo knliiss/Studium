@@ -141,6 +141,7 @@ export function TopicDetailPage() {
     <div className="space-y-6">
       <Breadcrumbs
         items={[
+          { label: t('navigation.shared.education'), to: '/education' },
           { label: t('navigation.shared.subjects'), to: '/subjects' },
           { label: subject.name, to: `/subjects/${subjectId}` },
           { label: topic.title },

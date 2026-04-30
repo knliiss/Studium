@@ -70,6 +70,8 @@ On Windows, automatic demo seed requires `bash` to be available in `PATH`.
   `POST /api/v1/testing/tests/{id}/publish`
   `POST /api/v1/testing/tests/{id}/close`
   `POST /api/v1/testing/tests/{id}/archive`
+  `GET /api/v1/testing/results/test/{testId}`
+  `PATCH /api/v1/testing/results/{id}/score`
 - Notifications:
   `GET /api/notifications/me`
   `GET /api/notifications/me/unread-count`

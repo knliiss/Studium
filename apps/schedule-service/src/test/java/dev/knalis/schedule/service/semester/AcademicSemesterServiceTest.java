@@ -32,25 +32,26 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AcademicSemesterServiceTest {
-    
+
     @Mock
     private AcademicSemesterRepository academicSemesterRepository;
-    
+
     @Mock
     private AcademicSemesterMapper academicSemesterMapper;
-    
+
     private AcademicSemesterService academicSemesterService;
-    
+
     @BeforeEach
     void setUp() {
         academicSemesterService = new AcademicSemesterService(
                 academicSemesterRepository,
                 new AcademicSemesterFactory(),
                 academicSemesterMapper,
+                new AcademicSemesterCalendar(),
                 Clock.fixed(Instant.parse("2026-04-29T00:00:00Z"), ZoneOffset.UTC)
         );
     }
-    
+
     @Test
     void createSemesterSavesTrimmedName() {
         UUID semesterId = UUID.randomUUID();
@@ -58,7 +59,7 @@ class AcademicSemesterServiceTest {
         LocalDate startDate = LocalDate.of(2026, 9, 1);
         LocalDate endDate = LocalDate.of(2026, 12, 31);
         LocalDate weekOneStartDate = LocalDate.of(2026, 9, 7);
-        
+
         AcademicSemester savedSemester = new AcademicSemester();
         savedSemester.setId(semesterId);
         savedSemester.setName("Autumn 2026");
@@ -66,9 +67,10 @@ class AcademicSemesterServiceTest {
         savedSemester.setEndDate(endDate);
         savedSemester.setWeekOneStartDate(weekOneStartDate);
         savedSemester.setActive(true);
+        savedSemester.setPublished(true);
         savedSemester.setCreatedAt(now);
         savedSemester.setUpdatedAt(now);
-        
+
         AcademicSemesterResponse response = new AcademicSemesterResponse(
                 semesterId,
                 "Autumn 2026",
@@ -76,27 +78,28 @@ class AcademicSemesterServiceTest {
                 endDate,
                 weekOneStartDate,
                 true,
+                true,
                 now,
                 now
         );
-        
+
         when(academicSemesterRepository.save(any(AcademicSemester.class))).thenReturn(savedSemester);
         when(academicSemesterMapper.toResponse(savedSemester)).thenReturn(response);
-        
+
         AcademicSemesterResponse result = academicSemesterService.createSemester(
-                new CreateAcademicSemesterRequest("  Autumn 2026  ", startDate, endDate, weekOneStartDate, true)
+                new CreateAcademicSemesterRequest("  Autumn 2026  ", startDate, endDate, weekOneStartDate, true, false)
         );
-        
+
         ArgumentCaptor<AcademicSemester> captor = ArgumentCaptor.forClass(AcademicSemester.class);
         verify(academicSemesterRepository).save(captor.capture());
         assertEquals("Autumn 2026", captor.getValue().getName());
         assertEquals(response, result);
     }
-    
+
     @Test
     void createSemesterThrowsWhenAnotherActiveSemesterExists() {
         when(academicSemesterRepository.existsByActiveTrue()).thenReturn(true);
-        
+
         assertThrows(
                 ScheduleConflictException.class,
                 () -> academicSemesterService.createSemester(
@@ -105,7 +108,8 @@ class AcademicSemesterServiceTest {
                                 LocalDate.of(2027, 2, 1),
                                 LocalDate.of(2027, 6, 30),
                                 LocalDate.of(2027, 2, 1),
-                                true
+                                true,
+                                false
                         )
                 )
         );
@@ -136,6 +140,7 @@ class AcademicSemesterServiceTest {
                 spring.getEndDate(),
                 spring.getWeekOneStartDate(),
                 spring.isActive(),
+                spring.isPublished(),
                 Instant.now(),
                 Instant.now()
         );
@@ -146,6 +151,7 @@ class AcademicSemesterServiceTest {
                 autumn.getEndDate(),
                 autumn.getWeekOneStartDate(),
                 autumn.isActive(),
+                autumn.isPublished(),
                 Instant.now(),
                 Instant.now()
         );
@@ -168,6 +174,7 @@ class AcademicSemesterServiceTest {
         semester.setEndDate(LocalDate.of(2026, 8, 31));
         semester.setWeekOneStartDate(LocalDate.of(2026, 2, 1));
         semester.setActive(true);
+        semester.setPublished(true);
         semester.setCreatedAt(now);
         semester.setUpdatedAt(now);
 
@@ -178,13 +185,12 @@ class AcademicSemesterServiceTest {
                 LocalDate.of(2026, 8, 31),
                 LocalDate.of(2026, 2, 1),
                 true,
+                true,
                 now,
                 now
         );
 
-        when(academicSemesterRepository.findFirstByNameOrderByStartDateDesc("Semester 2 2025/2026"))
-                .thenReturn(Optional.of(semester));
-        when(academicSemesterRepository.findAllByActiveTrue()).thenReturn(List.of(semester));
+        when(academicSemesterRepository.findFirstByActiveTrueOrderByStartDateDesc()).thenReturn(Optional.of(semester));
         when(academicSemesterMapper.toResponse(semester)).thenReturn(response);
 
         assertEquals(response, academicSemesterService.getActiveSemester());
@@ -208,6 +214,7 @@ class AcademicSemesterServiceTest {
         savedSemester.setEndDate(LocalDate.of(2026, 8, 31));
         savedSemester.setWeekOneStartDate(LocalDate.of(2026, 2, 1));
         savedSemester.setActive(true);
+        savedSemester.setPublished(true);
         savedSemester.setCreatedAt(now);
         savedSemester.setUpdatedAt(now);
 
@@ -218,10 +225,12 @@ class AcademicSemesterServiceTest {
                 LocalDate.of(2026, 8, 31),
                 LocalDate.of(2026, 2, 1),
                 true,
+                true,
                 now,
                 now
         );
 
+        when(academicSemesterRepository.findFirstByActiveTrueOrderByStartDateDesc()).thenReturn(Optional.empty());
         when(academicSemesterRepository.findFirstByNameOrderByStartDateDesc("Semester 2 2025/2026"))
                 .thenReturn(Optional.empty());
         when(academicSemesterRepository.findAllByActiveTrue()).thenReturn(List.of(oldSemester));

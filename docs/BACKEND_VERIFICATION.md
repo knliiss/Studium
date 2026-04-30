@@ -50,7 +50,7 @@ The startup flow ensures `.env`, RSA keys, service build artifacts, Docker Compo
   Usually means setup or an upstream create request failed earlier in the run.
   Run `Reset Runtime Variables`, rerun setup, and then rerun the dependent folder in order.
 - `404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND`
-  This is valid for the schedule seed check. The collection already accepts this result and continues by creating a semester for the rest of the flow.
+  This now indicates schedule foundation bootstrap or demo seed did not run as expected. The local stack should expose an active semester.
 
 ## Reset Local State
 

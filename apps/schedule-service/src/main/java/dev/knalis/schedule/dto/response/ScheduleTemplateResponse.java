@@ -3,6 +3,7 @@ package dev.knalis.schedule.dto.response;
 import dev.knalis.schedule.entity.LessonFormat;
 import dev.knalis.schedule.entity.LessonType;
 import dev.knalis.schedule.entity.ScheduleTemplateStatus;
+import dev.knalis.schedule.entity.Subgroup;
 import dev.knalis.schedule.entity.WeekType;
 
 import java.time.DayOfWeek;
@@ -18,6 +19,7 @@ public record ScheduleTemplateResponse(
         DayOfWeek dayOfWeek,
         UUID slotId,
         WeekType weekType,
+        Subgroup subgroup,
         LessonType lessonType,
         String lessonTypeDisplayName,
         LessonFormat lessonFormat,

@@ -25,6 +25,7 @@ import dev.knalis.testing.mapper.TestMapper;
 import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.TestGroupAvailabilityRepository;
 import dev.knalis.testing.repository.TestRepository;
+import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
 import dev.knalis.contracts.event.TestPublishedEventV1;
@@ -61,6 +62,7 @@ public class TestService {
     private final TestRepository testRepository;
     private final TestAttemptRepository testAttemptRepository;
     private final TestGroupAvailabilityRepository testGroupAvailabilityRepository;
+    private final QuestionRepository questionRepository;
     private final TestFactory testFactory;
     private final TestAttemptFactory testAttemptFactory;
     private final TestMapper testMapper;
@@ -69,7 +71,8 @@ public class TestService {
     private final EducationServiceClient educationServiceClient;
     
     @Transactional
-    public TestResponse createTest(UUID currentUserId, CreateTestRequest request) {
+    public TestResponse createTest(UUID currentUserId, boolean privilegedAccess, CreateTestRequest request) {
+        assertTeacherCanManageTopic(request.topicId(), currentUserId, privilegedAccess);
         Test test = testFactory.newTest(
                 request.topicId(),
                 request.title(),
@@ -93,7 +96,7 @@ public class TestService {
     @Transactional(readOnly = true)
     public TestResponse getTest(UUID currentUserId, boolean privilegedAccess, boolean teacherAccess, UUID testId) {
         Test test = requireTest(testId);
-        if (privilegedAccess || (teacherAccess && test.getCreatedByUserId() != null && test.getCreatedByUserId().equals(currentUserId))) {
+        if (privilegedAccess || (teacherAccess && canManageTest(test, currentUserId, false))) {
             return testMapper.toResponse(test);
         }
         TestGroupAvailability availability = requireAvailableForStudent(test, currentUserId, Instant.now());
@@ -120,12 +123,14 @@ public class TestService {
         if (privilegedAccess) {
             testPage = testRepository.findAllByTopicId(topicId, pageRequest);
         } else if (teacherAccess) {
-            testPage = testRepository.findVisibleByTopicIdForTeacher(
-                    topicId,
-                    currentUserId,
-                    TestStatus.PUBLISHED,
-                    pageRequest
-            );
+            testPage = canManageTopic(topicId, currentUserId, false)
+                    ? testRepository.findAllByTopicId(topicId, pageRequest)
+                    : testRepository.findVisibleByTopicIdForTeacher(
+                            topicId,
+                            currentUserId,
+                            TestStatus.PUBLISHED,
+                            pageRequest
+                    );
         } else {
             Set<UUID> groupIds = resolveStudentGroupIds(currentUserId);
             testPage = groupIds.isEmpty()
@@ -277,6 +282,13 @@ public class TestService {
         TestResponse oldValue = testMapper.toResponse(test);
         if (test.getStatus() != TestStatus.DRAFT) {
             throw new TestStateTransitionException(testId, test.getStatus(), TestStatus.PUBLISHED);
+        }
+        if (questionRepository.sumPointsByTestId(testId) > test.getMaxPoints()) {
+            throw new TestInvalidStateException(
+                    test.getId(),
+                    test.getStatus(),
+                    "Question points cannot exceed test max points"
+            );
         }
         test.setStatus(TestStatus.PUBLISHED);
         Test savedTest = testRepository.save(test);
@@ -467,12 +479,38 @@ public class TestService {
     }
 
     private void assertTeacherOwnership(Test test, UUID currentUserId, boolean privilegedAccess) {
-        if (privilegedAccess) {
-            return;
-        }
-        if (test.getCreatedByUserId() != null && test.getCreatedByUserId().equals(currentUserId)) {
+        if (canManageTest(test, currentUserId, privilegedAccess)) {
             return;
         }
         throw new TestAccessDeniedException(test.getId(), currentUserId);
+    }
+
+    private void assertTeacherCanManageTopic(UUID topicId, UUID currentUserId, boolean privilegedAccess) {
+        if (canManageTopic(topicId, currentUserId, privilegedAccess)) {
+            return;
+        }
+        throw new TestAccessDeniedException(topicId, currentUserId);
+    }
+
+    private boolean canManageTest(Test test, UUID currentUserId, boolean privilegedAccess) {
+        if (privilegedAccess) {
+            return true;
+        }
+        if (test.getCreatedByUserId() != null && test.getCreatedByUserId().equals(currentUserId)) {
+            return true;
+        }
+        return canManageTopic(test.getTopicId(), currentUserId, false);
+    }
+
+    private boolean canManageTopic(UUID topicId, UUID currentUserId, boolean privilegedAccess) {
+        if (privilegedAccess) {
+            return true;
+        }
+        UUID subjectId = educationServiceClient.getTopic(topicId).subjectId();
+        return isAssignedTeacherForSubject(subjectId, currentUserId);
+    }
+
+    private boolean isAssignedTeacherForSubject(UUID subjectId, UUID currentUserId) {
+        return educationServiceClient.getSubject(subjectId).teacherIds().contains(currentUserId);
     }
 }

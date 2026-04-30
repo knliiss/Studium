@@ -7,13 +7,14 @@ import java.time.LocalDate;
 
 @Component
 public class AcademicSemesterFactory {
-    
+
     public AcademicSemester newAcademicSemester(
             String name,
             LocalDate startDate,
             LocalDate endDate,
             LocalDate weekOneStartDate,
-            boolean active
+            boolean active,
+            boolean published
     ) {
         AcademicSemester semester = new AcademicSemester();
         semester.setName(name.trim());
@@ -21,6 +22,7 @@ public class AcademicSemesterFactory {
         semester.setEndDate(endDate);
         semester.setWeekOneStartDate(weekOneStartDate);
         semester.setActive(active);
+        semester.setPublished(active || published);
         return semester;
     }
 }

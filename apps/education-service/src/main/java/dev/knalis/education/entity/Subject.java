@@ -30,7 +30,7 @@ public class Subject {
     @Column(nullable = false, length = 100)
     private String name;
     
-    @Column(nullable = false)
+    @Column
     private UUID groupId;
     
     @Column(length = 1000)

@@ -3,6 +3,7 @@ package dev.knalis.schedule.dto.response;
 import dev.knalis.schedule.entity.LessonFormat;
 import dev.knalis.schedule.entity.LessonType;
 import dev.knalis.schedule.entity.OverrideType;
+import dev.knalis.schedule.entity.Subgroup;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -18,6 +19,7 @@ public record ScheduleOverrideResponse(
         UUID subjectId,
         UUID teacherId,
         UUID slotId,
+        Subgroup subgroup,
         LessonType lessonType,
         String lessonTypeDisplayName,
         LessonFormat lessonFormat,

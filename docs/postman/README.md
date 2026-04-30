@@ -93,12 +93,11 @@ The main runner path still works without optional uploads because `01 Files` fir
 
 ## Active Semester Seed Check
 
-`04 Schedule -> Get Active Semester (Seed Check)` accepts either:
+`04 Schedule -> Get Active Semester (Seed Check)` expects:
 
-- `200` when the current local data contains an active semester
-- `404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND` when there is no active semester yet
+- `200` because schedule foundation bootstrap creates an active current semester in local/demo setup
 
-When the seed check returns `404`, the folder continues by creating a semester and reuses that `semesterId` for the rest of the schedule write/read flow.
+If this request returns `404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND`, verify `schedule-service` started with `SCHEDULE_BOOTSTRAP_ENABLED=true` and rerun the local seed.
 
 ## Troubleshooting
 

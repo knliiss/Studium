@@ -14,13 +14,13 @@ import dev.knalis.schedule.entity.LessonSlot;
 import dev.knalis.schedule.entity.Room;
 import dev.knalis.schedule.entity.ScheduleTemplate;
 import dev.knalis.schedule.entity.ScheduleTemplateStatus;
+import dev.knalis.schedule.entity.Subgroup;
 import dev.knalis.schedule.exception.AcademicSemesterNotFoundException;
 import dev.knalis.schedule.exception.LessonSlotNotFoundException;
 import dev.knalis.schedule.exception.RoomNotFoundException;
 import dev.knalis.schedule.exception.ScheduleConflictException;
 import dev.knalis.schedule.exception.ScheduleTemplateNotFoundException;
 import dev.knalis.schedule.exception.ScheduleValidationException;
-import dev.knalis.shared.web.exception.AppException;
 import dev.knalis.schedule.factory.template.ScheduleTemplateFactory;
 import dev.knalis.schedule.mapper.ScheduleTemplateMapper;
 import dev.knalis.schedule.repository.AcademicSemesterRepository;
@@ -29,6 +29,8 @@ import dev.knalis.schedule.repository.RoomRepository;
 import dev.knalis.schedule.repository.ScheduleTemplateRepository;
 import dev.knalis.schedule.service.common.ScheduleAuditService;
 import dev.knalis.schedule.service.schedule.ScheduleConflictService;
+import dev.knalis.schedule.service.slot.CanonicalLessonSlots;
+import dev.knalis.shared.web.exception.AppException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,7 +47,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ScheduleTemplateService {
-    
+
     private final ScheduleTemplateRepository scheduleTemplateRepository;
     private final AcademicSemesterRepository academicSemesterRepository;
     private final LessonSlotRepository lessonSlotRepository;
@@ -54,7 +56,7 @@ public class ScheduleTemplateService {
     private final ScheduleTemplateMapper scheduleTemplateMapper;
     private final ScheduleConflictService scheduleConflictService;
     private final ScheduleAuditService scheduleAuditService;
-    
+
     @Transactional
     public ScheduleTemplateResponse createTemplate(UUID currentUserId, CreateScheduleTemplateRequest request) {
         ScheduleTemplate scheduleTemplate = buildTemplate(request);
@@ -63,21 +65,21 @@ public class ScheduleTemplateService {
         scheduleAuditService.record(currentUserId, "SCHEDULE_TEMPLATE_CREATED", "SCHEDULE_TEMPLATE", response.id(), null, response);
         return response;
     }
-    
+
     @Transactional
     public List<ScheduleTemplateResponse> createTemplatesBulk(UUID currentUserId, BulkCreateScheduleTemplatesRequest request) {
         List<ScheduleTemplate> pendingTemplates = new ArrayList<>();
-        
+
         for (CreateScheduleTemplateRequest item : request.items()) {
             ScheduleTemplate scheduleTemplate = buildTemplate(item);
             scheduleConflictService.assertNoTemplateConflicts(scheduleTemplate, null, pendingTemplates);
             pendingTemplates.add(scheduleTemplate);
         }
-        
+
         Map<UUID, Integer> slotNumbers = slotNumbers(pendingTemplates.stream()
                 .map(ScheduleTemplate::getSlotId)
                 .toList());
-        
+
         List<ScheduleTemplateResponse> responses = scheduleTemplateRepository.saveAll(pendingTemplates).stream()
                 .sorted(templateComparator(slotNumbers))
                 .map(scheduleTemplateMapper::toResponse)
@@ -136,13 +138,13 @@ public class ScheduleTemplateService {
                 List.of()
         );
     }
-    
+
     @Transactional
     public ScheduleTemplateResponse updateTemplate(UUID currentUserId, UUID templateId, UpdateScheduleTemplateRequest request) {
         ScheduleTemplate scheduleTemplate = scheduleTemplateRepository.findById(templateId)
                 .orElseThrow(() -> new ScheduleTemplateNotFoundException(templateId));
         ScheduleTemplateResponse oldValue = scheduleTemplateMapper.toResponse(scheduleTemplate);
-        
+
         AcademicSemester semester = requireSemester(request.semesterId());
         LessonSlot lessonSlot = requireUsableSlot(request.slotId());
         UUID roomId = normalizeRoomId(request.lessonFormat(), request.roomId());
@@ -150,7 +152,7 @@ public class ScheduleTemplateService {
             requireUsableRoom(roomId);
         }
         validateLessonFormat(request.lessonFormat(), roomId);
-        
+
         scheduleTemplate.setSemesterId(semester.getId());
         scheduleTemplate.setGroupId(request.groupId());
         scheduleTemplate.setSubjectId(request.subjectId());
@@ -158,6 +160,7 @@ public class ScheduleTemplateService {
         scheduleTemplate.setDayOfWeek(request.dayOfWeek());
         scheduleTemplate.setSlotId(lessonSlot.getId());
         scheduleTemplate.setWeekType(request.weekType());
+        scheduleTemplate.setSubgroup(normalizeSubgroup(request.subgroup()));
         scheduleTemplate.setLessonType(request.lessonType());
         scheduleTemplate.setLessonFormat(request.lessonFormat());
         scheduleTemplate.setRoomId(roomId);
@@ -165,13 +168,13 @@ public class ScheduleTemplateService {
         scheduleTemplate.setNotes(normalize(request.notes()));
         scheduleTemplate.setStatus(request.active() ? ScheduleTemplateStatus.ACTIVE : ScheduleTemplateStatus.DRAFT);
         scheduleTemplate.setActive(request.active());
-        
+
         scheduleConflictService.assertNoTemplateConflicts(scheduleTemplate, templateId, List.of());
         ScheduleTemplateResponse response = scheduleTemplateMapper.toResponse(scheduleTemplateRepository.save(scheduleTemplate));
         scheduleAuditService.record(currentUserId, "SCHEDULE_TEMPLATE_UPDATED", "SCHEDULE_TEMPLATE", response.id(), oldValue, response);
         return response;
     }
-    
+
     @Transactional
     public void deleteTemplate(UUID currentUserId, UUID templateId) {
         ScheduleTemplate scheduleTemplate = scheduleTemplateRepository.findById(templateId)
@@ -182,30 +185,30 @@ public class ScheduleTemplateService {
         ScheduleTemplateResponse response = scheduleTemplateMapper.toResponse(scheduleTemplateRepository.save(scheduleTemplate));
         scheduleAuditService.record(currentUserId, "SCHEDULE_TEMPLATE_DELETED", "SCHEDULE_TEMPLATE", response.id(), oldValue, response);
     }
-    
+
     @Transactional(readOnly = true)
     public List<ScheduleTemplateResponse> getTemplatesBySemester(UUID semesterId) {
         requireSemester(semesterId);
         List<ScheduleTemplate> templates = scheduleTemplateRepository.findAllBySemesterIdOrderByCreatedAtAsc(semesterId);
         Map<UUID, Integer> slotNumbers = slotNumbers(templates.stream().map(ScheduleTemplate::getSlotId).toList());
-        
+
         return templates.stream()
                 .sorted(templateComparator(slotNumbers))
                 .map(scheduleTemplateMapper::toResponse)
                 .toList();
     }
-    
+
     @Transactional(readOnly = true)
     public List<ScheduleTemplateResponse> getTemplatesByGroup(UUID groupId) {
         List<ScheduleTemplate> templates = scheduleTemplateRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId);
         Map<UUID, Integer> slotNumbers = slotNumbers(templates.stream().map(ScheduleTemplate::getSlotId).toList());
-        
+
         return templates.stream()
                 .sorted(templateComparator(slotNumbers))
                 .map(scheduleTemplateMapper::toResponse)
                 .toList();
     }
-    
+
     private ScheduleTemplate buildTemplate(CreateScheduleTemplateRequest request) {
         AcademicSemester semester = requireSemester(request.semesterId());
         LessonSlot lessonSlot = requireUsableSlot(request.slotId());
@@ -214,7 +217,7 @@ public class ScheduleTemplateService {
             requireUsableRoom(roomId);
         }
         validateLessonFormat(request.lessonFormat(), roomId);
-        
+
         return scheduleTemplateFactory.newScheduleTemplate(
                 semester.getId(),
                 request.groupId(),
@@ -223,6 +226,7 @@ public class ScheduleTemplateService {
                 request.dayOfWeek(),
                 lessonSlot.getId(),
                 request.weekType(),
+                normalizeSubgroup(request.subgroup()),
                 request.lessonType(),
                 request.lessonFormat(),
                 roomId,
@@ -231,25 +235,25 @@ public class ScheduleTemplateService {
                 request.active()
         );
     }
-    
+
     private AcademicSemester requireSemester(UUID semesterId) {
         return academicSemesterRepository.findById(semesterId)
                 .orElseThrow(() -> new AcademicSemesterNotFoundException(semesterId));
     }
-    
+
     private LessonSlot requireUsableSlot(UUID slotId) {
         LessonSlot lessonSlot = lessonSlotRepository.findById(slotId)
                 .orElseThrow(() -> new LessonSlotNotFoundException(slotId));
-        if (!lessonSlot.isActive()) {
+        if (!CanonicalLessonSlots.isCanonicalActiveSlot(lessonSlot)) {
             throw new ScheduleValidationException(
-                    "LESSON_SLOT_INACTIVE",
-                    "Lesson slot must be active",
+                    "LESSON_SLOT_NOT_CANONICAL",
+                    "Lesson slot must be one of the active canonical pairs 1..8",
                     Map.of("slotId", slotId)
             );
         }
         return lessonSlot;
     }
-    
+
     private Room requireUsableRoom(UUID roomId) {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RoomNotFoundException(roomId));
@@ -262,7 +266,7 @@ public class ScheduleTemplateService {
         }
         return room;
     }
-    
+
     private void validateLessonFormat(LessonFormat lessonFormat, UUID roomId) {
         if (lessonFormat == LessonFormat.OFFLINE && roomId == null) {
             throw new ScheduleValidationException(
@@ -271,20 +275,24 @@ public class ScheduleTemplateService {
             );
         }
     }
-    
+
     private UUID normalizeRoomId(LessonFormat lessonFormat, UUID roomId) {
         return lessonFormat == LessonFormat.ONLINE ? null : roomId;
     }
-    
+
     private String normalize(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
-    
+
+    private Subgroup normalizeSubgroup(Subgroup subgroup) {
+        return subgroup == null ? Subgroup.ALL : subgroup;
+    }
+
     private Map<UUID, Integer> slotNumbers(List<UUID> slotIds) {
         return lessonSlotRepository.findAllById(slotIds).stream()
                 .collect(Collectors.toMap(LessonSlot::getId, LessonSlot::getNumber));
     }
-    
+
     private Comparator<ScheduleTemplate> templateComparator(Map<UUID, Integer> slotNumbers) {
         return Comparator.comparing((ScheduleTemplate template) -> template.getDayOfWeek().getValue())
                 .thenComparing(template -> slotNumbers.getOrDefault(template.getSlotId(), Integer.MAX_VALUE))
@@ -298,16 +306,21 @@ public class ScheduleTemplateService {
 
         return new ScheduleConflictItemResponse(
                 switch (conflictType) {
+                    case "DUPLICATE_LESSON" -> "DUPLICATE_LESSON_CONFLICT";
                     case "TEACHER" -> "TEACHER_CONFLICT";
                     case "ROOM" -> "ROOM_CONFLICT";
-                    default -> "GROUP_CONFLICT";
+                    default -> "GROUP_SUBGROUP_CONFLICT";
                 },
                 exception.getMessage(),
                 conflictingEntityId,
                 conflictingEntityId == null ? null : "SCHEDULE_TEMPLATE",
                 null,
                 dayOfWeek(details.get("dayOfWeek")),
-                uuid(details.get("slotId"))
+                uuid(details.get("slotId")),
+                uuid(details.get("groupId")),
+                subgroup(details.get("subgroup")),
+                uuid(details.get("teacherId")),
+                uuid(details.get("roomId"))
         );
     }
 
@@ -320,5 +333,12 @@ public class ScheduleTemplateService {
             return uuid;
         }
         return value == null ? null : UUID.fromString(value.toString());
+    }
+
+    private Subgroup subgroup(Object value) {
+        if (value instanceof Subgroup subgroup) {
+            return subgroup;
+        }
+        return value == null ? null : Subgroup.valueOf(value.toString());
     }
 }

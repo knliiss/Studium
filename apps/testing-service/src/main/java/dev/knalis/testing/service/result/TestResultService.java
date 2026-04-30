@@ -3,6 +3,7 @@ package dev.knalis.testing.service.result;
 import dev.knalis.testing.client.education.EducationServiceClient;
 import dev.knalis.testing.dto.request.CreateTestResultRequest;
 import dev.knalis.testing.dto.request.OverrideTestResultScoreRequest;
+import dev.knalis.testing.dto.response.TestResultPageResponse;
 import dev.knalis.testing.dto.response.TestResultResponse;
 import dev.knalis.testing.entity.Test;
 import dev.knalis.testing.entity.TestAttempt;
@@ -22,6 +23,9 @@ import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
 import dev.knalis.contracts.event.TestCompletedEventV1;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -104,6 +108,34 @@ public class TestResultService {
         return testResultMapper.toResponse(testResult);
     }
 
+    @Transactional(readOnly = true)
+    public TestResultPageResponse getTestResultsByTest(
+            UUID currentUserId,
+            boolean privilegedAccess,
+            UUID testId,
+            int page,
+            int size
+    ) {
+        Test test = testRepository.findById(testId)
+                .orElseThrow(() -> new TestNotFoundException(testId));
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+        PageRequest pageRequest = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), 100),
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+        Page<TestResult> resultsPage = testResultRepository.findAllByTestId(testId, pageRequest);
+        return new TestResultPageResponse(
+                resultsPage.getContent().stream().map(testResultMapper::toResponse).toList(),
+                resultsPage.getNumber(),
+                resultsPage.getSize(),
+                resultsPage.getTotalElements(),
+                resultsPage.getTotalPages(),
+                resultsPage.isFirst(),
+                resultsPage.isLast()
+        );
+    }
+
     @Transactional
     public TestResultResponse overrideTestResultScore(
             UUID currentUserId,
@@ -140,6 +172,10 @@ public class TestResultService {
             return;
         }
         if (test.getCreatedByUserId() != null && test.getCreatedByUserId().equals(currentUserId)) {
+            return;
+        }
+        UUID subjectId = educationServiceClient.getTopic(test.getTopicId()).subjectId();
+        if (educationServiceClient.getSubject(subjectId).teacherIds().contains(currentUserId)) {
             return;
         }
         throw new TestAccessDeniedException(test.getId(), currentUserId);

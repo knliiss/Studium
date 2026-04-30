@@ -26,39 +26,39 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
 class MyScheduleServiceTest {
-    
+
     @Mock
     private EducationServiceClient educationServiceClient;
-    
+
     @Mock
     private ScheduleServiceClient scheduleServiceClient;
-    
+
     private MyScheduleService myScheduleService;
-    
+
     @BeforeEach
     void setUp() {
         myScheduleService = new MyScheduleService(educationServiceClient, scheduleServiceClient);
     }
-    
+
     @Test
     void getMyWeekReturnsEmptyWhenUserHasNoGroups() {
         UUID userId = UUID.randomUUID();
-        
+
         when(educationServiceClient.getGroupsByUser("token", "request-id", userId))
                 .thenReturn(Mono.just(List.of()));
-        
+
         List<ResolvedLessonResponse> result = myScheduleService.getMyWeek(
                 userId,
                 "token",
                 "request-id",
                 LocalDate.of(2026, 9, 7)
         ).block();
-        
+
         assertEquals(List.of(), result);
-        
+
         verifyNoInteractions(scheduleServiceClient);
     }
-    
+
     @Test
     void getMyRangeMergesAndSortsLessonsByDateAndSlotNumber() {
         UUID userId = UUID.randomUUID();
@@ -66,12 +66,12 @@ class MyScheduleServiceTest {
         UUID secondGroupId = UUID.randomUUID();
         UUID firstSlotId = UUID.randomUUID();
         UUID secondSlotId = UUID.randomUUID();
-        
+
         LessonSlotResponse firstSlot = new LessonSlotResponse(
                 firstSlotId,
                 1,
                 LocalTime.of(8, 30),
-                LocalTime.of(10, 0),
+                LocalTime.of(9, 50),
                 true,
                 Instant.now(),
                 Instant.now()
@@ -79,20 +79,22 @@ class MyScheduleServiceTest {
         LessonSlotResponse secondSlot = new LessonSlotResponse(
                 secondSlotId,
                 2,
-                LocalTime.of(10, 15),
-                LocalTime.of(11, 45),
+                LocalTime.of(10, 5),
+                LocalTime.of(11, 25),
                 true,
                 Instant.now(),
                 Instant.now()
         );
-        
+
         ResolvedLessonResponse laterSlot = new ResolvedLessonResponse(
                 LocalDate.of(2026, 9, 8),
+                UUID.randomUUID(),
                 UUID.randomUUID(),
                 secondGroupId,
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 secondSlotId,
+                "ALL",
                 1,
                 "ODD",
                 "PRACTICAL",
@@ -107,10 +109,12 @@ class MyScheduleServiceTest {
         ResolvedLessonResponse earlierSlot = new ResolvedLessonResponse(
                 LocalDate.of(2026, 9, 8),
                 UUID.randomUUID(),
+                UUID.randomUUID(),
                 firstGroupId,
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 firstSlotId,
+                "ALL",
                 1,
                 "ODD",
                 "LECTURE",
@@ -122,11 +126,11 @@ class MyScheduleServiceTest {
                 "TEMPLATE",
                 null
         );
-        
+
         when(educationServiceClient.getGroupsByUser("token", "request-id", userId))
                 .thenReturn(Mono.just(List.of(
-                        new GroupMembershipResponse(firstGroupId),
-                        new GroupMembershipResponse(secondGroupId)
+                        new GroupMembershipResponse(firstGroupId, "STUDENT", "ALL", Instant.now(), Instant.now()),
+                        new GroupMembershipResponse(secondGroupId, "STUDENT", "ALL", Instant.now(), Instant.now())
                 )));
         when(scheduleServiceClient.getLessonSlots("token", "request-id"))
                 .thenReturn(Mono.just(List.of(secondSlot, firstSlot)));
@@ -144,7 +148,7 @@ class MyScheduleServiceTest {
                 LocalDate.of(2026, 9, 8),
                 LocalDate.of(2026, 9, 9)
         )).thenReturn(Mono.just(List.of(earlierSlot)));
-        
+
         List<ResolvedLessonResponse> result = myScheduleService.getMyRange(
                 userId,
                 "token",
@@ -152,7 +156,7 @@ class MyScheduleServiceTest {
                 LocalDate.of(2026, 9, 8),
                 LocalDate.of(2026, 9, 9)
         ).block();
-        
+
         assertEquals(List.of(earlierSlot, laterSlot), result);
     }
 
@@ -166,7 +170,7 @@ class MyScheduleServiceTest {
                 slotId,
                 1,
                 LocalTime.of(8, 30),
-                LocalTime.of(10, 0),
+                LocalTime.of(9, 50),
                 true,
                 Instant.now(),
                 Instant.now()
@@ -175,10 +179,12 @@ class MyScheduleServiceTest {
         ResolvedLessonResponse lesson = new ResolvedLessonResponse(
                 LocalDate.of(2026, 9, 8),
                 UUID.randomUUID(),
+                UUID.randomUUID(),
                 groupId,
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 slotId,
+                "ALL",
                 1,
                 "ODD",
                 "LECTURE",
@@ -199,11 +205,18 @@ class MyScheduleServiceTest {
                         LocalDate.of(2026, 12, 31),
                         LocalDate.of(2026, 9, 7),
                         true,
+                        true,
                         Instant.now(),
                         Instant.now()
                 )));
         when(educationServiceClient.getGroupsByUser("token", "request-id", userId))
-                .thenReturn(Mono.just(List.of(new GroupMembershipResponse(groupId))));
+                .thenReturn(Mono.just(List.of(new GroupMembershipResponse(
+                        groupId,
+                        "STUDENT",
+                        "ALL",
+                        Instant.now(),
+                        Instant.now()
+                ))));
         when(scheduleServiceClient.getLessonSlots("token", "request-id"))
                 .thenReturn(Mono.just(List.of(lessonSlot)));
         when(scheduleServiceClient.getGroupRange(

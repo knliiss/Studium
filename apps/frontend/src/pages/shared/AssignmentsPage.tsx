@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
-import { assignmentService, dashboardService, educationService, fileService } from '@/shared/api/services'
+import { assignmentService, dashboardService, educationService, fileService, userDirectoryService } from '@/shared/api/services'
 import { formatDateTime } from '@/shared/lib/format'
 import { toGroupOption, toSubjectOption, toTopicOption } from '@/shared/lib/picker-options'
 import { Button } from '@/shared/ui/Button'
@@ -19,7 +19,8 @@ import { Textarea } from '@/shared/ui/Textarea'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { DeadlineBadge } from '@/widgets/common/DeadlineBadge'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
-import { loadAccessibleGroups, loadAccessibleSubjects } from '@/pages/education/helpers'
+import { loadAccessibleGroups, loadAccessibleSubjects, loadManagedSubjects } from '@/pages/education/helpers'
+import type { AssignmentGroupAvailabilityResponse } from '@/shared/types/api'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 
 interface AssignmentManagementRow {
@@ -163,7 +164,10 @@ function ManagementAssignmentsPage() {
     ? (accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
     : (adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
   const subjectOptions = isTeacher
-    ? (accessibleSubjectsQuery.data ?? []).map((subject) => toSubjectOption(subject, groupNameById.get(subject.groupId)))
+    ? (accessibleSubjectsQuery.data ?? []).map((subject) => toSubjectOption(
+        subject,
+        subject.groupId ? groupNameById.get(subject.groupId) : undefined,
+      ))
     : (adminSubjectsQuery.data?.items ?? []).map((subject) => toSubjectOption(subject))
   const topicOptions = (topicsQuery.data?.items ?? []).map((topic) => {
     const selectedSubject = subjectOptions.find((option) => option.value === selectedSubjectId)
@@ -359,6 +363,51 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     queryFn: async () => Promise.all(availabilityGroupIds.map((groupId) => educationService.getGroup(groupId))),
     enabled: !isStudent && availabilityGroupIds.length > 0,
   })
+  const subjectScopeQuery = useQuery({
+    queryKey: ['education', 'assignment-detail-subject-scope', primaryRole, session?.user.id],
+    queryFn: () => isTeacher
+      ? loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
+      : loadManagedSubjects(),
+    enabled: Boolean(!isStudent && assignmentQuery.data),
+  })
+  const assignmentSubjectQuery = useQuery({
+    queryKey: ['education', 'assignment-detail-subject', assignmentId, assignmentQuery.data?.topicId, subjectScopeQuery.data?.length],
+    queryFn: async () => {
+      const assignment = assignmentQuery.data
+      if (!assignment) {
+        return null
+      }
+
+      for (const subject of subjectScopeQuery.data ?? []) {
+        const topicsPage = await educationService.getTopicsBySubject(subject.id, {
+          page: 0,
+          size: 100,
+          sortBy: 'orderIndex',
+          direction: 'asc',
+        })
+        if (topicsPage.items.some((topic) => topic.id === assignment.topicId)) {
+          return subject
+        }
+      }
+
+      return null
+    },
+    enabled: Boolean(!isStudent && assignmentQuery.data && subjectScopeQuery.data),
+  })
+  const connectedGroupsQuery = useQuery({
+    queryKey: ['education', 'assignment-connected-groups', assignmentSubjectQuery.data?.groupIds.join(',')],
+    queryFn: async () => Promise.all((assignmentSubjectQuery.data?.groupIds ?? []).map((groupId) => educationService.getGroup(groupId))),
+    enabled: Boolean(!isStudent && assignmentSubjectQuery.data?.groupIds.length),
+  })
+  const submissionStudentIds = useMemo(
+    () => Array.from(new Set((submissionsQuery.data?.items ?? []).map((submission) => submission.userId))),
+    [submissionsQuery.data?.items],
+  )
+  const submissionStudentsQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'submission-students', submissionStudentIds.join(',')],
+    queryFn: () => userDirectoryService.lookup(submissionStudentIds),
+    enabled: submissionStudentIds.length > 0,
+  })
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -408,28 +457,51 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     },
   })
 
-  if (assignmentQuery.isLoading || (!isStudent && (submissionsQuery.isLoading || availabilityQuery.isLoading))) {
+  if (
+    assignmentQuery.isLoading
+    || (!isStudent && (
+      submissionsQuery.isLoading
+      || availabilityQuery.isLoading
+      || subjectScopeQuery.isLoading
+      || assignmentSubjectQuery.isLoading
+      || connectedGroupsQuery.isLoading
+      || submissionStudentsQuery.isLoading
+    ))
+  ) {
     return <LoadingState />
   }
 
-  if (assignmentQuery.isError || !assignmentQuery.data || (!isStudent && (submissionsQuery.isError || availabilityQuery.isError))) {
+  if (
+    assignmentQuery.isError
+    || !assignmentQuery.data
+    || (!isStudent && (
+      submissionsQuery.isError
+      || availabilityQuery.isError
+      || subjectScopeQuery.isError
+      || assignmentSubjectQuery.isError
+      || connectedGroupsQuery.isError
+      || submissionStudentsQuery.isError
+    ))
+  ) {
     return <ErrorState title={t('navigation.shared.assignments')} description={t('common.states.error')} />
   }
 
   const assignment = assignmentQuery.data
   const availabilityRows = availabilityQuery.data ?? []
-  const groupNameById = new Map([
-    ...(accessibleGroupsQuery.data ?? []).map((group) => [group.id, group.name] as const),
-    ...(adminGroupSearchQuery.data?.items ?? []).map((group) => [group.id, group.name] as const),
-    ...(availabilityGroupsQuery.data ?? []).map((group) => [group.id, group.name] as const),
-  ])
+  const availabilityByGroupId = new Map(availabilityRows.map((availability) => [availability.groupId, availability]))
+  const submissionStudentById = new Map((submissionStudentsQuery.data ?? []).map((student) => [student.id, student]))
+  const availabilityGroupCards = (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : availabilityGroupsQuery.data ?? [])
+    .map((group) => ({
+      group,
+      availability: availabilityByGroupId.get(group.id) ?? null,
+    }))
   const groupOptions = isTeacher
-    ? (accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
-    : (adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
+    ? (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
+    : (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
   const submissionOptions = (submissionsQuery.data?.items ?? []).map((submission) => ({
     value: submission.id,
-    label: formatDateTime(submission.submittedAt),
-    description: submission.userId,
+    label: submissionStudentById.get(submission.userId)?.username ?? t('education.unknownStudent'),
+    description: formatDateTime(submission.submittedAt),
   }))
   const availabilitySaveDisabledReason = !availabilityForm.groupId
     ? t('availability.selectGroupReason')
@@ -441,7 +513,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     <div className="space-y-6">
       <Breadcrumbs items={[{ label: t('navigation.shared.assignments'), to: '/assignments' }, { label: assignment.title }]} />
       <Link to="/assignments">
-        <Button variant="secondary">{t('common.actions.back')}</Button>
+        <Button variant="secondary">{t('assignments.backToAssignments')}</Button>
       </Link>
       <PageHeader description={assignment.description ?? ''} title={assignment.title} />
       <Card className="space-y-4">
@@ -478,33 +550,34 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       {!isStudent ? (
         <Card className="space-y-4">
           <PageHeader description={t('availability.assignmentDescription')} title={t('availability.title')} />
-          {availabilityRows.length === 0 ? (
+          {availabilityGroupCards.length === 0 ? (
             <EmptyState description={t('availability.assignmentEmpty')} title={t('availability.title')} />
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {availabilityRows.map((availability) => (
+              {availabilityGroupCards.map(({ availability, group }) => (
                 <button
-                  key={availability.id}
+                  key={group.id}
                   className="rounded-[14px] border border-border bg-surface-muted p-4 text-left transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/15"
                   type="button"
                   onClick={() => setAvailabilityForm({
-                    groupId: availability.groupId,
-                    visible: availability.visible,
-                    availableFrom: toDateTimeLocal(availability.availableFrom),
-                    deadline: toDateTimeLocal(availability.deadline),
-                    allowLateSubmissions: availability.allowLateSubmissions,
-                    maxSubmissions: availability.maxSubmissions,
-                    allowResubmit: availability.allowResubmit,
+                    groupId: group.id,
+                    visible: availability?.visible ?? false,
+                    availableFrom: toDateTimeLocal(availability?.availableFrom),
+                    deadline: toDateTimeLocal(availability?.deadline ?? assignment.deadline),
+                    allowLateSubmissions: availability?.allowLateSubmissions ?? assignment.allowLateSubmissions,
+                    maxSubmissions: availability?.maxSubmissions ?? assignment.maxSubmissions,
+                    allowResubmit: availability?.allowResubmit ?? assignment.allowResubmit,
                   })}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold text-text-primary">{groupNameById.get(availability.groupId) ?? t('education.group')}</p>
-                      <p className="mt-1 text-sm text-text-secondary">{t('common.labels.deadline')}: {formatDateTime(availability.deadline)}</p>
-                      <p className="text-sm text-text-secondary">{t('availability.availableFrom')}: {formatDateTime(availability.availableFrom)}</p>
+                      <p className="font-semibold text-text-primary">{group.name}</p>
+                      <p className="mt-1 text-sm text-text-secondary">{t('common.labels.deadline')}: {formatDateTime(availability?.deadline ?? assignment.deadline)}</p>
+                      <p className="text-sm text-text-secondary">{t('availability.availableFrom')}: {availability?.availableFrom ? formatDateTime(availability.availableFrom) : t('availability.immediately')}</p>
+                      <p className="text-sm text-text-secondary">{t('assignments.maxSubmissions')}: {availability?.maxSubmissions ?? assignment.maxSubmissions}</p>
                     </div>
-                    <span className={availability.visible ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
-                      {availability.visible ? t('availability.visible') : t('availability.hidden')}
+                    <span className={availability?.visible ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
+                      {availability ? getAssignmentAvailabilityStatus(availability, t) : t('availability.hidden')}
                     </span>
                   </div>
                 </button>
@@ -567,8 +640,8 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
             <PageHeader title={t('assignments.submissions')} />
             <DataTable
               columns={[
-                { key: 'id', header: t('assignments.submissionId'), render: (item) => item.id },
-                { key: 'userId', header: t('assignments.studentId'), render: (item) => item.userId },
+                { key: 'userId', header: t('testing.student'), render: (item) => submissionStudentById.get(item.userId)?.username ?? t('education.unknownStudent') },
+                { key: 'fileId', header: t('assignments.file'), render: () => t('assignments.submission') },
                 { key: 'submittedAt', header: t('assignments.submittedAt'), render: (item) => formatDateTime(item.submittedAt) },
               ]}
               rows={submissionsQuery.data?.items ?? []}
@@ -603,4 +676,25 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
 function toDateTimeLocal(value: string | null | undefined) {
   return value ? value.slice(0, 16) : ''
+}
+
+function getAssignmentAvailabilityStatus(
+  availability: AssignmentGroupAvailabilityResponse,
+  t: (key: string) => string,
+) {
+  if (!availability.visible) {
+    return t('availability.hidden')
+  }
+
+  const now = Date.now()
+  const opensAt = availability.availableFrom ? new Date(availability.availableFrom).getTime() : null
+  const deadlineAt = new Date(availability.deadline).getTime()
+
+  if (opensAt && opensAt > now) {
+    return t('availability.opensLater')
+  }
+  if (deadlineAt < now) {
+    return t('availability.deadlinePassed')
+  }
+  return t('availability.open')
 }

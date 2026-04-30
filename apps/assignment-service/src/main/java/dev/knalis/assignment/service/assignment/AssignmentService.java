@@ -64,7 +64,8 @@ public class AssignmentService {
     private final EducationServiceClient educationServiceClient;
     
     @Transactional
-    public AssignmentResponse createAssignment(UUID currentUserId, CreateAssignmentRequest request) {
+    public AssignmentResponse createAssignment(UUID currentUserId, boolean privilegedAccess, CreateAssignmentRequest request) {
+        assertTeacherCanManageTopic(request.topicId(), currentUserId, privilegedAccess);
         Assignment assignment = assignmentFactory.newAssignment(
                 request.topicId(),
                 request.title(),
@@ -152,12 +153,14 @@ public class AssignmentService {
         if (privilegedAccess) {
             assignmentPage = assignmentRepository.findAllByTopicId(topicId, pageRequest);
         } else if (teacherAccess) {
-            assignmentPage = assignmentRepository.findVisibleByTopicIdForTeacher(
-                    topicId,
-                    currentUserId,
-                    AssignmentStatus.PUBLISHED,
-                    pageRequest
-            );
+            assignmentPage = canManageTopic(topicId, currentUserId, false)
+                    ? assignmentRepository.findAllByTopicId(topicId, pageRequest)
+                    : assignmentRepository.findVisibleByTopicIdForTeacher(
+                            topicId,
+                            currentUserId,
+                            AssignmentStatus.PUBLISHED,
+                            pageRequest
+                    );
         } else {
             Set<UUID> groupIds = resolveStudentGroupIds(currentUserId);
             assignmentPage = groupIds.isEmpty()
@@ -386,8 +389,7 @@ public class AssignmentService {
         if (privilegedAccess) {
             return;
         }
-        if (teacherAccess && assignment.getCreatedByUserId() != null
-                && assignment.getCreatedByUserId().equals(currentUserId)) {
+        if (teacherAccess && canManageAssignment(assignment, currentUserId, false)) {
             return;
         }
         if (!teacherAccess) {
@@ -409,13 +411,39 @@ public class AssignmentService {
     }
 
     private void assertTeacherOwnership(Assignment assignment, UUID currentUserId, boolean privilegedAccess) {
-        if (privilegedAccess) {
-            return;
-        }
-        if (assignment.getCreatedByUserId() != null && assignment.getCreatedByUserId().equals(currentUserId)) {
+        if (canManageAssignment(assignment, currentUserId, privilegedAccess)) {
             return;
         }
         throw new AssignmentAccessDeniedException(assignment.getId(), currentUserId);
+    }
+
+    private void assertTeacherCanManageTopic(UUID topicId, UUID currentUserId, boolean privilegedAccess) {
+        if (canManageTopic(topicId, currentUserId, privilegedAccess)) {
+            return;
+        }
+        throw new AssignmentAccessDeniedException(topicId, currentUserId);
+    }
+
+    private boolean canManageAssignment(Assignment assignment, UUID currentUserId, boolean privilegedAccess) {
+        if (privilegedAccess) {
+            return true;
+        }
+        if (assignment.getCreatedByUserId() != null && assignment.getCreatedByUserId().equals(currentUserId)) {
+            return true;
+        }
+        return canManageTopic(assignment.getTopicId(), currentUserId, false);
+    }
+
+    private boolean canManageTopic(UUID topicId, UUID currentUserId, boolean privilegedAccess) {
+        if (privilegedAccess) {
+            return true;
+        }
+        UUID subjectId = educationServiceClient.getTopic(topicId).subjectId();
+        return isAssignedTeacherForSubject(subjectId, currentUserId);
+    }
+
+    private boolean isAssignedTeacherForSubject(UUID subjectId, UUID currentUserId) {
+        return educationServiceClient.getSubject(subjectId).teacherIds().contains(currentUserId);
     }
 
     private Set<String> normalizeAcceptedFileTypes(Set<String> acceptedFileTypes) {

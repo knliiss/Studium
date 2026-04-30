@@ -8,7 +8,6 @@ import dev.knalis.education.entity.Subject;
 import dev.knalis.education.entity.SubjectGroup;
 import dev.knalis.education.entity.SubjectTeacher;
 import dev.knalis.education.exception.GroupNotFoundException;
-import dev.knalis.education.exception.SubjectBindingRequiredException;
 import dev.knalis.education.exception.SubjectNotFoundException;
 import dev.knalis.education.factory.subject.SubjectFactory;
 import dev.knalis.education.repository.GroupRepository;
@@ -50,7 +49,7 @@ public class SubjectService {
     public SubjectResponse createSubject(UUID currentUserId, CreateSubjectRequest request) {
         List<UUID> groupIds = normalizeGroupIds(request.groupId(), request.groupIds());
         List<UUID> teacherIds = normalizeIds(request.teacherIds());
-        Subject subject = subjectFactory.newSubject(groupIds.getFirst(), request.name(), request.description());
+        Subject subject = subjectFactory.newSubject(primaryGroupId(groupIds), request.name(), request.description());
         Subject savedSubject = subjectRepository.save(subject);
         replaceSubjectGroups(savedSubject.getId(), groupIds);
         replaceSubjectTeachers(savedSubject.getId(), teacherIds);
@@ -67,7 +66,7 @@ public class SubjectService {
         List<UUID> groupIds = normalizeGroupIds(request.groupId(), request.groupIds());
         List<UUID> teacherIds = normalizeIds(request.teacherIds());
 
-        subjectFactory.updateSubject(subject, groupIds.getFirst(), request.name(), request.description());
+        subjectFactory.updateSubject(subject, primaryGroupId(groupIds), request.name(), request.description());
         Subject savedSubject = subjectRepository.save(subject);
         replaceSubjectGroups(subjectId, groupIds);
         replaceSubjectTeachers(subjectId, teacherIds);
@@ -144,7 +143,12 @@ public class SubjectService {
         List<UUID> teacherIds = subjectTeacherRepository.findAllBySubjectIdOrderByCreatedAtAsc(subject.getId()).stream()
                 .map(subjectTeacher -> subjectTeacher.getTeacherId())
                 .toList();
-        UUID primaryGroupId = groupIds.contains(subject.getGroupId()) ? subject.getGroupId() : groupIds.getFirst();
+        UUID primaryGroupId = subject.getGroupId();
+        if (primaryGroupId == null) {
+            primaryGroupId = groupIds.isEmpty() ? null : groupIds.getFirst();
+        } else if (!groupIds.isEmpty() && !groupIds.contains(primaryGroupId)) {
+            primaryGroupId = groupIds.getFirst();
+        }
         return new SubjectResponse(
                 subject.getId(),
                 subject.getName(),
@@ -165,11 +169,12 @@ public class SubjectService {
         if (groupIds != null) {
             normalizedIds.addAll(groupIds.stream().filter(id -> id != null).toList());
         }
-        if (normalizedIds.isEmpty()) {
-            throw new SubjectBindingRequiredException();
-        }
         normalizedIds.forEach(this::ensureGroupExists);
         return List.copyOf(normalizedIds);
+    }
+
+    private UUID primaryGroupId(List<UUID> groupIds) {
+        return groupIds.isEmpty() ? null : groupIds.getFirst();
     }
 
     private List<UUID> normalizeIds(List<UUID> ids) {

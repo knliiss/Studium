@@ -25,10 +25,10 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class MyScheduleService {
-    
+
     private final EducationServiceClient educationServiceClient;
     private final ScheduleServiceClient scheduleServiceClient;
-    
+
     public Mono<List<ResolvedLessonResponse>> getMyWeek(
             UUID userId,
             String bearerToken,
@@ -45,11 +45,11 @@ public class MyScheduleService {
                                 requestId,
                                 groupMembership.groupId(),
                                 startDate
-                        ))
+                        ).map(lessons -> filterLessonsBySubgroup(lessons, groupMembership.subgroup())))
                         .flatMapIterable(items -> items)
         );
     }
-    
+
     public Mono<List<ResolvedLessonResponse>> getMyRange(
             UUID userId,
             String bearerToken,
@@ -60,7 +60,7 @@ public class MyScheduleService {
         if (dateTo.isBefore(dateFrom)) {
             throw new InvalidDateRangeException("dateTo must be on or after dateFrom");
         }
-        
+
         return getMySchedule(
                 userId,
                 bearerToken,
@@ -72,7 +72,7 @@ public class MyScheduleService {
                                 groupMembership.groupId(),
                                 dateFrom,
                                 dateTo
-                        ))
+                        ).map(lessons -> filterLessonsBySubgroup(lessons, groupMembership.subgroup())))
                         .flatMapIterable(items -> items)
                 );
     }
@@ -91,7 +91,7 @@ public class MyScheduleService {
                 ))
                 .map(tuple -> toCalendar(tuple.getT1(), lessonSlotsById(tuple.getT2())));
     }
-    
+
     private Mono<List<ResolvedLessonResponse>> getMySchedule(
             UUID userId,
             String bearerToken,
@@ -103,18 +103,18 @@ public class MyScheduleService {
                     if (groupMemberships.isEmpty()) {
                         return Mono.just(List.of());
                     }
-                    
+
                     Mono<Map<UUID, Integer>> slotNumbersMono = scheduleServiceClient.getLessonSlots(bearerToken, requestId)
                             .map(this::slotNumbersById);
-                    
+
                     Mono<List<ResolvedLessonResponse>> lessonsMono = lessonsSupplier.apply(groupMemberships)
                             .collectList();
-                    
+
                     return Mono.zip(slotNumbersMono, lessonsMono)
                             .map(tuple -> sortLessons(tuple.getT2(), tuple.getT1()));
                 });
     }
-    
+
     private Map<UUID, Integer> slotNumbersById(List<LessonSlotResponse> lessonSlots) {
         return lessonSlots.stream()
                 .collect(Collectors.toMap(LessonSlotResponse::id, LessonSlotResponse::number));
@@ -124,7 +124,7 @@ public class MyScheduleService {
         return lessonSlots.stream()
                 .collect(Collectors.toMap(LessonSlotResponse::id, lessonSlot -> lessonSlot));
     }
-    
+
     private List<ResolvedLessonResponse> sortLessons(
             List<ResolvedLessonResponse> lessons,
             Map<UUID, Integer> slotNumbersById
@@ -138,6 +138,30 @@ public class MyScheduleService {
                         .thenComparing(response -> response.subjectId().toString())
                         .thenComparing(response -> response.slotId().toString()))
                 .toList();
+    }
+
+    private List<ResolvedLessonResponse> filterLessonsBySubgroup(
+            List<ResolvedLessonResponse> lessons,
+            String membershipSubgroup
+    ) {
+        return lessons.stream()
+                .filter(lesson -> subgroupVisible(membershipSubgroup, lesson.subgroup()))
+                .toList();
+    }
+
+    private boolean subgroupVisible(String membershipSubgroup, String lessonSubgroup) {
+        String normalizedLessonSubgroup = normalizeSubgroup(lessonSubgroup);
+        if ("ALL".equals(normalizedLessonSubgroup)) {
+            return true;
+        }
+
+        String normalizedMembershipSubgroup = normalizeSubgroup(membershipSubgroup);
+        return "ALL".equals(normalizedMembershipSubgroup)
+                || normalizedMembershipSubgroup.equals(normalizedLessonSubgroup);
+    }
+
+    private String normalizeSubgroup(String subgroup) {
+        return subgroup == null || subgroup.isBlank() ? "ALL" : subgroup;
     }
 
     private Mono<DateRange> resolveDateRange(

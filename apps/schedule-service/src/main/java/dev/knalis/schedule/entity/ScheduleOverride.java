@@ -30,65 +30,70 @@ import java.util.UUID;
                 @Index(name = "idx_schedule_overrides_teacher_id", columnList = "teacherId"),
                 @Index(name = "idx_schedule_overrides_room_id", columnList = "roomId"),
                 @Index(name = "idx_schedule_overrides_slot_id", columnList = "slotId"),
+                @Index(name = "idx_schedule_overrides_subgroup", columnList = "subgroup"),
                 @Index(name = "idx_schedule_overrides_override_type", columnList = "overrideType")
         }
 )
 public class ScheduleOverride {
-    
+
     @Id
     private UUID id;
-    
+
     @Column(nullable = false)
     private UUID semesterId;
-    
+
     @Column
     private UUID templateId;
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private OverrideType overrideType;
-    
+
     @Column(nullable = false)
     private LocalDate date;
-    
+
     @Column(nullable = false)
     private UUID groupId;
-    
+
     @Column(nullable = false)
     private UUID subjectId;
-    
+
     @Column(nullable = false)
     private UUID teacherId;
-    
+
     @Column(nullable = false)
     private UUID slotId;
-    
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'ALL'")
+    private Subgroup subgroup = Subgroup.ALL;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private LessonType lessonType;
-    
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private LessonFormat lessonFormat;
-    
+
     @Column
     private UUID roomId;
-    
+
     @Column(length = 500)
     private String onlineMeetingUrl;
-    
+
     @Column(length = 2000)
     private String notes;
-    
+
     @Column(nullable = false)
     private UUID createdByUserId;
-    
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
-    
+
     @Column(nullable = false)
     private Instant updatedAt;
-    
+
     @PrePersist
     public void prePersist() {
         Instant now = Instant.now();
@@ -98,11 +103,17 @@ public class ScheduleOverride {
         if (createdAt == null) {
             createdAt = now;
         }
+        if (subgroup == null) {
+            subgroup = Subgroup.ALL;
+        }
         updatedAt = now;
     }
-    
+
     @PreUpdate
     public void preUpdate() {
+        if (subgroup == null) {
+            subgroup = Subgroup.ALL;
+        }
         updatedAt = Instant.now();
     }
 }

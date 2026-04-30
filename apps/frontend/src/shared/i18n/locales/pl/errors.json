@@ -7,6 +7,7 @@
   "AUDIT_EVENT_NOT_FOUND": "Nie znaleziono zdarzenia audytowego.",
   "BAD_CREDENTIALS": "Nieprawidłowy login lub hasło.",
   "DEADLINE_EXPIRED": "Termin wykonania tej akcji już minął.",
+  "DOWNSTREAM_UNAVAILABLE": "Wymagana usługa backendu jest chwilowo niedostępna. Spróbuj ponownie za moment.",
   "EMAIL_ALREADY_EXISTS": "Konto z tym adresem e-mail już istnieje.",
   "ENTITY_NOT_FOUND": "Nie znaleziono żądanej encji.",
   "FILE_PREVIEW_NOT_AVAILABLE": "Podgląd tego pliku nie jest dostępny.",

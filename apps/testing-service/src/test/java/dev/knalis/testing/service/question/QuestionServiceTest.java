@@ -4,6 +4,8 @@ import dev.knalis.testing.dto.request.CreateQuestionRequest;
 import dev.knalis.testing.dto.response.QuestionResponse;
 import dev.knalis.testing.entity.Question;
 import dev.knalis.testing.entity.QuestionType;
+import dev.knalis.testing.entity.TestStatus;
+import dev.knalis.testing.exception.TestInvalidStateException;
 import dev.knalis.testing.exception.TestNotFoundException;
 import dev.knalis.testing.factory.question.QuestionFactory;
 import dev.knalis.testing.mapper.QuestionMapper;
@@ -101,7 +103,13 @@ class QuestionServiceTest {
                 now
         );
         
-        when(testService.requireOwnedTest(actorId, false, testId)).thenReturn(null);
+        dev.knalis.testing.entity.Test test = new dev.knalis.testing.entity.Test();
+        test.setId(testId);
+        test.setStatus(TestStatus.DRAFT);
+        test.setMaxPoints(100);
+
+        when(testService.requireOwnedTest(actorId, false, testId)).thenReturn(test);
+        when(questionRepository.sumPointsByTestId(testId)).thenReturn(0);
         when(questionRepository.save(any(Question.class))).thenReturn(question);
         when(questionMapper.toResponse(question)).thenReturn(response);
         
@@ -117,5 +125,33 @@ class QuestionServiceTest {
         ));
         
         assertEquals(response, result);
+    }
+
+    @Test
+    void createQuestionRejectsPointsAboveTestMaximum() {
+        UUID testId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+
+        dev.knalis.testing.entity.Test test = new dev.knalis.testing.entity.Test();
+        test.setId(testId);
+        test.setStatus(TestStatus.DRAFT);
+        test.setMaxPoints(10);
+
+        when(testService.requireOwnedTest(actorId, false, testId)).thenReturn(test);
+        when(questionRepository.sumPointsByTestId(testId)).thenReturn(8);
+
+        assertThrows(
+                TestInvalidStateException.class,
+                () -> questionService.createQuestion(actorId, false, new CreateQuestionRequest(
+                        testId,
+                        "Question?",
+                        QuestionType.SINGLE_CHOICE,
+                        null,
+                        3,
+                        0,
+                        true,
+                        null
+                ))
+        );
     }
 }

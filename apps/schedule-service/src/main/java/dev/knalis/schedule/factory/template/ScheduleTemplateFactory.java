@@ -4,6 +4,7 @@ import dev.knalis.schedule.entity.LessonFormat;
 import dev.knalis.schedule.entity.LessonType;
 import dev.knalis.schedule.entity.ScheduleTemplate;
 import dev.knalis.schedule.entity.ScheduleTemplateStatus;
+import dev.knalis.schedule.entity.Subgroup;
 import dev.knalis.schedule.entity.WeekType;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +13,7 @@ import java.util.UUID;
 
 @Component
 public class ScheduleTemplateFactory {
-    
+
     public ScheduleTemplate newScheduleTemplate(
             UUID semesterId,
             UUID groupId,
@@ -21,6 +22,7 @@ public class ScheduleTemplateFactory {
             DayOfWeek dayOfWeek,
             UUID slotId,
             WeekType weekType,
+            Subgroup subgroup,
             LessonType lessonType,
             LessonFormat lessonFormat,
             UUID roomId,
@@ -36,6 +38,7 @@ public class ScheduleTemplateFactory {
         scheduleTemplate.setDayOfWeek(dayOfWeek);
         scheduleTemplate.setSlotId(slotId);
         scheduleTemplate.setWeekType(weekType);
+        scheduleTemplate.setSubgroup(subgroup == null ? Subgroup.ALL : subgroup);
         scheduleTemplate.setLessonType(lessonType);
         scheduleTemplate.setLessonFormat(lessonFormat);
         scheduleTemplate.setRoomId(roomId);
@@ -45,7 +48,7 @@ public class ScheduleTemplateFactory {
         scheduleTemplate.setActive(active);
         return scheduleTemplate;
     }
-    
+
     private String normalize(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }

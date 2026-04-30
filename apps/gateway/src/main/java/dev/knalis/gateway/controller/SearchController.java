@@ -26,7 +26,7 @@ public class SearchController {
     public Mono<SearchPageResponse> search(
             JwtAuthenticationToken authentication,
             ServerWebExchange exchange,
-            @RequestParam String q,
+            @RequestParam(defaultValue = "") String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "title") String sortBy,

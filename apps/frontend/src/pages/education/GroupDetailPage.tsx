@@ -9,26 +9,23 @@ import { adminUserService, analyticsService, educationService, scheduleService, 
 import { isAccessDeniedApiError } from '@/shared/lib/api-errors'
 import { cn } from '@/shared/lib/cn'
 import { formatDate, formatDateTime } from '@/shared/lib/format'
-import { toSubjectOption, toTeacherOption } from '@/shared/lib/picker-options'
 import { hasAnyRole } from '@/shared/lib/roles'
-import type { GroupMemberRole, SubgroupValue, SubjectResponse, UserSummaryResponse } from '@/shared/types/api'
+import type { GroupMemberRole, SubgroupValue } from '@/shared/types/api'
 import { Button } from '@/shared/ui/Button'
 import { Card } from '@/shared/ui/Card'
 import { DataTable } from '@/shared/ui/DataTable'
-import { EntityPicker } from '@/shared/ui/EntityPicker'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { SectionTabs } from '@/shared/ui/SectionTabs'
 import { Select } from '@/shared/ui/Select'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
-import { Textarea } from '@/shared/ui/Textarea'
 import { UserAvatar } from '@/shared/ui/UserAvatar'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 import { MetricCard } from '@/widgets/common/MetricCard'
 import { RiskBadge } from '@/widgets/common/RiskBadge'
 
-type GroupTab = 'overview' | 'students' | 'subjects' | 'schedule' | 'analytics' | 'settings'
+type GroupTab = 'overview' | 'students' | 'schedule' | 'analytics' | 'settings'
 
 const subgroupValues: SubgroupValue[] = ['ALL', 'FIRST', 'SECOND']
 const memberRoleValues: GroupMemberRole[] = ['STUDENT', 'STAROSTA']
@@ -41,19 +38,10 @@ export function GroupDetailPage() {
   const canManageGroup = hasAnyRole(roles, ['ADMIN', 'OWNER'])
   const [activeTab, setActiveTab] = useState<GroupTab>('overview')
   const [studentSearch, setStudentSearch] = useState('')
-  const [teacherSearch, setTeacherSearch] = useState('')
-  const [subjectSearch, setSubjectSearch] = useState('')
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
-  const [selectedTeacherIds, setSelectedTeacherIds] = useState<string[]>([])
-  const [pendingSubjectId, setPendingSubjectId] = useState('')
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [isImporting, setIsImporting] = useState(false)
-  const [subjectForm, setSubjectForm] = useState({
-    name: '',
-    description: '',
-    pendingTeacherId: '',
-  })
   const weekRange = useMemo(() => buildCurrentWeekRange(), [])
 
   const groupQuery = useQuery({
@@ -101,8 +89,8 @@ export function GroupDetailPage() {
     const subjectTeacherIds = subjectsQuery.data?.items.flatMap((subject) => subject.teacherIds) ?? []
     const scheduleTeacherIds = scheduleQuery.data?.map((lesson) => lesson.teacherId) ?? []
 
-    return Array.from(new Set([...memberIds, ...subjectTeacherIds, ...scheduleTeacherIds, ...selectedTeacherIds])).filter(Boolean)
-  }, [membersQuery.data, scheduleQuery.data, selectedTeacherIds, subjectsQuery.data?.items])
+    return Array.from(new Set([...memberIds, ...subjectTeacherIds, ...scheduleTeacherIds])).filter(Boolean)
+  }, [membersQuery.data, scheduleQuery.data, subjectsQuery.data?.items])
   const userDirectoryQuery = useQuery({
     queryKey: ['auth', 'directory', relatedUserIds.join(',')],
     queryFn: () => userDirectoryService.lookup(relatedUserIds),
@@ -119,30 +107,6 @@ export function GroupDetailPage() {
     }),
     enabled: canManageGroup,
   })
-  const teacherCandidatesQuery = useQuery({
-    queryKey: ['admin', 'teacher-candidates', teacherSearch],
-    queryFn: () => adminUserService.list({
-      page: 0,
-      size: 20,
-      role: 'TEACHER',
-      search: teacherSearch.trim() || undefined,
-      sortBy: 'username',
-      direction: 'asc',
-    }),
-    enabled: canManageGroup,
-  })
-  const subjectOptionsQuery = useQuery({
-    queryKey: ['education', 'subjects', 'picker', subjectSearch],
-    queryFn: () => educationService.listSubjects({
-      page: 0,
-      size: 20,
-      q: subjectSearch.trim() || undefined,
-      sortBy: 'name',
-      direction: 'asc',
-    }),
-    enabled: canManageGroup,
-  })
-
   const addStudentMutation = useMutation({
     mutationFn: async (userIds: string[]) => {
       for (const userId of userIds) {
@@ -173,63 +137,6 @@ export function GroupDetailPage() {
     },
     onError: () => setFeedback({ tone: 'error', message: t('education.studentRemovedError') }),
   })
-  const createSubjectMutation = useMutation({
-    mutationFn: () => educationService.createSubject({
-      name: subjectForm.name,
-      description: subjectForm.description,
-      groupIds: [groupId],
-      teacherIds: selectedTeacherIds,
-    }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['education', 'group-subjects', groupId] })
-      setSelectedTeacherIds([])
-      setSubjectForm({ name: '', description: '', pendingTeacherId: '' })
-      setFeedback({ tone: 'success', message: t('education.subjectCreatedSuccess') })
-    },
-    onError: () => setFeedback({ tone: 'error', message: t('education.subjectCreatedError') }),
-  })
-  const bindSubjectMutation = useMutation({
-    mutationFn: async (subject: SubjectResponse) =>
-      educationService.updateSubject(subject.id, {
-        name: subject.name,
-        description: subject.description ?? '',
-        groupIds: Array.from(new Set([...subject.groupIds, groupId])),
-        teacherIds: subject.teacherIds,
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['education', 'group-subjects', groupId] })
-      setPendingSubjectId('')
-      setFeedback({ tone: 'success', message: t('education.subjectBoundSuccess') })
-    },
-    onError: () => setFeedback({ tone: 'error', message: t('education.subjectBoundError') }),
-  })
-  const unbindSubjectMutation = useMutation({
-    mutationFn: async (subject: SubjectResponse) => {
-      const nextGroupIds = subject.groupIds.filter((value) => value !== groupId)
-      if (nextGroupIds.length === 0) {
-        throw new Error('last-group')
-      }
-
-      return educationService.updateSubject(subject.id, {
-        name: subject.name,
-        description: subject.description ?? '',
-        groupIds: nextGroupIds,
-        teacherIds: subject.teacherIds,
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['education', 'group-subjects', groupId] })
-      setFeedback({ tone: 'success', message: t('education.subjectUnboundSuccess') })
-    },
-    onError: (error) => {
-      const isLastGroup = error instanceof Error && error.message === 'last-group'
-      setFeedback({
-        tone: 'error',
-        message: isLastGroup ? t('education.lastSubjectGroupError') : t('education.subjectUnboundError'),
-      })
-    },
-  })
-
   if (groupQuery.isLoading || membersQuery.isLoading || subjectsQuery.isLoading) {
     return <LoadingState />
   }
@@ -255,18 +162,10 @@ export function GroupDetailPage() {
   const subjects = subjectsQuery.data?.items ?? []
   const studentSnapshots = analyticsStudentsQuery.data?.items ?? []
   const candidateStudents = studentCandidatesQuery.data?.content ?? []
-  const teacherCandidates = teacherCandidatesQuery.data?.content ?? []
-  const teacherOptions = teacherCandidates.map((teacher) => toTeacherOption(teacher))
-  const subjectOptions = (subjectOptionsQuery.data?.items ?? [])
-    .filter((subject) => !subject.groupIds.includes(groupId))
-    .map((subject) => toSubjectOption(subject, undefined, t('education.groupsLabel')))
   const userMap = new Map((userDirectoryQuery.data ?? []).map((user) => [user.id, user]))
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject.name]))
   const slotMap = new Map((slotQuery.data ?? []).map((slot) => [slot.id, slot]))
   const roomMap = new Map((roomQuery.data ?? []).map((room) => [room.id, `${room.building} · ${room.code}`]))
-  const selectedTeachers = selectedTeacherIds
-    .map((teacherId) => teacherCandidates.find((teacher) => teacher.id === teacherId) ?? userMap.get(teacherId))
-    .filter(Boolean) as Array<UserSummaryResponse | typeof teacherCandidates[number]>
   const weekDays = buildWeekDays(weekRange.dateFrom)
   const lessonsByDate = new Map<string, typeof scheduleQuery.data>()
   for (const date of weekDays) {
@@ -282,6 +181,7 @@ export function GroupDetailPage() {
     <div className="space-y-6">
       <Breadcrumbs
         items={[
+          { label: t('navigation.shared.education'), to: '/education' },
           { label: t('navigation.shared.groups'), to: '/groups' },
           { label: group.name },
         ]}
@@ -291,12 +191,12 @@ export function GroupDetailPage() {
         actions={(
           <div className="flex flex-wrap gap-3">
             <Link to="/groups">
-              <Button variant="secondary">{t('common.actions.back')}</Button>
+              <Button variant="secondary">{t('education.backToGroups')}</Button>
             </Link>
             <Link to="/education">
               <Button variant="secondary">{t('navigation.shared.education')}</Button>
             </Link>
-            <Link to="/schedule">
+            <Link to={`/schedule/groups/${groupId}`}>
               <Button variant="ghost">{t('navigation.shared.schedule')}</Button>
             </Link>
           </div>
@@ -611,152 +511,6 @@ export function GroupDetailPage() {
         </div>
       ) : null}
 
-      {activeTab === 'subjects' ? (
-        <div className="space-y-6">
-          {canManageGroup ? (
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-              <Card className="space-y-4">
-                <PageHeader
-                  description={t('education.bindExistingSubjectDescription')}
-                  title={t('education.assignExistingSubject')}
-                />
-                <EntityPicker
-                  label={t('navigation.shared.subjects')}
-                  value={pendingSubjectId}
-                  options={subjectOptions}
-                  placeholder={t('education.selectSubject')}
-                  emptyLabel={t('education.noAvailableSubjects')}
-                  loading={subjectOptionsQuery.isLoading}
-                  searchLabel={t('common.actions.search')}
-                  searchPlaceholder={t('education.subjectSearchPlaceholder')}
-                  searchValue={subjectSearch}
-                  onChange={setPendingSubjectId}
-                  onSearchChange={setSubjectSearch}
-                />
-                <Button
-                  disabled={!pendingSubjectId || bindSubjectMutation.isPending}
-                  onClick={() => {
-                    const subject = (subjectOptionsQuery.data?.items ?? []).find((item) => item.id === pendingSubjectId)
-                    if (subject) {
-                      bindSubjectMutation.mutate(subject)
-                    }
-                  }}
-                >
-                  {t('education.assignSubjectToGroup')}
-                </Button>
-              </Card>
-
-              <Card className="space-y-4">
-                <PageHeader
-                  description={t('education.groupCreateSubjectDescription')}
-                  title={t('education.createSubject')}
-                />
-                <FormField label={t('common.labels.name')}>
-                  <Input
-                    value={subjectForm.name}
-                    onChange={(event) => setSubjectForm((current) => ({ ...current, name: event.target.value }))}
-                  />
-                </FormField>
-                <FormField label={t('common.labels.description')}>
-                  <Textarea
-                    value={subjectForm.description}
-                    onChange={(event) => setSubjectForm((current) => ({ ...current, description: event.target.value }))}
-                  />
-                </FormField>
-                <EntityPicker
-                  label={t('education.subjectTeachers')}
-                  value={subjectForm.pendingTeacherId}
-                  options={teacherOptions}
-                  placeholder={t('education.selectTeacher')}
-                  emptyLabel={t('education.noTeacherOptions')}
-                  loading={teacherCandidatesQuery.isLoading}
-                  searchLabel={t('common.actions.search')}
-                  searchPlaceholder={t('education.teacherSearchPlaceholder')}
-                  searchValue={teacherSearch}
-                  onChange={(value) => setSubjectForm((current) => ({ ...current, pendingTeacherId: value }))}
-                  onSearchChange={setTeacherSearch}
-                />
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    variant="secondary"
-                    disabled={!subjectForm.pendingTeacherId}
-                    onClick={() => {
-                      setSelectedTeacherIds((current) => (
-                        current.includes(subjectForm.pendingTeacherId)
-                          ? current
-                          : [...current, subjectForm.pendingTeacherId]
-                      ))
-                      setSubjectForm((current) => ({ ...current, pendingTeacherId: '' }))
-                    }}
-                  >
-                    {t('common.actions.add')}
-                  </Button>
-                </div>
-                {selectedTeachers.length > 0 ? (
-                  <SelectedUsers
-                    items={selectedTeachers}
-                    onRemove={(userId) => setSelectedTeacherIds((current) => current.filter((value) => value !== userId))}
-                  />
-                ) : null}
-                <Button
-                  disabled={!subjectForm.name.trim() || createSubjectMutation.isPending}
-                  onClick={() => createSubjectMutation.mutate()}
-                >
-                  {t('common.actions.create')}
-                </Button>
-              </Card>
-            </div>
-          ) : null}
-
-          {subjects.length === 0 ? (
-            <EmptyState description={t('education.noSubjectsInGroup')} title={t('education.groupTabs.subjects')} />
-          ) : (
-            <DataTable
-              getRowId={(subject) => subject.id}
-              columns={[
-                {
-                  key: 'name',
-                  header: t('common.labels.name'),
-                  render: (subject) => (
-                    <Link className="font-medium text-accent" to={`/subjects/${subject.id}`}>
-                      {subject.name}
-                    </Link>
-                  ),
-                },
-                {
-                  key: 'teachers',
-                  header: t('education.subjectTeachers'),
-                  render: (subject) => (
-                    <span>
-                      {subject.teacherIds.length === 0
-                        ? t('education.noTeachersAssigned')
-                        : subject.teacherIds.map((teacherId) => userMap.get(teacherId)?.username ?? t('education.unknownTeacher')).join(', ')}
-                    </span>
-                  ),
-                },
-                {
-                  key: 'groups',
-                  header: t('navigation.shared.groups'),
-                  render: (subject) => subject.groupIds.length,
-                },
-                {
-                  key: 'actions',
-                  header: t('common.labels.actions'),
-                  render: (subject) => (
-                    canManageGroup ? (
-                      <Button variant="ghost" onClick={() => unbindSubjectMutation.mutate(subject)}>
-                        {t('education.removeSubjectFromGroup')}
-                      </Button>
-                    ) : '—'
-                  ),
-                },
-              ]}
-              rows={subjects}
-            />
-          )}
-        </div>
-      ) : null}
-
       {activeTab === 'schedule' ? (
         scheduleQuery.isLoading ? (
           <LoadingState />
@@ -901,30 +655,6 @@ export function GroupDetailPage() {
     }
     return Array.from(new Set(resolvedIds))
   }
-}
-
-function SelectedUsers({
-  items,
-  onRemove,
-}: {
-  items: Array<Pick<UserSummaryResponse, 'id' | 'username' | 'email'>>
-  onRemove: (userId: string) => void
-}) {
-  return (
-    <div className="flex flex-wrap gap-3">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-muted px-3 py-2 text-sm text-text-primary"
-          type="button"
-          onClick={() => onRemove(item.id)}
-        >
-          <UserAvatar email={item.email} username={item.username} size="sm" />
-          <span>{item.username}</span>
-        </button>
-      ))}
-    </div>
-  )
 }
 
 function buildCurrentWeekRange() {

@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 
-import { assignmentService, dashboardService, userDirectoryService } from '@/shared/api/services'
+import { assignmentService, dashboardService, testingService, userDirectoryService } from '@/shared/api/services'
 import { formatDateTime } from '@/shared/lib/format'
 import type { AssignmentResponse } from '@/shared/types/api'
 import { Button } from '@/shared/ui/Button'
@@ -14,8 +14,9 @@ import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { Textarea } from '@/shared/ui/Textarea'
-import { ErrorState, LoadingState } from '@/shared/ui/StateViews'
+import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { UserAvatar } from '@/shared/ui/UserAvatar'
+import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 
 export function TeacherSubmissionsPage() {
   const { submissionId } = useParams()
@@ -40,11 +41,10 @@ export function TeacherSubmissionsPage() {
     () => Array.from(new Set(pendingSubmissions.map((submission) => submission.assignmentId))),
     [pendingSubmissions],
   )
-  const studentsQuery = useQuery({
-    queryKey: ['review', 'students', studentIds.join(',')],
-    queryFn: () => userDirectoryService.lookup(studentIds),
-    enabled: studentIds.length > 0,
-  })
+  const activeTestIds = useMemo(
+    () => Array.from(new Set((dashboardQuery.data?.activeTests ?? []).map((test) => test.testId))),
+    [dashboardQuery.data?.activeTests],
+  )
   const assignmentsQuery = useQuery({
     queryKey: ['review', 'assignments', assignmentIds.join(',')],
     queryFn: async () => {
@@ -65,6 +65,29 @@ export function TeacherSubmissionsPage() {
     queryKey: ['submission-comments', selectedSubmissionId],
     queryFn: () => assignmentService.listSubmissionComments(selectedSubmissionId),
     enabled: Boolean(selectedSubmissionId),
+  })
+  const testResultsQuery = useQuery({
+    queryKey: ['review', 'test-results', activeTestIds.join(',')],
+    queryFn: async () => {
+      const pages = await Promise.all(
+        activeTestIds.map((testId) => testingService.getTestResultsByTest(testId, { page: 0, size: 20 })),
+      )
+      return pages.flatMap((page) => page.items)
+    },
+    enabled: activeTestIds.length > 0,
+  })
+  const testResultStudentIds = useMemo(
+    () => Array.from(new Set((testResultsQuery.data ?? []).map((result) => result.userId))),
+    [testResultsQuery.data],
+  )
+  const allStudentIds = useMemo(
+    () => Array.from(new Set([...studentIds, ...testResultStudentIds])),
+    [studentIds, testResultStudentIds],
+  )
+  const studentsQuery = useQuery({
+    queryKey: ['review', 'students', allStudentIds.join(',')],
+    queryFn: () => userDirectoryService.lookup(allStudentIds),
+    enabled: allStudentIds.length > 0,
   })
 
   const submissionOptions = useMemo(
@@ -100,26 +123,27 @@ export function TeacherSubmissionsPage() {
     mutationFn: () => assignmentService.createGrade({ submissionId: selectedSubmissionId, ...gradeForm }),
   })
 
-  if (dashboardQuery.isLoading || commentsQuery.isLoading || studentsQuery.isLoading || assignmentsQuery.isLoading) {
+  if (dashboardQuery.isLoading || commentsQuery.isLoading || studentsQuery.isLoading || assignmentsQuery.isLoading || testResultsQuery.isLoading) {
     return <LoadingState />
   }
 
-  if (dashboardQuery.isError || commentsQuery.isError || studentsQuery.isError || assignmentsQuery.isError || !dashboardQuery.data) {
+  if (dashboardQuery.isError || commentsQuery.isError || studentsQuery.isError || assignmentsQuery.isError || testResultsQuery.isError || !dashboardQuery.data) {
     return <ErrorState title={t('navigation.shared.review')} description={t('common.states.error')} />
   }
   const studentById = new Map((studentsQuery.data ?? []).map((student) => [student.id, student]))
   const assignmentById = new Map((assignmentsQuery.data ?? []).map((assignment) => [assignment.id, assignment]))
+  const activeTestById = new Map((dashboardQuery.data.activeTests ?? []).map((test) => [test.testId, test]))
+  const unreviewedTestResults = (testResultsQuery.data ?? []).filter((result) => !result.reviewedAt)
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs items={[{ label: t('navigation.shared.review') }]} />
       <PageHeader
         description={t('assignments.reviewDescription')}
         title={t('navigation.shared.review')}
       />
-      {pendingSubmissions.length === 0 ? (
-        <Card>
-          <p className="text-sm leading-6 text-text-secondary">{t('assignments.noSubmissionsToReview')}</p>
-        </Card>
+      {pendingSubmissions.length === 0 && unreviewedTestResults.length === 0 ? (
+        <EmptyState description={t('review.emptyQueue')} title={t('navigation.shared.review')} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {pendingSubmissions.map((submission) => {
@@ -160,6 +184,40 @@ export function TeacherSubmissionsPage() {
               </Card>
             )
           })}
+          {unreviewedTestResults.map((result) => {
+            const student = studentById.get(result.userId)
+            const test = activeTestById.get(result.testId)
+
+            return (
+              <Card key={result.id} className="space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <UserAvatar email={student?.email} size="md" username={student?.username} />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-text-primary">
+                        {student?.username ?? t('education.unknownStudent')}
+                      </p>
+                      <p className="truncate text-sm text-text-secondary">
+                        {test?.title ?? t('navigation.shared.tests')}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-info/30 bg-info/10 px-2.5 py-1 text-xs font-semibold text-info">
+                    {t('review.testResult')}
+                  </span>
+                </div>
+                <p className="text-sm text-text-secondary">
+                  {t('testing.autoScore')}: {result.autoScore} · {t('common.labels.score')}: {result.score}
+                </p>
+                <p className="text-sm text-text-secondary">
+                  {t('assignments.submittedAt')}: {formatDateTime(result.createdAt)}
+                </p>
+                <Link to={`/tests/${result.testId}`}>
+                  <Button>{t('testing.reviewResult')}</Button>
+                </Link>
+              </Card>
+            )
+          })}
         </div>
       )}
 
@@ -180,7 +238,7 @@ export function TeacherSubmissionsPage() {
         {commentsQuery.data?.length ? (
           <DataTable
             columns={[
-              { key: 'authorUserId', header: t('audit.actorUserId'), render: (item) => item.authorUserId },
+              { key: 'authorUserId', header: t('assignments.commentAuthor'), render: (item) => studentById.get(item.authorUserId)?.username ?? t('education.unknownStudent') },
               { key: 'body', header: t('assignments.comment'), render: (item) => item.body },
               { key: 'createdAt', header: t('audit.occurredAt'), render: (item) => formatDateTime(item.createdAt) },
             ]}

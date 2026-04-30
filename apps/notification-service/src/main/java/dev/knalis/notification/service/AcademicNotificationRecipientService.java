@@ -36,6 +36,9 @@ public class AcademicNotificationRecipientService {
     public List<UUID> resolveTopicStudentRecipients(UUID topicId) {
         UUID subjectId = educationServiceClient.getTopic(topicId).subjectId();
         UUID groupId = educationServiceClient.getSubject(subjectId).groupId();
+        if (groupId == null) {
+            return List.of();
+        }
         return educationServiceClient.getGroupStudents(groupId).stream()
                 .map(groupStudent -> groupStudent.userId())
                 .distinct()

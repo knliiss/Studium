@@ -123,7 +123,7 @@ export interface GroupStudentMembershipResponse {
 export interface SubjectResponse {
   id: string
   name: string
-  groupId: string
+  groupId: string | null
   groupIds: string[]
   teacherIds: string[]
   description: string | null
@@ -147,6 +147,7 @@ export interface AcademicSemesterResponse {
   endDate: string
   weekOneStartDate: string
   active: boolean
+  published: boolean
   createdAt: string
   updatedAt: string
 }
@@ -181,6 +182,7 @@ export interface ScheduleTemplateResponse {
   dayOfWeek: string
   slotId: string
   weekType: 'ALL' | 'ODD' | 'EVEN'
+  subgroup: SubgroupValue
   lessonType: 'LECTURE' | 'PRACTICAL' | 'LABORATORY'
   lessonTypeDisplayName: string
   lessonFormat: 'ONLINE' | 'OFFLINE'
@@ -203,6 +205,7 @@ export interface ScheduleOverrideResponse {
   subjectId: string | null
   teacherId: string | null
   slotId: string | null
+  subgroup: SubgroupValue | null
   lessonType: 'LECTURE' | 'PRACTICAL' | 'LABORATORY' | null
   lessonTypeDisplayName: string | null
   lessonFormat: 'ONLINE' | 'OFFLINE' | null
@@ -222,6 +225,7 @@ export interface ResolvedLessonResponse {
   subjectId: string
   teacherId: string
   slotId: string
+  subgroup: SubgroupValue
   weekNumber: number
   weekType: 'ALL' | 'ODD' | 'EVEN'
   lessonType: 'LECTURE' | 'PRACTICAL' | 'LABORATORY'
@@ -235,8 +239,17 @@ export interface ResolvedLessonResponse {
 }
 
 export interface ScheduleConflictItemResponse {
+  type?: string
   message?: string
-  conflictType?: string
+  conflictingEntityId?: string | null
+  conflictingEntityType?: string | null
+  date?: string | null
+  dayOfWeek?: string | null
+  slotId?: string | null
+  groupId?: string | null
+  subgroup?: SubgroupValue | null
+  teacherId?: string | null
+  roomId?: string | null
 }
 
 export interface ScheduleConflictCheckResponse {

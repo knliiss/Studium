@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -25,6 +26,12 @@ public class GatewayErrorResponseWriter {
 
     public Mono<Void> write(ServerWebExchange exchange, HttpStatus status, String errorCode, String message) {
         String requestId = exchange.getAttribute(RequestIdFilter.REQUEST_ID_ATTRIBUTE);
+        if (requestId == null || requestId.isBlank()) {
+            requestId = exchange.getRequest().getHeaders().getFirst(RequestIdFilter.REQUEST_ID_HEADER);
+        }
+        if (requestId == null || requestId.isBlank()) {
+            requestId = UUID.randomUUID().toString();
+        }
 
         ErrorResponse response = new ErrorResponse(
                 Instant.now(),

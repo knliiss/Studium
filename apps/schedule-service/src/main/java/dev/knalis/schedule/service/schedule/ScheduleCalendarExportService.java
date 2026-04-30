@@ -22,24 +22,54 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ScheduleCalendarExportService {
-    
+
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
     private final AcademicSemesterRepository academicSemesterRepository;
     private final LessonSlotRepository lessonSlotRepository;
     private final ScheduleReadService scheduleReadService;
-    
+
     @Transactional(readOnly = true)
     public String exportGroup(UUID groupId, LocalDate dateFrom, LocalDate dateTo) {
-        DateRange dateRange = resolveDateRange(dateFrom, dateTo);
-        return toCalendar(scheduleReadService.getGroupRange(groupId, dateRange.dateFrom(), dateRange.dateTo()));
+        return exportGroup(groupId, dateFrom, dateTo, true);
     }
-    
+
+    @Transactional(readOnly = true)
+    public String exportGroup(
+            UUID groupId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean includeUnpublishedFuture
+    ) {
+        DateRange dateRange = resolveDateRange(dateFrom, dateTo);
+        return toCalendar(scheduleReadService.getGroupRange(
+                groupId,
+                dateRange.dateFrom(),
+                dateRange.dateTo(),
+                includeUnpublishedFuture
+        ));
+    }
+
     @Transactional(readOnly = true)
     public String exportTeacher(UUID teacherId, LocalDate dateFrom, LocalDate dateTo) {
-        DateRange dateRange = resolveDateRange(dateFrom, dateTo);
-        return toCalendar(scheduleReadService.getTeacherRange(teacherId, dateRange.dateFrom(), dateRange.dateTo()));
+        return exportTeacher(teacherId, dateFrom, dateTo, true);
     }
-    
+
+    @Transactional(readOnly = true)
+    public String exportTeacher(
+            UUID teacherId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            boolean includeUnpublishedFuture
+    ) {
+        DateRange dateRange = resolveDateRange(dateFrom, dateTo);
+        return toCalendar(scheduleReadService.getTeacherRange(
+                teacherId,
+                dateRange.dateFrom(),
+                dateRange.dateTo(),
+                includeUnpublishedFuture
+        ));
+    }
+
     public String toCalendar(List<ResolvedLessonResponse> lessons) {
         Map<UUID, LessonSlot> lessonSlots = lessonSlotRepository.findAllById(
                 lessons.stream().map(ResolvedLessonResponse::slotId).toList()
@@ -50,7 +80,7 @@ public class ScheduleCalendarExportService {
         calendar.append("VERSION:2.0\r\n");
         calendar.append("PRODID:-//Studium//Schedule//EN\r\n");
         calendar.append("CALSCALE:GREGORIAN\r\n");
-        
+
         for (ResolvedLessonResponse lesson : lessons) {
             LessonSlot lessonSlot = lessonSlots.get(lesson.slotId());
             if (lessonSlot == null) {
@@ -58,7 +88,7 @@ public class ScheduleCalendarExportService {
             }
             LocalDateTime start = LocalDateTime.of(lesson.date(), lessonSlot.getStartTime());
             LocalDateTime end = LocalDateTime.of(lesson.date(), lessonSlot.getEndTime());
-            
+
             calendar.append("BEGIN:VEVENT\r\n");
             calendar.append("UID:").append(uid(lesson)).append("\r\n");
             calendar.append("DTSTAMP:").append(format(LocalDateTime.now())).append("\r\n");
@@ -71,7 +101,7 @@ public class ScheduleCalendarExportService {
             }
             calendar.append("END:VEVENT\r\n");
         }
-        
+
         calendar.append("END:VCALENDAR\r\n");
         return calendar.toString();
     }
@@ -90,12 +120,12 @@ public class ScheduleCalendarExportService {
         validateRange(resolvedDateFrom, resolvedDateTo);
         return new DateRange(resolvedDateFrom, resolvedDateTo);
     }
-    
+
     private String summary(ResolvedLessonResponse lesson) {
         String lessonType = lesson.lessonTypeDisplayName() == null ? "Lesson" : lesson.lessonTypeDisplayName();
         return lessonType + " - subject " + lesson.subjectId();
     }
-    
+
     private String description(ResolvedLessonResponse lesson) {
         StringBuilder description = new StringBuilder();
         description.append("Lesson type: ").append(lesson.lessonType());
@@ -112,11 +142,11 @@ public class ScheduleCalendarExportService {
         }
         return description.toString();
     }
-    
+
     private String format(LocalDateTime dateTime) {
         return dateTime.atZone(ZoneOffset.UTC).format(FORMATTER);
     }
-    
+
     private String escape(String value) {
         return value
                 .replace("\\", "\\\\")

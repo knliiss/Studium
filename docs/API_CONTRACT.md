@@ -245,6 +245,7 @@ Common domain codes already in use include:
   Role access: `OWNER`, `ADMIN`
   Request DTO: `CreateSubjectRequest`
   Response DTO: `SubjectResponse`
+  Notes: initial creation requires only a subject name. Description, status, `groupIds`, and `teacherIds` are optional. Subjects can exist before they are linked to a group, so `SubjectResponse.groupId` may be `null` until a primary group is assigned.
 - `GET /api/v1/education/subjects`
   Role access: authenticated
   Query: `page`, `size`, `sortBy`, `direction`, optional `q`
@@ -282,17 +283,27 @@ Common domain codes already in use include:
 
 ### Schedule Service
 
+Foundation behavior:
+- `schedule-service` bootstraps global canonical lesson slots on startup when `SCHEDULE_BOOTSTRAP_ENABLED=true` (default). Slots are global, not semester-specific.
+- Canonical slots are fixed pairs `1..8`: `08:30-09:50`, `10:05-11:25`, `11:40-13:00`, `13:15-14:35`, `14:50-16:10`, `16:25-17:45`, `18:00-19:20`, `19:35-20:55`.
+- Public slot reads return only active canonical slots. Invalid local records such as pair `55` or `76` are not exposed as usable schedule pairs.
+- `schedule-service` bootstraps an active current semester and a next future semester when no active semester exists. Current semesters are active and published; future semesters are created unpublished by default.
+- `AcademicSemesterResponse` includes `published`. Student-only schedule reads hide unpublished future semesters; owner/admin/teacher reads can see planning data.
+- Past semesters are treated as read-only history by product flow. Historical schedule reads remain available.
+- Schedule templates, overrides, and resolved lessons include `subgroup` with canonical values `ALL`, `FIRST`, `SECOND`. Missing subgroup is treated as `ALL` for backwards-compatible writes.
+
 - `POST /api/v1/schedule/semesters`
   Role access: `OWNER`, `ADMIN`
   Request DTO: `CreateAcademicSemesterRequest`
   Response DTO: `AcademicSemesterResponse`
+  Notes: request/response include `published`; active semesters are always published
 - `GET /api/v1/schedule/semesters/{id}`
   Role access: `OWNER`, `ADMIN`
   Response DTO: `AcademicSemesterResponse`
 - `GET /api/v1/schedule/semesters/active`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Response DTO: `AcademicSemesterResponse`
-  Notes: current collection and local verification baseline accept either `200` or `404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND`
+  Notes: local/demo setup should return `200` because schedule foundation bootstrap creates an active semester
 - `GET /api/v1/schedule/semesters`
   Role access: `OWNER`, `ADMIN`
   Response DTO: `AcademicSemesterResponse[]`
@@ -305,13 +316,16 @@ Common domain codes already in use include:
   Role access: `OWNER`, `ADMIN`
   Request DTO: `CreateLessonSlotRequest`
   Response DTO: `LessonSlotResponse`
+  Notes: only canonical active slots `1..8` with fixed times are valid
 - `GET /api/v1/schedule/slots`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Response DTO: `LessonSlotResponse[]`
+  Notes: returns active canonical slots only, sorted by pair number
 - `PUT /api/v1/schedule/slots/{id}`
   Role access: `OWNER`, `ADMIN`
   Request DTO: `UpdateLessonSlotRequest`
   Response DTO: `LessonSlotResponse`
+  Notes: updates must keep the slot on the canonical timetable and active
 - `POST /api/v1/schedule/rooms`
   Role access: `OWNER`, `ADMIN`
   Request DTO: `CreateRoomRequest`
@@ -330,7 +344,7 @@ Common domain codes already in use include:
   Role access: `OWNER`, `ADMIN`
   Request DTO: `CreateScheduleTemplateRequest`
   Response DTO: `ScheduleTemplateResponse`
-  Notes: `ScheduleTemplateResponse` now exposes lifecycle `status` with `DRAFT`, `ACTIVE`, `ARCHIVED`
+  Notes: request/response include `subgroup`; `ScheduleTemplateResponse` exposes lifecycle `status` with `DRAFT`, `ACTIVE`, `ARCHIVED`
 - `POST /api/v1/schedule/templates/bulk`
   Role access: `OWNER`, `ADMIN`
   Request DTO: `BulkCreateScheduleTemplatesRequest`
@@ -356,10 +370,12 @@ Common domain codes already in use include:
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Request DTO: `CreateScheduleOverrideRequest`
   Response DTO: `ScheduleOverrideResponse`
+  Notes: request/response include `subgroup`; teacher `CANCEL` creates an occurrence override and an internal `TeacherDebt` record with status `OPEN`
 - `PUT /api/v1/schedule/overrides/{id}`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Request DTO: `UpdateScheduleOverrideRequest`
   Response DTO: `ScheduleOverrideResponse`
+  Notes: request/response include `subgroup`
 - `DELETE /api/v1/schedule/overrides/{id}`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: empty body
@@ -370,6 +386,9 @@ Common domain codes already in use include:
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Request DTO: `ScheduleConflictCheckRequest`
   Response DTO: `ScheduleConflictCheckResponse`
+  Notes: template checks require `semesterId`, `dayOfWeek`, `slotId`, `weekType`, `groupId`, `subjectId`, `teacherId`, `lessonType`, and `lessonFormat`; optional supported fields are `subgroup`, `roomId`, and `onlineMeetingUrl`
+  Conflict types: `DUPLICATE_LESSON_CONFLICT`, `TEACHER_CONFLICT`, `ROOM_CONFLICT`, `GROUP_SUBGROUP_CONFLICT`
+  Subgroup conflict rules: `FIRST` conflicts with `FIRST`, `SECOND` conflicts with `SECOND`, `ALL` conflicts with both, and `FIRST` does not conflict with `SECOND`
 - `GET /api/v1/schedule/groups/{groupId}/week`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Query: `startDate`
@@ -559,7 +578,12 @@ Common domain codes already in use include:
 - `GET /api/v1/testing/results/{id}`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: `TestResultResponse`
-  Notes: teachers are restricted to results for tests they created; response includes final score, original auto score, override score/reason, reviewer, and review timestamp
+  Notes: teachers are restricted to results for tests they created or subjects they are assigned to; response includes final score, original auto score, override score/reason, reviewer, and review timestamp
+- `GET /api/v1/testing/results/test/{testId}`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Query: `page`, `size`
+  Response DTO: `TestResultPageResponse`
+  Notes: lists submitted results for a test so teachers can review auto-graded results
 - `PATCH /api/v1/testing/results/{id}/score`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Request DTO: `OverrideTestResultScoreRequest`
@@ -687,6 +711,8 @@ Common domain codes already in use include:
 - Request DTO validation is driven by `jakarta.validation` annotations on the corresponding request records.
 - Pagination defaults currently used in the codebase are `page=0`, `size=20`, `sortBy` endpoint-specific, and `direction=desc` unless noted otherwise.
 - `schedule-service` enforces `lessonType` separately from `lessonFormat`.
+- `schedule-service` enforces canonical lesson slots `1..8`; arbitrary pair numbers are rejected for writes and filtered from public slot reads.
+- `schedule-service` accepts `subgroup` values `ALL`, `FIRST`, `SECOND` on templates, overrides, and conflict checks.
 - `schedule-service` conflict preview and template import return structured conflict details without exposing JPA entities.
 - `file-service` preview returns `FILE_PREVIEW_NOT_AVAILABLE` for unsupported content types.
 - `assignment-service` enforces `DEADLINE_EXPIRED`, `MAX_SUBMISSIONS_EXCEEDED`, `FILE_TYPE_NOT_ALLOWED`, and `FILE_TOO_LARGE` on submission writes.
@@ -710,8 +736,7 @@ Common domain codes already in use include:
 - Seed data includes:
   owner/admin/teacher/student accounts
   groups, subjects, topics, group memberships
-  semester, lesson slots, rooms, odd/even templates, online/offline lessons, and a schedule override for the current day
+  current, future, and past semesters; canonical lesson slots `1..8`; rooms; odd/even templates; online/offline lessons; and a schedule override for the current day
   draft/published/archived assignments, graded and late submissions, draft/published/closed tests, notifications, analytics-driving interactions, and audit-producing actions
-- The current Postman baseline does not require an active semester to exist ahead of time.
-  `GET /api/v1/schedule/semesters/active` is treated as valid when it returns either `200` or `404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND`.
-- Production environments remain unaffected unless `DEMO_SEED_ENABLED=true` is set explicitly.
+- The schedule foundation bootstrap means `GET /api/v1/schedule/semesters/active` should return `200` in local/demo setup.
+- Demo data remains disabled unless `DEMO_SEED_ENABLED=true`; schedule foundation bootstrap can be disabled separately with `SCHEDULE_BOOTSTRAP_ENABLED=false`.

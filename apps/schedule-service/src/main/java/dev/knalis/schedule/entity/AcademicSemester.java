@@ -21,36 +21,40 @@ import java.util.UUID;
         name = "academic_semesters",
         indexes = {
                 @Index(name = "idx_academic_semesters_active", columnList = "active"),
+                @Index(name = "idx_academic_semesters_published", columnList = "published"),
                 @Index(name = "idx_academic_semesters_start_date", columnList = "startDate"),
                 @Index(name = "idx_academic_semesters_end_date", columnList = "endDate")
         }
 )
 public class AcademicSemester {
-    
+
     @Id
     private UUID id;
-    
+
     @Column(nullable = false, length = 100)
     private String name;
-    
+
     @Column(nullable = false)
     private LocalDate startDate;
-    
+
     @Column(nullable = false)
     private LocalDate endDate;
-    
+
     @Column(nullable = false)
     private LocalDate weekOneStartDate;
-    
+
     @Column(nullable = false)
     private boolean active;
-    
+
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean published;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
-    
+
     @Column(nullable = false)
     private Instant updatedAt;
-    
+
     @PrePersist
     public void prePersist() {
         Instant now = Instant.now();
@@ -62,7 +66,7 @@ public class AcademicSemester {
         }
         updatedAt = now;
     }
-    
+
     @PreUpdate
     public void preUpdate() {
         updatedAt = Instant.now();

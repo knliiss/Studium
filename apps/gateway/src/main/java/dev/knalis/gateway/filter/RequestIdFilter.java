@@ -9,6 +9,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
@@ -18,7 +20,7 @@ import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-public class RequestIdFilter implements GlobalFilter, Ordered {
+public class RequestIdFilter implements GlobalFilter, WebFilter, Ordered {
     
     public static final String REQUEST_ID_HEADER = "X-Request-Id";
     public static final String REQUEST_ID_ATTRIBUTE = "requestId";
@@ -27,7 +29,22 @@ public class RequestIdFilter implements GlobalFilter, Ordered {
     
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        ServerWebExchange mutatedExchange = withRequestId(exchange);
+        return chain.filter(mutatedExchange);
+    }
 
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        ServerWebExchange mutatedExchange = withRequestId(exchange);
+        return chain.filter(mutatedExchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return Ordered.HIGHEST_PRECEDENCE;
+    }
+
+    private ServerWebExchange withRequestId(ServerWebExchange exchange) {
         String requestId = exchange.getRequest().getHeaders().getFirst(REQUEST_ID_HEADER);
         if (requestId == null || requestId.isBlank()) {
             requestId = UUID.randomUUID().toString();
@@ -50,13 +67,7 @@ public class RequestIdFilter implements GlobalFilter, Ordered {
             mergeExposedHeaders(mutatedExchange);
             return Mono.empty();
         });
-
-        return chain.filter(mutatedExchange);
-    }
-    
-    @Override
-    public int getOrder() {
-        return Ordered.HIGHEST_PRECEDENCE;
+        return mutatedExchange;
     }
 
     private void mergeExposedHeaders(ServerWebExchange exchange) {

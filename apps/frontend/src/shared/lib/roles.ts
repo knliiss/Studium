@@ -31,6 +31,29 @@ export function hasAnyRole(userRoles: readonly string[], allowedRoles: readonly 
   return normalizeRoles(allowedRoles).some((role) => normalizedUserRoles.has(role))
 }
 
+export function rank(roles: readonly string[]) {
+  const normalized = new Set(normalizeRoles(roles))
+  if (normalized.has('OWNER')) return 3
+  if (normalized.has('ADMIN')) return 2
+  return 1
+}
+
+export function canManage(actorRoles: readonly string[], targetRoles: readonly string[]) {
+  return rank(actorRoles) > rank(targetRoles)
+}
+
+export function isRoleAssignable(actorRoles: readonly string[], targetRoles: readonly string[], candidateRole: Role) {
+  if (candidateRole === 'OWNER') return false
+
+  if (!canManage(actorRoles, targetRoles)) return false
+
+  if (candidateRole === 'ADMIN' && !normalizeRoles(actorRoles).includes('OWNER' as Role)) return false
+
+  const actorRank = rank(actorRoles)
+  const candidateRank = candidateRole === 'ADMIN' ? 2 : 1
+  return actorRank > candidateRank
+}
+
 export function getDashboardPath(roles: readonly string[]) {
   const primaryRole = getPrimaryRole(roles)
 

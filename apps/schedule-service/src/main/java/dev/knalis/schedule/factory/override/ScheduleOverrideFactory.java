@@ -4,6 +4,7 @@ import dev.knalis.schedule.entity.LessonFormat;
 import dev.knalis.schedule.entity.LessonType;
 import dev.knalis.schedule.entity.OverrideType;
 import dev.knalis.schedule.entity.ScheduleOverride;
+import dev.knalis.schedule.entity.Subgroup;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -11,7 +12,7 @@ import java.util.UUID;
 
 @Component
 public class ScheduleOverrideFactory {
-    
+
     public ScheduleOverride newScheduleOverride(
             UUID semesterId,
             UUID templateId,
@@ -21,6 +22,7 @@ public class ScheduleOverrideFactory {
             UUID subjectId,
             UUID teacherId,
             UUID slotId,
+            Subgroup subgroup,
             LessonType lessonType,
             LessonFormat lessonFormat,
             UUID roomId,
@@ -37,6 +39,7 @@ public class ScheduleOverrideFactory {
         scheduleOverride.setSubjectId(subjectId);
         scheduleOverride.setTeacherId(teacherId);
         scheduleOverride.setSlotId(slotId);
+        scheduleOverride.setSubgroup(subgroup == null ? Subgroup.ALL : subgroup);
         scheduleOverride.setLessonType(lessonType);
         scheduleOverride.setLessonFormat(lessonFormat);
         scheduleOverride.setRoomId(roomId);
@@ -45,7 +48,7 @@ public class ScheduleOverrideFactory {
         scheduleOverride.setCreatedByUserId(createdByUserId);
         return scheduleOverride;
     }
-    
+
     private String normalize(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }

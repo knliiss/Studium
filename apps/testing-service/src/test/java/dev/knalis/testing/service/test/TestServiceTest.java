@@ -2,6 +2,7 @@ package dev.knalis.testing.service.test;
 
 import dev.knalis.testing.client.education.EducationServiceClient;
 import dev.knalis.testing.client.education.dto.GroupMembershipResponse;
+import dev.knalis.testing.client.education.dto.SubjectResponse;
 import dev.knalis.testing.client.education.dto.TopicResponse;
 import dev.knalis.testing.dto.request.CreateTestRequest;
 import dev.knalis.testing.dto.response.TestPageResponse;
@@ -9,12 +10,14 @@ import dev.knalis.testing.dto.response.TestResponse;
 import dev.knalis.testing.entity.Test;
 import dev.knalis.testing.entity.TestGroupAvailability;
 import dev.knalis.testing.entity.TestStatus;
+import dev.knalis.testing.exception.TestInvalidStateException;
 import dev.knalis.testing.factory.attempt.TestAttemptFactory;
 import dev.knalis.testing.factory.test.TestFactory;
 import dev.knalis.testing.mapper.TestMapper;
 import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.TestGroupAvailabilityRepository;
 import dev.knalis.testing.repository.TestRepository;
+import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +34,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -47,6 +51,9 @@ class TestServiceTest {
 
     @Mock
     private TestGroupAvailabilityRepository testGroupAvailabilityRepository;
+
+    @Mock
+    private QuestionRepository questionRepository;
     
     @Mock
     private TestMapper testMapper;
@@ -68,6 +75,7 @@ class TestServiceTest {
                 testRepository,
                 testAttemptRepository,
                 testGroupAvailabilityRepository,
+                questionRepository,
                 new TestFactory(),
                 new TestAttemptFactory(),
                 testMapper,
@@ -117,6 +125,7 @@ class TestServiceTest {
         
         TestResponse result = testService.createTest(
                 UUID.randomUUID(),
+                true,
                 new CreateTestRequest(topicId, "  Quiz 1  ", null, null, null, null, null, null, null, null, null)
         );
         
@@ -178,6 +187,80 @@ class TestServiceTest {
         
         assertEquals(List.of(response), result.items());
         assertEquals(1L, result.totalElements());
+    }
+
+    @org.junit.jupiter.api.Test
+    void getTestsByTopicReturnsDraftsForAssignedTeacher() {
+        UUID teacherId = UUID.randomUUID();
+        UUID testId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        Test entity = new Test();
+        entity.setId(testId);
+        entity.setTopicId(topicId);
+        entity.setTitle("Quiz 1");
+        entity.setOrderIndex(0);
+        entity.setStatus(TestStatus.DRAFT);
+        entity.setMaxAttempts(1);
+        entity.setMaxPoints(100);
+        entity.setCreatedAt(now);
+        entity.setUpdatedAt(now);
+
+        TestResponse response = new TestResponse(
+                testId,
+                topicId,
+                "Quiz 1",
+                0,
+                TestStatus.DRAFT,
+                1,
+                100,
+                null,
+                null,
+                null,
+                false,
+                false,
+                false,
+                now,
+                now
+        );
+
+        when(educationServiceClient.getTopic(topicId)).thenReturn(new TopicResponse(
+                topicId,
+                subjectId,
+                "Topic",
+                0,
+                now,
+                now
+        ));
+        when(educationServiceClient.getSubject(subjectId)).thenReturn(new SubjectResponse(
+                subjectId,
+                "Algorithms",
+                UUID.randomUUID(),
+                List.of(UUID.randomUUID()),
+                List.of(teacherId),
+                "Course",
+                now,
+                now
+        ));
+        when(testRepository.findAllByTopicId(eq(topicId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(entity)));
+        when(testMapper.toResponse(entity)).thenReturn(response);
+
+        TestPageResponse result = testService.getTestsByTopic(
+                topicId,
+                teacherId,
+                0,
+                20,
+                null,
+                null,
+                false,
+                true
+        );
+
+        assertEquals(List.of(response), result.items());
+        verify(testRepository).findAllByTopicId(eq(topicId), any(Pageable.class));
     }
     
     @org.junit.jupiter.api.Test
@@ -246,6 +329,7 @@ class TestServiceTest {
         test.setMaxPoints(100);
 
         when(testRepository.findById(testId)).thenReturn(Optional.of(test));
+        when(questionRepository.sumPointsByTestId(testId)).thenReturn(100);
         when(testRepository.save(test)).thenReturn(test);
         when(testMapper.toResponse(test)).thenReturn(new TestResponse(
                 testId,
@@ -269,5 +353,28 @@ class TestServiceTest {
 
         assertEquals(TestStatus.PUBLISHED, test.getStatus());
         verify(testingEventPublisher).publishTestPublished(any());
+    }
+
+    @org.junit.jupiter.api.Test
+    void publishTestRejectsQuestionPointsAboveMaxPoints() {
+        UUID testId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+
+        Test test = new Test();
+        test.setId(testId);
+        test.setTopicId(topicId);
+        test.setTitle("Quiz 1");
+        test.setOrderIndex(0);
+        test.setStatus(TestStatus.DRAFT);
+        test.setMaxAttempts(1);
+        test.setMaxPoints(10);
+
+        when(testRepository.findById(testId)).thenReturn(Optional.of(test));
+        when(questionRepository.sumPointsByTestId(testId)).thenReturn(11);
+
+        assertThrows(
+                TestInvalidStateException.class,
+                () -> testService.publishTest(UUID.randomUUID(), true, testId)
+        );
     }
 }

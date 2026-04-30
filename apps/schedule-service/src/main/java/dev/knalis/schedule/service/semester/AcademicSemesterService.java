@@ -26,40 +26,39 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class AcademicSemesterService {
-    
+
     private final AcademicSemesterRepository academicSemesterRepository;
     private final AcademicSemesterFactory academicSemesterFactory;
     private final AcademicSemesterMapper academicSemesterMapper;
+    private final AcademicSemesterCalendar academicSemesterCalendar;
     private final Clock clock;
-    
+
     @Transactional
     public AcademicSemesterResponse createSemester(CreateAcademicSemesterRequest request) {
         validateDates(request.startDate(), request.endDate(), request.weekOneStartDate());
         assertActiveSemesterAllowed(null, request.active());
-        
+
         AcademicSemester semester = academicSemesterFactory.newAcademicSemester(
                 request.name(),
                 request.startDate(),
                 request.endDate(),
                 request.weekOneStartDate(),
-                request.active()
+                request.active(),
+                request.published()
         );
-        
+
         return academicSemesterMapper.toResponse(academicSemesterRepository.save(semester));
     }
-    
+
     @Transactional(readOnly = true)
     public AcademicSemesterResponse getSemester(UUID semesterId) {
         return academicSemesterMapper.toResponse(requireSemester(semesterId));
     }
-    
+
     @Transactional
     public AcademicSemesterResponse getActiveSemester() {
-        CurrentAcademicSemester currentSemester = resolveCurrentAcademicSemester(LocalDate.now(clock));
-        AcademicSemester semester = academicSemesterRepository
-                .findFirstByNameOrderByStartDateDesc(currentSemester.name())
-                .map(this::activateSemester)
-                .orElseGet(() -> createCurrentSemester(currentSemester));
+        AcademicSemester semester = academicSemesterRepository.findFirstByActiveTrueOrderByStartDateDesc()
+                .orElseGet(() -> createCurrentSemester(academicSemesterCalendar.current(LocalDate.now(clock))));
         return academicSemesterMapper.toResponse(semester);
     }
 
@@ -69,48 +68,47 @@ public class AcademicSemesterService {
                 .map(academicSemesterMapper::toResponse)
                 .toList();
     }
-    
+
     @Transactional
     public AcademicSemesterResponse updateSemester(UUID semesterId, UpdateAcademicSemesterRequest request) {
         AcademicSemester semester = requireSemester(semesterId);
         validateDates(request.startDate(), request.endDate(), request.weekOneStartDate());
         assertActiveSemesterAllowed(semesterId, request.active());
-        
+
         semester.setName(request.name().trim());
         semester.setStartDate(request.startDate());
         semester.setEndDate(request.endDate());
         semester.setWeekOneStartDate(request.weekOneStartDate());
         semester.setActive(request.active());
-        
+        semester.setPublished(request.active() || request.published());
+
         return academicSemesterMapper.toResponse(academicSemesterRepository.save(semester));
     }
-    
+
     private AcademicSemester requireSemester(UUID semesterId) {
         return academicSemesterRepository.findById(semesterId)
                 .orElseThrow(() -> new AcademicSemesterNotFoundException(semesterId));
     }
 
-    private AcademicSemester activateSemester(AcademicSemester semester) {
-        deactivateActiveSemestersExcept(semester.getId());
-        if (semester.isActive()) {
-            return semester;
-        }
-
-        semester.setActive(true);
-        return academicSemesterRepository.save(semester);
-    }
-
-    private AcademicSemester createCurrentSemester(CurrentAcademicSemester currentSemester) {
+    private AcademicSemester createCurrentSemester(AcademicSemesterPeriod currentSemester) {
         deactivateActiveSemestersExcept(null);
-        AcademicSemester semester = academicSemesterFactory.newAcademicSemester(
-                currentSemester.name(),
-                currentSemester.startDate(),
-                currentSemester.endDate(),
-                currentSemester.weekOneStartDate(),
-                true
-        );
-
-        return academicSemesterRepository.save(semester);
+        return academicSemesterRepository.findFirstByNameOrderByStartDateDesc(currentSemester.name())
+                .map(semester -> {
+                    semester.setActive(true);
+                    semester.setPublished(true);
+                    return academicSemesterRepository.save(semester);
+                })
+                .orElseGet(() -> {
+                    AcademicSemester semester = academicSemesterFactory.newAcademicSemester(
+                            currentSemester.name(),
+                            currentSemester.startDate(),
+                            currentSemester.endDate(),
+                            currentSemester.weekOneStartDate(),
+                            true,
+                            true
+                    );
+                    return academicSemesterRepository.save(semester);
+                });
     }
 
     private void deactivateActiveSemestersExcept(UUID semesterId) {
@@ -128,37 +126,6 @@ public class AcademicSemesterService {
         }
     }
 
-    private CurrentAcademicSemester resolveCurrentAcademicSemester(LocalDate date) {
-        int month = date.getMonthValue();
-        if (month >= 9) {
-            int academicYearStart = date.getYear();
-            return firstSemester(academicYearStart);
-        }
-        if (month == 1) {
-            int academicYearStart = date.getYear() - 1;
-            return firstSemester(academicYearStart);
-        }
-
-        int academicYearStart = date.getYear() - 1;
-        int academicYearEnd = date.getYear();
-        return new CurrentAcademicSemester(
-                "Semester 2 " + academicYearStart + "/" + academicYearEnd,
-                LocalDate.of(academicYearEnd, 2, 1),
-                LocalDate.of(academicYearEnd, 8, 31),
-                LocalDate.of(academicYearEnd, 2, 1)
-        );
-    }
-
-    private CurrentAcademicSemester firstSemester(int academicYearStart) {
-        int academicYearEnd = academicYearStart + 1;
-        return new CurrentAcademicSemester(
-                "Semester 1 " + academicYearStart + "/" + academicYearEnd,
-                LocalDate.of(academicYearStart, 9, 1),
-                LocalDate.of(academicYearEnd, 1, 31),
-                LocalDate.of(academicYearStart, 9, 1)
-        );
-    }
-    
     private void validateDates(LocalDate startDate, LocalDate endDate, LocalDate weekOneStartDate) {
         if (endDate.isBefore(startDate)) {
             throw new ScheduleValidationException(
@@ -182,22 +149,22 @@ public class AcademicSemesterService {
             );
         }
     }
-    
+
     private void assertActiveSemesterAllowed(UUID semesterId, boolean active) {
         if (!active) {
             return;
         }
-        
+
         boolean anotherActiveSemesterExists = semesterId == null
                 ? academicSemesterRepository.existsByActiveTrue()
                 : academicSemesterRepository.existsByActiveTrueAndIdNot(semesterId);
-        
+
         if (anotherActiveSemesterExists) {
             Map<String, Object> details = new LinkedHashMap<>();
             if (semesterId != null) {
                 details.put("semesterId", semesterId);
             }
-            
+
             throw new ScheduleConflictException(
                     "ACTIVE_SEMESTER_ALREADY_EXISTS",
                     "Another active academic semester already exists",
@@ -206,11 +173,4 @@ public class AcademicSemesterService {
         }
     }
 
-    private record CurrentAcademicSemester(
-            String name,
-            LocalDate startDate,
-            LocalDate endDate,
-            LocalDate weekOneStartDate
-    ) {
-    }
 }

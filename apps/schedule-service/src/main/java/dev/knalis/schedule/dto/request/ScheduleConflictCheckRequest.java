@@ -3,6 +3,7 @@ package dev.knalis.schedule.dto.request;
 import dev.knalis.schedule.entity.LessonFormat;
 import dev.knalis.schedule.entity.LessonType;
 import dev.knalis.schedule.entity.OverrideType;
+import dev.knalis.schedule.entity.Subgroup;
 import dev.knalis.schedule.entity.WeekType;
 
 import java.time.DayOfWeek;
@@ -19,8 +20,10 @@ public record ScheduleConflictCheckRequest(
         UUID groupId,
         UUID teacherId,
         UUID roomId,
+        String onlineMeetingUrl,
         UUID slotId,
         WeekType weekType,
+        Subgroup subgroup,
         LessonType lessonType,
         LessonFormat lessonFormat,
         OverrideType overrideType

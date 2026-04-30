@@ -7,20 +7,22 @@ import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 
 public record UpdateAcademicSemesterRequest(
-        
+
         @NotBlank
         @Size(max = 100)
         String name,
-        
+
         @NotNull
         LocalDate startDate,
-        
+
         @NotNull
         LocalDate endDate,
-        
+
         @NotNull
         LocalDate weekOneStartDate,
-        
-        boolean active
+
+        boolean active,
+
+        boolean published
 ) {
 }

@@ -86,6 +86,8 @@ app:
       published-retention: ${SCHEDULE_OUTBOX_PUBLISHED_RETENTION:168h}
       cleanup-interval: ${SCHEDULE_OUTBOX_CLEANUP_INTERVAL:1h}
   schedule:
+    bootstrap:
+      enabled: ${SCHEDULE_BOOTSTRAP_ENABLED:true}
     jwt:
       issuer: ${JWT_ISSUER:dev.knalis.auth-service}
       audience: ${JWT_AUDIENCE:dev.knalis.api}

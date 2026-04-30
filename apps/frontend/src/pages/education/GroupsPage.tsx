@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
-import { loadAccessibleGroups } from '@/pages/education/helpers'
+import type { GroupCardSummary } from '@/pages/education/helpers'
+import { loadAccessibleGroups, loadGroupCardSummaries } from '@/pages/education/helpers'
 import { educationService } from '@/shared/api/services'
 import { formatDate } from '@/shared/lib/format'
 import { hasAnyRole } from '@/shared/lib/roles'
@@ -15,6 +16,8 @@ import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
+import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
+import { RiskBadge } from '@/widgets/common/RiskBadge'
 
 export function GroupsPage() {
   const { primaryRole, roles, session } = useAuth()
@@ -55,9 +58,15 @@ function ManagedGroupsPage() {
   })
 
   const groups = groupsQuery.data?.items ?? []
+  const groupSummariesQuery = useQuery({
+    queryKey: ['education', 'group-card-summaries', groups.map((group) => group.id).join(',')],
+    queryFn: () => loadGroupCardSummaries(groups.map((group) => group.id)),
+    enabled: groups.length > 0,
+  })
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs items={[{ label: t('navigation.shared.education'), to: '/education' }, { label: t('navigation.shared.groups') }]} />
       <PageHeader
         description={t('education.groupsLandingDescription')}
         title={t('navigation.shared.groups')}
@@ -109,12 +118,13 @@ function ManagedGroupsPage() {
       ) : null}
       {groups.length > 0 ? (
         <>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3">
             {groups.map((group) => (
               <GroupCard
                 key={group.id}
                 createdAt={group.createdAt}
                 name={group.name}
+                summary={groupSummariesQuery.data?.get(group.id)}
                 to={`/groups/${group.id}`}
               />
             ))}
@@ -164,6 +174,11 @@ function AccessibleGroupsPage({
     )),
     [groupsQuery.data, query],
   )
+  const groupSummariesQuery = useQuery({
+    queryKey: ['education', 'group-card-summaries', filteredGroups.map((group) => group.id).join(',')],
+    queryFn: () => loadGroupCardSummaries(filteredGroups.map((group) => group.id)),
+    enabled: filteredGroups.length > 0,
+  })
 
   if (groupsQuery.isLoading) {
     return <LoadingState />
@@ -175,6 +190,7 @@ function AccessibleGroupsPage({
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs items={[{ label: t('navigation.shared.education'), to: '/education' }, { label: t('navigation.shared.groups') }]} />
       <PageHeader
         description={role === 'TEACHER' ? t('education.teacherGroupsDescription') : t('education.studentGroupsDescription')}
         title={t('navigation.shared.groups')}
@@ -196,12 +212,13 @@ function AccessibleGroupsPage({
           title={t('navigation.shared.groups')}
         />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3">
           {filteredGroups.map((group) => (
             <GroupCard
               key={group.id}
               createdAt={group.createdAt}
               name={group.name}
+              summary={groupSummariesQuery.data?.get(group.id)}
               to={`/groups/${group.id}`}
             />
           ))}
@@ -214,38 +231,79 @@ function AccessibleGroupsPage({
 function GroupCard({
   createdAt,
   name,
+  summary,
   to,
 }: {
   createdAt: string
   name: string
+  summary?: GroupCardSummary
   to: string
 }) {
   const { t } = useTranslation()
 
   return (
-    <Card className="gradient-card flex h-full flex-col justify-between gap-4">
-      <div className="space-y-4">
-        <div className="flex items-start gap-3">
-          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-accent-muted text-accent">
-            <FolderKanban className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <h2 className="break-words text-lg font-semibold text-text-primary">{name}</h2>
-            <p className="text-sm text-text-muted">{t('education.groupHubLabel')}</p>
+    <Link to={to} className="group block h-full">
+      <Card className="flex h-full flex-col justify-between gap-4 transition hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-soft)] xl:flex-row xl:items-center">
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-accent-muted text-accent">
+              <FolderKanban className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="break-words text-lg font-semibold text-text-primary">{name}</h2>
+              <p className="text-sm text-text-muted">{t('education.groupHubLabel')}</p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-[16px] border border-border bg-surface-muted px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">
+                {t('education.overview.students')}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-text-primary">
+                {summary?.studentCount ?? '—'}
+              </p>
+              <p className="mt-1 text-sm text-text-secondary">
+                {t('education.groupStudentCountSummary')}
+              </p>
+            </div>
+            <div className="rounded-[16px] border border-border bg-surface-muted px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-muted">
+                {t('analytics.riskLevel.label')}
+              </p>
+              <div className="mt-2">
+                {summary?.riskLevel ? (
+                  <RiskBadge value={summary.riskLevel} />
+                ) : (
+                  <p className="text-sm text-text-secondary">{t('education.groupRiskUnknown')}</p>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-2 text-sm text-text-secondary">
+            <p>{resolveScheduleStatusLabel(summary?.hasUpcomingLessons, t)}</p>
+            <p>{t('education.createdAt')}: {formatDate(createdAt)}</p>
           </div>
         </div>
-        <div className="grid gap-2 text-sm text-text-secondary">
-          <p>{t('education.groupScheduleStatusUnknown')}</p>
-          <p>{t('education.groupRiskUnknown')}</p>
-          <p>{t('education.createdAt')}: {formatDate(createdAt)}</p>
-        </div>
-      </div>
-      <Link to={to}>
-        <Button fullWidth variant="secondary">
+        <span className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-[14px] border border-border bg-surface-muted px-4 text-sm font-medium text-text-primary transition group-hover:border-border-strong">
           <Users className="mr-2 h-4 w-4" />
           {t('common.actions.open')}
-        </Button>
-      </Link>
-    </Card>
+        </span>
+      </Card>
+    </Link>
   )
+}
+
+function resolveScheduleStatusLabel(
+  hasUpcomingLessons: boolean | null | undefined,
+  t: (key: string) => string,
+) {
+  if (hasUpcomingLessons === true) {
+    return t('education.groupScheduleStatusPlanned')
+  }
+
+  if (hasUpcomingLessons === false) {
+    return t('education.groupScheduleStatusEmpty')
+  }
+
+  return t('education.groupScheduleStatusUnknown')
 }

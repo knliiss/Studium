@@ -1,6 +1,7 @@
 package dev.knalis.assignment.service.assignment;
 
 import dev.knalis.assignment.client.education.EducationServiceClient;
+import dev.knalis.assignment.client.education.dto.SubjectResponse;
 import dev.knalis.assignment.client.education.dto.TopicResponse;
 import dev.knalis.assignment.dto.request.CreateAssignmentRequest;
 import dev.knalis.assignment.dto.request.UpdateAssignmentRequest;
@@ -116,6 +117,7 @@ class AssignmentServiceTest {
         
         AssignmentResponse result = assignmentService.createAssignment(
                 UUID.randomUUID(),
+                true,
                 new CreateAssignmentRequest(topicId, "  Lab 1  ", "  Intro task  ", deadline, null, null, null, null, null, null)
         );
         
@@ -182,6 +184,79 @@ class AssignmentServiceTest {
         
         assertEquals(List.of(response), result.items());
         assertEquals(1L, result.totalElements());
+    }
+
+    @Test
+    void getAssignmentsByTopicReturnsDraftsForAssignedTeacher() {
+        UUID teacherId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        Assignment assignment = new Assignment();
+        assignment.setId(assignmentId);
+        assignment.setTopicId(topicId);
+        assignment.setTitle("Lab 1");
+        assignment.setDescription("Intro task");
+        assignment.setDeadline(now.plusSeconds(3600));
+        assignment.setOrderIndex(0);
+        assignment.setStatus(AssignmentStatus.DRAFT);
+        assignment.setCreatedAt(now);
+        assignment.setUpdatedAt(now);
+
+        AssignmentResponse response = new AssignmentResponse(
+                assignmentId,
+                topicId,
+                "Lab 1",
+                "Intro task",
+                now.plusSeconds(3600),
+                0,
+                AssignmentStatus.DRAFT,
+                false,
+                1,
+                false,
+                Set.of(),
+                null,
+                now,
+                now
+        );
+
+        when(educationServiceClient.getTopic(topicId)).thenReturn(new TopicResponse(
+                topicId,
+                subjectId,
+                "Topic",
+                0,
+                now,
+                now
+        ));
+        when(educationServiceClient.getSubject(subjectId)).thenReturn(new SubjectResponse(
+                subjectId,
+                "Algorithms",
+                UUID.randomUUID(),
+                List.of(UUID.randomUUID()),
+                List.of(teacherId),
+                "Course",
+                now,
+                now
+        ));
+        when(assignmentRepository.findAllByTopicId(eq(topicId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(assignment)));
+        when(assignmentMapper.toResponse(assignment)).thenReturn(response);
+
+        AssignmentPageResponse result = assignmentService.getAssignmentsByTopic(
+                topicId,
+                teacherId,
+                0,
+                20,
+                null,
+                null,
+                false,
+                true
+        );
+
+        assertEquals(List.of(response), result.items());
+        verify(assignmentRepository).findAllByTopicId(eq(topicId), any(Pageable.class));
     }
     
     @Test

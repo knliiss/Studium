@@ -6,6 +6,7 @@ import dev.knalis.schedule.entity.LessonFormat;
 import dev.knalis.schedule.entity.LessonSlot;
 import dev.knalis.schedule.entity.LessonType;
 import dev.knalis.schedule.entity.ResolvedLessonSourceType;
+import dev.knalis.schedule.entity.Subgroup;
 import dev.knalis.schedule.entity.WeekType;
 import dev.knalis.schedule.repository.AcademicSemesterRepository;
 import dev.knalis.schedule.repository.LessonSlotRepository;
@@ -68,7 +69,7 @@ class ScheduleCalendarExportServiceTest {
         lessonSlot.setId(slotId);
         lessonSlot.setNumber(1);
         lessonSlot.setStartTime(LocalTime.of(8, 30));
-        lessonSlot.setEndTime(LocalTime.of(10, 0));
+        lessonSlot.setEndTime(LocalTime.of(9, 50));
         lessonSlot.setActive(true);
 
         ResolvedLessonResponse lesson = new ResolvedLessonResponse(
@@ -79,6 +80,7 @@ class ScheduleCalendarExportServiceTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 slotId,
+                Subgroup.ALL,
                 1,
                 WeekType.ODD,
                 LessonType.LECTURE,
@@ -92,7 +94,7 @@ class ScheduleCalendarExportServiceTest {
         );
 
         when(academicSemesterRepository.findFirstByActiveTrueOrderByStartDateDesc()).thenReturn(Optional.of(semester));
-        when(scheduleReadService.getGroupRange(groupId, semester.getStartDate(), semester.getEndDate()))
+        when(scheduleReadService.getGroupRange(groupId, semester.getStartDate(), semester.getEndDate(), true))
                 .thenReturn(List.of(lesson));
         when(lessonSlotRepository.findAllById(List.of(slotId))).thenReturn(List.of(lessonSlot));
 
@@ -100,7 +102,7 @@ class ScheduleCalendarExportServiceTest {
 
         assertTrue(calendar.contains("BEGIN:VCALENDAR"));
         assertTrue(calendar.contains("DTSTART:20260908T083000Z"));
-        assertTrue(calendar.contains("DTEND:20260908T100000Z"));
+        assertTrue(calendar.contains("DTEND:20260908T095000Z"));
         assertTrue(calendar.contains("SUMMARY:Lecture - subject " + lesson.subjectId()));
         assertTrue(calendar.contains("LOCATION:" + roomId));
     }

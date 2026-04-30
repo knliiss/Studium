@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { searchService } from '@/shared/api/services'
+import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { getSearchResultTypeLabel } from '@/shared/lib/enum-labels'
 import { Card } from '@/shared/ui/Card'
 import { DataTable } from '@/shared/ui/DataTable'
@@ -19,6 +20,7 @@ export function AdminSearchPage() {
     queryFn: () => searchService.search({ q: query, page: 0, size: 20 }),
     enabled: query.trim().length > 0,
   })
+  const apiError = normalizeApiError(searchQuery.error)
 
   return (
     <div className="space-y-6">
@@ -31,19 +33,37 @@ export function AdminSearchPage() {
 
       {searchQuery.isLoading ? <LoadingState /> : null}
       {searchQuery.isError ? (
-        <ErrorState title={t('navigation.admin.search')} description={t('common.states.error')} />
+        <ErrorState
+          title={t('navigation.admin.search')}
+          description={[
+            getLocalizedRequestErrorMessage(searchQuery.error, t),
+            apiError?.requestId ? t('common.conflictRequestId', { id: apiError.requestId }) : '',
+          ].filter(Boolean).join(' ')}
+          onRetry={() => void searchQuery.refetch()}
+        />
       ) : null}
       {searchQuery.data ? (
         <DataTable
           columns={[
             { key: 'type', header: t('search.resultType'), render: (item) => getSearchResultTypeLabel(item.type) },
             { key: 'title', header: t('common.labels.title'), render: (item) => item.title },
-            { key: 'subtitle', header: t('search.subtitle'), render: (item) => item.subtitle ?? '-' },
-            { key: 'sourceService', header: t('audit.sourceService'), render: (item) => item.sourceService },
+            { key: 'subtitle', header: t('search.subtitle'), render: (item) => getSearchSubtitle(item.subtitle) },
           ]}
           rows={searchQuery.data.items}
         />
       ) : null}
     </div>
   )
+}
+
+function getSearchSubtitle(subtitle: string | null | undefined) {
+  if (!subtitle || containsUuid(subtitle)) {
+    return '-'
+  }
+
+  return subtitle
+}
+
+function containsUuid(value: string) {
+  return /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(value)
 }
