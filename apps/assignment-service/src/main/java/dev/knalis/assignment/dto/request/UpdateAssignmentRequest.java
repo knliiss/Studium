@@ -30,8 +30,11 @@ public record UpdateAssignmentRequest(
         Boolean allowResubmit,
         
         Set<@Size(max = 100) String> acceptedFileTypes,
-        
+
         @Min(1)
-        Integer maxFileSizeMb
+        Integer maxFileSizeMb,
+
+        @Min(0)
+        Integer maxPoints
 ) {
 }

@@ -7,6 +7,7 @@ include(
         ":apps:education-service",
         ":apps:schedule-service",
         ":apps:assignment-service",
+        ":apps:content-service",
         ":apps:testing-service",
         ":apps:file-service",
         ":apps:analytics-service",
@@ -23,6 +24,7 @@ project(":apps:profile-service").projectDir = file("apps/profile-service")
 project(":apps:education-service").projectDir = file("apps/education-service")
 project(":apps:schedule-service").projectDir = file("apps/schedule-service")
 project(":apps:assignment-service").projectDir = file("apps/assignment-service")
+project(":apps:content-service").projectDir = file("apps/content-service")
 project(":apps:testing-service").projectDir = file("apps/testing-service")
 project(":apps:file-service").projectDir = file("apps/file-service")
 project(":apps:analytics-service").projectDir = file("apps/analytics-service")

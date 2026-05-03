@@ -18,7 +18,7 @@ public interface AuthOutboxRepository extends JpaRepository<AuthOutboxEvent, UUI
     
     @Query(value = """
             select id
-            from auth_outbox_events
+            from auth.auth_outbox_events
             where status in ('PENDING', 'RETRY')
               and next_attempt_at <= :now
             order by created_at asc

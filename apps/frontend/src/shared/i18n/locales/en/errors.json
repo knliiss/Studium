@@ -27,6 +27,7 @@
   "SCHEDULE_CONFLICT": "The selected schedule change conflicts with existing lessons.",
   "TEST_NOT_AVAILABLE": "This test is not available right now.",
   "TEST_TIME_EXPIRED": "The allowed time for this test has expired.",
+  "TOO_MANY_REQUESTS": "Too many requests. Try again later.",
   "NETWORK_ERROR": "We couldn't reach the server. Check your connection and try again.",
   "UNKNOWN_ERROR": "We couldn't complete the request. Please try again.",
   "UNAUTHORIZED": "Authentication is required.",

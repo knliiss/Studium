@@ -12,4 +12,8 @@ public interface TestResultRepository extends JpaRepository<TestResult, UUID> {
     boolean existsByTestIdAndUserId(UUID testId, UUID userId);
 
     Page<TestResult> findAllByTestId(UUID testId, Pageable pageable);
+
+    long countByTestId(UUID testId);
+
+    void deleteAllByTestId(UUID testId);
 }

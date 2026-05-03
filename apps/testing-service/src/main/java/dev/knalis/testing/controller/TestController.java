@@ -2,18 +2,23 @@ package dev.knalis.testing.controller;
 
 import dev.knalis.testing.dto.request.CreateTestRequest;
 import dev.knalis.testing.dto.request.MoveTestRequest;
+import dev.knalis.testing.dto.request.SubmitTestAttemptRequest;
 import dev.knalis.testing.dto.request.UpsertTestGroupAvailabilityRequest;
 import dev.knalis.testing.dto.response.SearchPageResponse;
 import dev.knalis.testing.dto.response.TestGroupAvailabilityResponse;
 import dev.knalis.testing.dto.response.TestPageResponse;
 import dev.knalis.testing.dto.response.TestResponse;
+import dev.knalis.testing.dto.response.TestStudentViewResponse;
+import dev.knalis.testing.dto.response.TestResultResponse;
 import dev.knalis.testing.service.test.TestService;
+import dev.knalis.testing.service.result.TestResultService;
 import dev.knalis.shared.security.user.CurrentUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -33,6 +38,7 @@ import java.util.UUID;
 public class TestController {
     
     private final TestService testService;
+    private final TestResultService testResultService;
     private final CurrentUserService currentUserService;
     
     @PostMapping
@@ -72,6 +78,25 @@ public class TestController {
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),
                 isTeacher(authentication),
+                testId
+        );
+    }
+
+    @GetMapping("/{id}/student-view")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','STUDENT')")
+    public TestStudentViewResponse getStudentView(Authentication authentication, @PathVariable("id") UUID testId) {
+        return testService.getStudentView(
+                currentUserService.getCurrentUserId(authentication),
+                testId
+        );
+    }
+
+    @GetMapping("/{id}/preview")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestStudentViewResponse getPreviewView(Authentication authentication, @PathVariable("id") UUID testId) {
+        return testService.getPreviewView(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
                 testId
         );
     }
@@ -123,6 +148,20 @@ public class TestController {
         testService.startTest(currentUserService.getCurrentUserId(authentication), testId);
     }
 
+    @PostMapping("/{id}/finish")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','STUDENT')")
+    public TestResultResponse finishTest(
+            Authentication authentication,
+            @PathVariable("id") UUID testId,
+            @Valid @RequestBody SubmitTestAttemptRequest request
+    ) {
+        return testResultService.submitTestAttempt(
+                currentUserService.getCurrentUserId(authentication),
+                testId,
+                request
+        );
+    }
+
     @PostMapping("/{id}/publish")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public TestResponse publishTest(Authentication authentication, @PathVariable("id") UUID testId) {
@@ -147,6 +186,16 @@ public class TestController {
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public TestResponse archiveTest(Authentication authentication, @PathVariable("id") UUID testId) {
         return testService.archiveTest(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                testId
+        );
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public void deleteTest(Authentication authentication, @PathVariable("id") UUID testId) {
+        testService.deleteTest(
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),
                 testId

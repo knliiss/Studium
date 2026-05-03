@@ -6,7 +6,7 @@ spring:
   application:
     name: notification-service
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${NOTIFICATION_DB_SCHEMA:notification}
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
   jpa:
@@ -15,6 +15,7 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        default_schema: ${NOTIFICATION_DB_SCHEMA:notification}
         format_sql: true
     show-sql: false
   data:

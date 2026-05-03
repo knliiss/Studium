@@ -27,6 +27,7 @@
   "SCHEDULE_CONFLICT": "Wybrana zmiana planu koliduje z istniejącymi zajęciami.",
   "TEST_NOT_AVAILABLE": "Ten test nie jest obecnie dostępny.",
   "TEST_TIME_EXPIRED": "Czas na ten test minął.",
+  "TOO_MANY_REQUESTS": "Za dużo żądań. Spróbuj ponownie później.",
   "NETWORK_ERROR": "Nie udało się połączyć z serwerem. Sprawdź połączenie i spróbuj ponownie.",
   "UNKNOWN_ERROR": "Nie udało się wykonać żądania. Spróbuj ponownie.",
   "UNAUTHORIZED": "Wymagane jest uwierzytelnienie.",

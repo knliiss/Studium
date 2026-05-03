@@ -1,5 +1,6 @@
 package dev.knalis.assignment.service.assignment;
 
+import dev.knalis.assignment.dto.request.BulkUpsertAssignmentGroupAvailabilityRequest;
 import dev.knalis.assignment.dto.request.CreateAssignmentRequest;
 import dev.knalis.assignment.dto.request.MoveAssignmentRequest;
 import dev.knalis.assignment.dto.request.UpdateAssignmentRequest;
@@ -21,6 +22,7 @@ import dev.knalis.assignment.factory.assignment.AssignmentFactory;
 import dev.knalis.assignment.mapper.AssignmentMapper;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
+import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
 import dev.knalis.contracts.event.AssignmentCreatedEventV1;
@@ -57,6 +59,7 @@ public class AssignmentService {
     
     private final AssignmentRepository assignmentRepository;
     private final AssignmentGroupAvailabilityRepository assignmentGroupAvailabilityRepository;
+    private final SubmissionRepository submissionRepository;
     private final AssignmentFactory assignmentFactory;
     private final AssignmentMapper assignmentMapper;
     private final AssignmentAuditService assignmentAuditService;
@@ -74,10 +77,11 @@ public class AssignmentService {
                 AssignmentStatus.DRAFT,
                 Boolean.TRUE.equals(request.allowLateSubmissions()),
                 request.maxSubmissions() == null ? 1 : request.maxSubmissions(),
-            Boolean.TRUE.equals(request.allowResubmit()),
-            normalizeAcceptedFileTypes(request.acceptedFileTypes()),
-            request.maxFileSizeMb(),
-            request.orderIndex() == null ? 0 : request.orderIndex()
+                Boolean.TRUE.equals(request.allowResubmit()),
+                normalizeAcceptedFileTypes(request.acceptedFileTypes()),
+                request.maxFileSizeMb(),
+                request.maxPoints() == null ? 100 : request.maxPoints(),
+                request.orderIndex() == null ? 0 : request.orderIndex()
         );
         assignment.setCreatedByUserId(currentUserId);
         AssignmentResponse response = assignmentMapper.toResponse(assignmentRepository.save(assignment));
@@ -114,6 +118,7 @@ public class AssignmentService {
         assignment.setAllowResubmit(Boolean.TRUE.equals(request.allowResubmit()));
         assignment.setAcceptedFileTypes(normalizeAcceptedFileTypes(request.acceptedFileTypes()));
         assignment.setMaxFileSizeMb(request.maxFileSizeMb());
+        assignment.setMaxPoints(request.maxPoints() == null ? assignment.getMaxPoints() : request.maxPoints());
         
         Assignment savedAssignment = assignmentRepository.save(assignment);
         if (importantChangeType != null && savedAssignment.getStatus() == AssignmentStatus.PUBLISHED) {
@@ -294,6 +299,33 @@ public class AssignmentService {
     }
 
     @Transactional
+    public List<AssignmentGroupAvailabilityResponse> bulkUpsertAssignmentAvailability(
+            UUID currentUserId,
+            boolean privilegedAccess,
+            UUID assignmentId,
+            BulkUpsertAssignmentGroupAvailabilityRequest request
+    ) {
+        Assignment assignment = assignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
+        assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+
+        List<AssignmentGroupAvailabilityResponse> responses = request.items().stream()
+                .map(item -> saveAssignmentAvailability(assignment, item))
+                .map(this::toAvailabilityResponse)
+                .toList();
+
+        assignmentAuditService.record(
+                currentUserId,
+                "ASSIGNMENT_AVAILABILITY_BULK_UPDATED",
+                "ASSIGNMENT",
+                assignment.getId(),
+                null,
+                responses
+        );
+        return responses;
+    }
+
+    @Transactional
     public AssignmentResponse publishAssignment(UUID currentUserId, boolean privilegedAccess, UUID assignmentId) {
         Assignment assignment = assignmentRepository.findById(assignmentId)
                 .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
@@ -350,6 +382,21 @@ public class AssignmentService {
         AssignmentResponse response = assignmentMapper.toResponse(assignmentRepository.save(assignment));
         assignmentAuditService.record(currentUserId, "ASSIGNMENT_MOVED", "ASSIGNMENT", response.id(), oldValue, response);
         return response;
+    }
+
+    @Transactional
+    public void deleteAssignment(UUID currentUserId, boolean privilegedAccess, UUID assignmentId) {
+        Assignment assignment = assignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
+        assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        if (assignment.getStatus() != AssignmentStatus.DRAFT) {
+            throw new AssignmentInvalidStateException(assignment.getId(), assignment.getStatus(), "Only draft assignments can be deleted");
+        }
+        if (submissionRepository.countByAssignmentId(assignmentId) > 0) {
+            throw new AssignmentInvalidStateException(assignment.getId(), assignment.getStatus(), "Assignments with submissions cannot be deleted");
+        }
+        assignmentGroupAvailabilityRepository.deleteAll(assignmentGroupAvailabilityRepository.findAllByAssignmentIdOrderByCreatedAtAsc(assignmentId));
+        assignmentRepository.delete(assignment);
     }
     
     private AssignmentImportantChangeTypeV1 resolveImportantChangeType(
@@ -408,6 +455,24 @@ public class AssignmentService {
         return educationServiceClient.getGroupsByUser(currentUserId).stream()
                 .map(groupMembership -> groupMembership.groupId())
                 .collect(LinkedHashSet::new, Set::add, Set::addAll);
+    }
+
+    private AssignmentGroupAvailability saveAssignmentAvailability(
+            Assignment assignment,
+            UpsertAssignmentGroupAvailabilityRequest request
+    ) {
+        AssignmentGroupAvailability availability = assignmentGroupAvailabilityRepository
+                .findByAssignmentIdAndGroupId(assignment.getId(), request.groupId())
+                .orElseGet(AssignmentGroupAvailability::new);
+        availability.setAssignmentId(assignment.getId());
+        availability.setGroupId(request.groupId());
+        availability.setVisible(Boolean.TRUE.equals(request.visible()));
+        availability.setAvailableFrom(request.availableFrom());
+        availability.setDeadline(request.deadline());
+        availability.setAllowLateSubmissions(Boolean.TRUE.equals(request.allowLateSubmissions()));
+        availability.setMaxSubmissions(request.maxSubmissions() == null ? 1 : request.maxSubmissions());
+        availability.setAllowResubmit(Boolean.TRUE.equals(request.allowResubmit()));
+        return assignmentGroupAvailabilityRepository.save(availability);
     }
 
     private void assertTeacherOwnership(Assignment assignment, UUID currentUserId, boolean privilegedAccess) {

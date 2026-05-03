@@ -39,6 +39,9 @@ public record CreateAssignmentRequest(
         Integer maxFileSizeMb,
 
         @Min(0)
+        Integer maxPoints,
+
+        @Min(0)
         Integer orderIndex
 ) {
 }

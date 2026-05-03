@@ -19,6 +19,7 @@ public record AssignmentResponse(
         boolean allowResubmit,
         Set<String> acceptedFileTypes,
         Integer maxFileSizeMb,
+        int maxPoints,
         Instant createdAt,
         Instant updatedAt
 ) {

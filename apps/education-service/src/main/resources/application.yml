@@ -7,7 +7,7 @@ spring:
     name: education-service
 
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${EDUCATION_DB_SCHEMA:education}
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
@@ -28,6 +28,7 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        default_schema: ${EDUCATION_DB_SCHEMA:education}
         format_sql: true
     show-sql: false
 

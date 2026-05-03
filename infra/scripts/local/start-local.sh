@@ -8,6 +8,7 @@ ENV_EXAMPLE_FILE="$ROOT_DIR/.env.example"
 KEY_DIR="$ROOT_DIR/infra/keys"
 PRIVATE_KEY_FILE="$KEY_DIR/private.pem"
 PUBLIC_KEY_FILE="$KEY_DIR/public.pem"
+BUILD_CACHE_FILE="$ROOT_DIR/.build-cache"
 
 APP_SERVICES=(
   auth-service
@@ -40,21 +41,24 @@ BOOTJAR_TASKS=(
 
 SKIP_BUILD=false
 FRONTEND_ONLY=false
+FORCE_REBUILD=false
+CHANGED_SERVICES=()
 
 usage() {
   cat <<'USAGE'
-Usage: ./infra/scripts/local/start-local.sh [--skip-build|-s] [--frontend-only|-f]
+Usage: ./infra/scripts/local/start-local.sh [OPTIONS]
 
-Starts the full local Studium stack:
-  1. Ensures .env exists
-  2. Ensures JWT RSA keys exist
-  3. Builds all bootable services unless --skip-build is used
-  4. Starts Docker Compose infrastructure, backend services, and the frontend container
-  5. Runs demo seed when DEMO_SEED_ENABLED=true
+Options:
+  --skip-build, -s            Skip Gradle build (use existing JARs)
+  --frontend-only, -f         Rebuild and restart only frontend without restarting the rest
+  --rebuild, -r               Force complete rebuild and restart of all services
+  --help, -h                  Show this help message
 
-Frontend-only refresh:
-  --frontend-only | -f
-    Rebuilds and restarts only the frontend container without restarting the rest of the stack.
+Smart restart behavior:
+  - Detects changes in source code and only rebuilds/restarts affected services
+  - Caches build hashes in .build-cache for fast change detection
+  - Use -r flag to force full rebuild regardless of changes
+  - Use -s flag to skip all builds (use existing JARs/containers)
 USAGE
 }
 
@@ -202,17 +206,171 @@ ensure_keys() {
   echo "Generated JWT RSA key pair in infra/keys"
 }
 
+# Compute hash of source files for a service
+compute_service_hash() {
+  local service_name=$1
+  local service_path="$ROOT_DIR/apps/$service_name"
+
+  if [[ ! -d "$service_path" ]]; then
+    echo ""
+    return
+  fi
+
+  # Hash: all files under src/ (Java/Kotlin/resources/tests) + build files + Dockerfile
+  local hash=""
+  if [[ -d "$service_path/src" ]]; then
+    hash=$(find "$service_path/src" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum)
+  fi
+
+  if [[ -f "$service_path/build.gradle" ]]; then
+    local build_hash=$(md5sum "$service_path/build.gradle" 2>/dev/null | cut -d' ' -f1)
+    hash="${hash:-}:${build_hash}"
+  fi
+
+  if [[ -f "$service_path/build.gradle.kts" ]]; then
+    local build_kts_hash=$(md5sum "$service_path/build.gradle.kts" 2>/dev/null | cut -d' ' -f1)
+    hash="${hash:-}:${build_kts_hash}"
+  fi
+
+  if [[ -f "$service_path/Dockerfile" ]]; then
+    local dockerfile_hash=$(md5sum "$service_path/Dockerfile" 2>/dev/null | cut -d' ' -f1)
+    hash="${hash:-}:${dockerfile_hash}"
+  fi
+
+  echo "$hash"
+}
+
+# Compute hash for frontend
+compute_frontend_hash() {
+  local frontend_path="$ROOT_DIR/apps/frontend"
+
+  if [[ ! -d "$frontend_path" ]]; then
+    echo ""
+    return
+  fi
+
+  # Hash: src/, vite.config.ts, package.json, tsconfig.json
+  local hash=""
+  if [[ -d "$frontend_path/src" ]]; then
+    hash=$(find "$frontend_path/src" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.css" \) 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum)
+  fi
+
+  for file in "vite.config.ts" "package.json" "tsconfig.json"; do
+    if [[ -f "$frontend_path/$file" ]]; then
+      local file_hash=$(md5sum "$frontend_path/$file" 2>/dev/null | cut -d' ' -f1)
+      hash="${hash:-}:${file_hash}"
+    fi
+  done
+
+  echo "$hash"
+}
+
+# Load cached hashes
+load_cache() {
+  if [[ ! -f "$BUILD_CACHE_FILE" ]]; then
+    return
+  fi
+
+  # Cache format: service_name:hash
+  while IFS=: read -r service_name cached_hash; do
+    if [[ -z "$service_name" ]] || [[ -z "$cached_hash" ]]; then
+      continue
+    fi
+    eval "CACHE_${service_name}='$cached_hash'"
+  done <"$BUILD_CACHE_FILE"
+}
+
+# Save current hashes to cache
+save_cache() {
+  {
+    for service_name in "${APP_SERVICES[@]}"; do
+      if [[ "$service_name" == "frontend" ]]; then
+        local current_hash=$(compute_frontend_hash)
+      else
+        local current_hash=$(compute_service_hash "$service_name")
+      fi
+
+      if [[ -n "$current_hash" ]]; then
+        echo "${service_name}:${current_hash}"
+      fi
+    done
+  } >"$BUILD_CACHE_FILE"
+}
+
+# Detect which services have changes
+detect_changed_services() {
+  CHANGED_SERVICES=()
+
+  for service_name in "${APP_SERVICES[@]}"; do
+    if [[ "$service_name" == "frontend" ]]; then
+      local current_hash=$(compute_frontend_hash)
+    else
+      local current_hash=$(compute_service_hash "$service_name")
+    fi
+
+    local cache_var="CACHE_${service_name}"
+    local cached_hash="${!cache_var:-}"
+
+    # If no cached hash or hash differs, mark as changed
+    if [[ -z "$cached_hash" ]] || [[ "$current_hash" != "$cached_hash" ]]; then
+      CHANGED_SERVICES+=("$service_name")
+    fi
+  done
+}
+
 build_jars() {
   if [[ "$SKIP_BUILD" == "true" ]]; then
     echo "Skipping Gradle build"
     return
   fi
 
-  echo "Building boot JARs for all application services..."
-  (
-    cd "$ROOT_DIR"
-    ./gradlew "${BOOTJAR_TASKS[@]}"
-  )
+  if [[ "$FORCE_REBUILD" == "true" ]]; then
+    echo "Force rebuild: building all boot JARs..."
+    (
+      cd "$ROOT_DIR"
+      ./gradlew "${BOOTJAR_TASKS[@]}"
+    )
+    return
+  fi
+
+  # Load cached hashes and detect changes
+  load_cache
+  detect_changed_services
+
+  if (( ${#CHANGED_SERVICES[@]} == 0 )); then
+    echo "No source changes detected. Skipping build."
+    return
+  fi
+
+  echo "Detected changes in: ${CHANGED_SERVICES[*]}"
+
+  # Build only changed backend services (exclude frontend from bootJar)
+  local tasks_to_build=()
+  for service_name in "${CHANGED_SERVICES[@]}"; do
+    if [[ "$service_name" != "frontend" ]]; then
+      case "$service_name" in
+        auth-service) tasks_to_build+=( ":apps:auth-service:bootJar" ) ;;
+        profile-service) tasks_to_build+=( ":apps:profile-service:bootJar" ) ;;
+        education-service) tasks_to_build+=( ":apps:education-service:bootJar" ) ;;
+        schedule-service) tasks_to_build+=( ":apps:schedule-service:bootJar" ) ;;
+        assignment-service) tasks_to_build+=( ":apps:assignment-service:bootJar" ) ;;
+        testing-service) tasks_to_build+=( ":apps:testing-service:bootJar" ) ;;
+        file-service) tasks_to_build+=( ":apps:file-service:bootJar" ) ;;
+        analytics-service) tasks_to_build+=( ":apps:analytics-service:bootJar" ) ;;
+        audit-service) tasks_to_build+=( ":apps:audit-service:bootJar" ) ;;
+        notification-service) tasks_to_build+=( ":apps:notification-service:bootJar" ) ;;
+        gateway) tasks_to_build+=( ":apps:gateway:bootJar" ) ;;
+      esac
+    fi
+  done
+
+  if (( ${#tasks_to_build[@]} > 0 )); then
+    echo "Building changed backend services..."
+    (
+      cd "$ROOT_DIR"
+      ./gradlew "${tasks_to_build[@]}"
+    )
+  fi
 }
 
 seed_demo_data() {
@@ -245,7 +403,7 @@ start_stack() {
   local gateway_replicas="${GATEWAY_REPLICAS:-1}"
 
   echo "Starting infrastructure containers..."
-  compose up -d postgres redis kafka minio
+  compose up -d postgres pgbouncer redis kafka minio service-lb
 
   echo "Initializing PostgreSQL schemas..."
   compose run --rm db-init
@@ -256,20 +414,32 @@ start_stack() {
   echo "Initializing MinIO buckets..."
   compose run --rm minio-init
 
-  echo "Starting application containers..."
-  compose up -d --build \
-    --scale auth-service="$auth_replicas" \
-    --scale profile-service="$profile_replicas" \
-    --scale education-service="$education_replicas" \
-    --scale schedule-service="$schedule_replicas" \
-    --scale assignment-service="$assignment_replicas" \
-    --scale testing-service="$testing_replicas" \
-    --scale file-service="$file_replicas" \
-    --scale analytics-service="$analytics_replicas" \
-    --scale audit-service="$audit_replicas" \
-    --scale notification-service="$notification_replicas" \
-    --scale gateway="$gateway_replicas" \
-    "${APP_SERVICES[@]}"
+  # If force rebuild or no cache, start all services with build
+  if [[ "$FORCE_REBUILD" == "true" ]] || [[ ! -f "$BUILD_CACHE_FILE" ]]; then
+    echo "Starting all application containers with full rebuild..."
+    compose up -d --build \
+      --scale auth-service="$auth_replicas" \
+      --scale profile-service="$profile_replicas" \
+      --scale education-service="$education_replicas" \
+      --scale schedule-service="$schedule_replicas" \
+      --scale assignment-service="$assignment_replicas" \
+      --scale testing-service="$testing_replicas" \
+      --scale file-service="$file_replicas" \
+      --scale analytics-service="$analytics_replicas" \
+      --scale audit-service="$audit_replicas" \
+      --scale notification-service="$notification_replicas" \
+      --scale gateway="$gateway_replicas" \
+      "${APP_SERVICES[@]}"
+  else
+    # Incremental: restart only changed services
+    if (( ${#CHANGED_SERVICES[@]} > 0 )); then
+      echo "Restarting changed services: ${CHANGED_SERVICES[*]}"
+      compose up -d --build --no-deps "${CHANGED_SERVICES[@]}"
+    else
+      echo "No service changes detected. Ensuring stack is running..."
+      compose up -d --no-build "${APP_SERVICES[@]}"
+    fi
+  fi
 
   seed_demo_data
   echo "Local stack started successfully"
@@ -282,6 +452,9 @@ for arg in "$@"; do
       ;;
     --frontend-only|-f)
       FRONTEND_ONLY=true
+      ;;
+    --rebuild|-r)
+      FORCE_REBUILD=true
       ;;
     --help|-h)
       usage
@@ -299,10 +472,13 @@ ensure_env
 sync_missing_env_keys
 load_env
 ensure_keys
+
 if [[ "$FRONTEND_ONLY" == "true" ]]; then
   start_frontend_only
+  save_cache
   exit 0
 fi
 
 build_jars
 start_stack
+save_cache

@@ -17,6 +17,7 @@ import dev.knalis.testing.mapper.TestMapper;
 import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.TestGroupAvailabilityRepository;
 import dev.knalis.testing.repository.TestRepository;
+import dev.knalis.testing.repository.AnswerRepository;
 import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
@@ -54,6 +55,9 @@ class TestServiceTest {
 
     @Mock
     private QuestionRepository questionRepository;
+
+    @Mock
+    private AnswerRepository answerRepository;
     
     @Mock
     private TestMapper testMapper;
@@ -76,6 +80,7 @@ class TestServiceTest {
                 testAttemptRepository,
                 testGroupAvailabilityRepository,
                 questionRepository,
+                answerRepository,
                 new TestFactory(),
                 new TestAttemptFactory(),
                 testMapper,

@@ -18,7 +18,7 @@ public interface AssignmentOutboxRepository extends JpaRepository<AssignmentOutb
     
     @Query(value = """
             select id
-            from assignment_outbox_events
+            from assignment.assignment_outbox_events
             where status in ('PENDING', 'RETRY')
               and next_attempt_at <= :now
             order by created_at asc

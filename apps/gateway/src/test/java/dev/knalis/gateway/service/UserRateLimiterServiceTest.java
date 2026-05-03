@@ -32,6 +32,7 @@ class UserRateLimiterServiceTest {
     @BeforeEach
     void setUp() {
         GatewayProperties properties = new GatewayProperties();
+        properties.getRateLimit().setEnabled(true);
         properties.getRateLimit().setMaxRequests(2);
         properties.getRateLimit().setWindow(Duration.ofSeconds(30));
 
@@ -87,6 +88,25 @@ class UserRateLimiterServiceTest {
         clock.advance(Duration.ofSeconds(31));
 
         assertTrue(userRateLimiterService.tryAcquire(userId).allowed());
+    }
+
+    @Test
+    void allowsRequestsWhenRateLimitIsDisabled() {
+        GatewayProperties properties = new GatewayProperties();
+        properties.getRateLimit().setEnabled(false);
+        properties.getRateLimit().setMaxRequests(1);
+        properties.getRateLimit().setWindow(Duration.ofSeconds(30));
+
+        UserRateLimiterService disabledService = new UserRateLimiterService(
+                properties,
+                mock(StringRedisTemplate.class),
+                clock,
+                new SimpleMeterRegistry()
+        );
+        UUID userId = UUID.randomUUID();
+
+        assertTrue(disabledService.tryAcquire(userId).allowed());
+        assertTrue(disabledService.tryAcquire(userId).allowed());
     }
 
     private static final class MutableClock extends Clock {

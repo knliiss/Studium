@@ -5,6 +5,7 @@ import type {
   AdminUserPageResponse,
   AdminUserResponse,
   AdminUserStatsResponse,
+  AnswerResponse,
   AssignmentGroupAvailabilityResponse,
   AssignmentResponse,
   AuditEventResponse,
@@ -38,6 +39,7 @@ import type {
   TestResponse,
   TestGroupAvailabilityResponse,
   TestResultResponse,
+  TestStudentViewResponse,
   TopicResponse,
   UnreadCountResponse,
   UserProfileResponse,
@@ -343,6 +345,9 @@ export const assignmentService = {
     const response = await apiClient.post<AssignmentResponse>(`/api/v1/assignments/${id}/archive`)
     return response.data
   },
+  async deleteAssignment(id: string) {
+    await apiClient.delete(`/api/v1/assignments/${id}`)
+  },
   async moveAssignment(id: string, payload: { topicId: string; orderIndex: number }) {
     const response = await apiClient.patch<AssignmentResponse>(`/api/v1/assignments/${id}/position`, payload)
     return response.data
@@ -357,6 +362,13 @@ export const assignmentService = {
   },
   async upsertAssignmentAvailability(id: string, payload: Record<string, unknown>) {
     const response = await apiClient.put<AssignmentGroupAvailabilityResponse>(`/api/v1/assignments/${id}/availability`, payload)
+    return response.data
+  },
+  async bulkUpsertAssignmentAvailability(id: string, items: Record<string, unknown>[]) {
+    const response = await apiClient.put<AssignmentGroupAvailabilityResponse[]>(
+      `/api/v1/assignments/${id}/availability/bulk`,
+      { items },
+    )
     return response.data
   },
   async getAssignmentsByTopic(topicId: string, params: PaginationParams = {}) {
@@ -374,6 +386,14 @@ export const assignmentService = {
   async getSubmissionsByAssignment(assignmentId: string, params: PaginationParams = {}) {
     const response = await apiClient.get(`/api/v1/submissions/assignment/${assignmentId}`, { params })
     return normalizePage<SubmissionResponse>(response.data)
+  },
+  async getMySubmissionsByAssignment(assignmentId: string) {
+    const response = await apiClient.get<SubmissionResponse[]>(`/api/v1/submissions/assignment/${assignmentId}/mine`)
+    return response.data
+  },
+  async getSubmission(id: string) {
+    const response = await apiClient.get<SubmissionResponse>(`/api/v1/submissions/${id}`)
+    return response.data
   },
   async listSubmissionComments(submissionId: string) {
     const response = await apiClient.get<SubmissionCommentResponse[]>(`/api/v1/submissions/${submissionId}/comments`)
@@ -405,6 +425,14 @@ export const testingService = {
     const response = await apiClient.get<TestResponse>(`/api/v1/testing/tests/${id}`)
     return response.data
   },
+  async getTestPreview(id: string) {
+    const response = await apiClient.get<TestStudentViewResponse>(`/api/v1/testing/tests/${id}/preview`)
+    return response.data
+  },
+  async getStudentTestView(id: string) {
+    const response = await apiClient.get<TestStudentViewResponse>(`/api/v1/testing/tests/${id}/student-view`)
+    return response.data
+  },
   async getTestAvailability(id: string) {
     const response = await apiClient.get<TestGroupAvailabilityResponse[]>(`/api/v1/testing/tests/${id}/availability`)
     return response.data
@@ -417,12 +445,23 @@ export const testingService = {
     const response = await apiClient.post<QuestionResponse>('/api/v1/testing/questions', payload)
     return response.data
   },
+  async updateQuestion(id: string, payload: Record<string, unknown>) {
+    const response = await apiClient.patch<QuestionResponse>(`/api/v1/testing/questions/${id}`, payload)
+    return response.data
+  },
+  async deleteQuestion(id: string) {
+    await apiClient.delete(`/api/v1/testing/questions/${id}`)
+  },
   async getQuestionsByTest(testId: string) {
     const response = await apiClient.get<QuestionResponse[]>(`/api/v1/testing/questions/test/${testId}`)
     return response.data
   },
   async createAnswer(payload: { questionId: string; text: string; isCorrect: boolean }) {
-    const response = await apiClient.post('/api/v1/testing/answers', payload)
+    const response = await apiClient.post<AnswerResponse>('/api/v1/testing/answers', payload)
+    return response.data
+  },
+  async getAnswersByQuestion(questionId: string) {
+    const response = await apiClient.get<AnswerResponse[]>(`/api/v1/testing/answers/question/${questionId}`)
     return response.data
   },
   async publishTest(id: string) {
@@ -436,6 +475,9 @@ export const testingService = {
   async archiveTest(id: string) {
     const response = await apiClient.post<TestResponse>(`/api/v1/testing/tests/${id}/archive`)
     return response.data
+  },
+  async deleteTest(id: string) {
+    await apiClient.delete(`/api/v1/testing/tests/${id}`)
   },
   async moveTest(id: string, payload: { topicId: string; orderIndex: number }) {
     const response = await apiClient.patch<TestResponse>(`/api/v1/testing/tests/${id}/position`, payload)
@@ -451,6 +493,10 @@ export const testingService = {
   },
   async startTest(id: string) {
     await apiClient.post(`/api/v1/testing/tests/${id}/start`)
+  },
+  async finishTest(id: string, payload: { answers: Array<{ questionId: string; value: unknown }> }) {
+    const response = await apiClient.post<TestResultResponse>(`/api/v1/testing/tests/${id}/finish`, payload)
+    return response.data
   },
   async submitTestResult(payload: { testId: string; score: number }) {
     const response = await apiClient.post<TestResultResponse>('/api/v1/testing/results', payload)

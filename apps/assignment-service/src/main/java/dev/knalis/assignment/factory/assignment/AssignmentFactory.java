@@ -24,6 +24,7 @@ public class AssignmentFactory {
             boolean allowResubmit,
             Set<String> acceptedFileTypes,
             Integer maxFileSizeMb,
+            int maxPoints,
             int orderIndex
     ) {
         Assignment assignment = new Assignment();
@@ -37,6 +38,7 @@ public class AssignmentFactory {
         assignment.setAllowResubmit(allowResubmit);
         assignment.setAcceptedFileTypes(normalizeAcceptedFileTypes(acceptedFileTypes));
         assignment.setMaxFileSizeMb(maxFileSizeMb);
+        assignment.setMaxPoints(maxPoints);
         assignment.setOrderIndex(orderIndex);
         return assignment;
     }

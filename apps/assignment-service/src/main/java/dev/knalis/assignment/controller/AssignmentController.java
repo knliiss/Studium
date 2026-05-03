@@ -1,5 +1,6 @@
 package dev.knalis.assignment.controller;
 
+import dev.knalis.assignment.dto.request.BulkUpsertAssignmentGroupAvailabilityRequest;
 import dev.knalis.assignment.dto.request.CreateAssignmentRequest;
 import dev.knalis.assignment.dto.request.MoveAssignmentRequest;
 import dev.knalis.assignment.dto.request.UpdateAssignmentRequest;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -123,6 +125,21 @@ public class AssignmentController {
         );
     }
 
+    @PutMapping("/{id}/availability/bulk")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public List<AssignmentGroupAvailabilityResponse> bulkUpsertAssignmentAvailability(
+            Authentication authentication,
+            @PathVariable("id") UUID assignmentId,
+            @Valid @RequestBody BulkUpsertAssignmentGroupAvailabilityRequest request
+    ) {
+        return assignmentService.bulkUpsertAssignmentAvailability(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId,
+                request
+        );
+    }
+
     @GetMapping("/search")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public SearchPageResponse searchAssignments(
@@ -150,6 +167,16 @@ public class AssignmentController {
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public AssignmentResponse archiveAssignment(Authentication authentication, @PathVariable("id") UUID assignmentId) {
         return assignmentService.archiveAssignment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId
+        );
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public void deleteAssignment(Authentication authentication, @PathVariable("id") UUID assignmentId) {
+        assignmentService.deleteAssignment(
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),
                 assignmentId

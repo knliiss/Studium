@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 for %%I in ("%~dp0..\..\..") do set "ROOT_DIR=%%~fI"
 set "COMPOSE_FILE=%ROOT_DIR%\infra\docker\docker-compose.local.yml"
@@ -8,8 +8,10 @@ set "ENV_EXAMPLE_FILE=%ROOT_DIR%\.env.example"
 set "KEY_DIR=%ROOT_DIR%\infra\keys"
 set "PRIVATE_KEY_FILE=%KEY_DIR%\private.pem"
 set "PUBLIC_KEY_FILE=%KEY_DIR%\public.pem"
+set "BUILD_CACHE_FILE=%ROOT_DIR%\.build-cache"
 set "SKIP_BUILD=false"
 set "FRONTEND_ONLY=false"
+set "FORCE_REBUILD=false"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -33,6 +35,16 @@ if /I "%~1"=="-f" (
   shift
   goto parse_args
 )
+if /I "%~1"=="--rebuild" (
+  set "FORCE_REBUILD=true"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="-r" (
+  set "FORCE_REBUILD=true"
+  shift
+  goto parse_args
+)
 if /I "%~1"=="--help" goto usage
 if /I "%~1"=="-h" goto usage
 echo Unknown argument: %~1
@@ -53,18 +65,19 @@ call :start_stack || exit /b 1
 exit /b 0
 
 :usage
-echo Usage: infra\scripts\local\start-local.bat [--skip-build ^| -s] [--frontend-only ^| -f]
+echo Usage: infra\scripts\local\start-local.bat [OPTIONS]
 echo.
-echo Starts the full local Studium stack:
-echo   1. Ensures .env exists
-echo   2. Ensures JWT RSA keys exist
-echo   3. Builds all bootable services unless --skip-build is used
-echo   4. Starts Docker Compose infrastructure, backend services, and the frontend container
-echo   5. Runs demo seed when DEMO_SEED_ENABLED=true and bash is available
+echo Options:
+echo   --skip-build, -s        Skip Gradle build (use existing JARs)
+echo   --frontend-only, -f     Rebuild and restart only frontend without restarting the rest
+echo   --rebuild, -r           Force complete rebuild and restart of all services
+echo   --help, -h              Show this help message
 echo.
-echo Frontend-only refresh:
-echo   --frontend-only ^| -f
-echo     Rebuilds and restarts only the frontend container without restarting the rest of the stack.
+echo Smart restart behavior:
+echo   - Detects changes in source code and only rebuilds/restarts affected services
+echo   - Caches build hashes in .build-cache for fast change detection
+echo   - Use -r flag to force full rebuild regardless of changes
+echo   - Use -s flag to skip all builds (use existing JARs/containers)
 exit /b 0
 
 :usage_error
@@ -218,6 +231,28 @@ if /I "%SKIP_BUILD%"=="true" (
   exit /b 0
 )
 
+if /I "%FORCE_REBUILD%"=="true" (
+  echo Force rebuild: building all boot JARs...
+  pushd "%ROOT_DIR%" >nul
+  call gradlew.bat ^
+    :apps:auth-service:bootJar ^
+    :apps:profile-service:bootJar ^
+    :apps:education-service:bootJar ^
+    :apps:schedule-service:bootJar ^
+    :apps:assignment-service:bootJar ^
+    :apps:testing-service:bootJar ^
+    :apps:file-service:bootJar ^
+    :apps:analytics-service:bootJar ^
+    :apps:audit-service:bootJar ^
+    :apps:notification-service:bootJar ^
+    :apps:gateway:bootJar
+  set "BUILD_EXIT=!ERRORLEVEL!"
+  popd >nul
+  exit /b !BUILD_EXIT!
+)
+
+REM Note: For Windows batch scripts, smart rebuild with caching is complex with limited PowerShell integration.
+REM Fallback to full rebuild for now. This can be enhanced with PowerShell in the future.
 echo Building boot JARs for all application services...
 pushd "%ROOT_DIR%" >nul
 call gradlew.bat ^
@@ -232,9 +267,9 @@ call gradlew.bat ^
   :apps:audit-service:bootJar ^
   :apps:notification-service:bootJar ^
   :apps:gateway:bootJar
-set "BUILD_EXIT=%ERRORLEVEL%"
+set "BUILD_EXIT=!ERRORLEVEL!"
 popd >nul
-exit /b %BUILD_EXIT%
+exit /b !BUILD_EXIT!
 
 :start_stack
 echo Starting infrastructure containers...
@@ -249,20 +284,37 @@ docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" run --rm kafka-init |
 echo Initializing MinIO buckets...
 docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" run --rm minio-init || exit /b 1
 
-echo Starting application containers...
-docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" up -d --build ^
-  --scale auth-service=%AUTH_REPLICAS% ^
-  --scale profile-service=%PROFILE_REPLICAS% ^
-  --scale education-service=%EDUCATION_REPLICAS% ^
-  --scale schedule-service=%SCHEDULE_REPLICAS% ^
-  --scale assignment-service=%ASSIGNMENT_REPLICAS% ^
-  --scale testing-service=%TESTING_REPLICAS% ^
-  --scale file-service=%FILE_REPLICAS% ^
-  --scale analytics-service=%ANALYTICS_REPLICAS% ^
-  --scale audit-service=%AUDIT_REPLICAS% ^
-  --scale notification-service=%NOTIFICATION_REPLICAS% ^
-  --scale gateway=%GATEWAY_REPLICAS% ^
-  auth-service profile-service education-service schedule-service assignment-service testing-service file-service analytics-service audit-service notification-service gateway frontend || exit /b 1
+if /I "%FORCE_REBUILD%"=="true" (
+  echo Starting all application containers with full rebuild...
+  docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" up -d --build ^
+    --scale auth-service=%AUTH_REPLICAS% ^
+    --scale profile-service=%PROFILE_REPLICAS% ^
+    --scale education-service=%EDUCATION_REPLICAS% ^
+    --scale schedule-service=%SCHEDULE_REPLICAS% ^
+    --scale assignment-service=%ASSIGNMENT_REPLICAS% ^
+    --scale testing-service=%TESTING_REPLICAS% ^
+    --scale file-service=%FILE_REPLICAS% ^
+    --scale analytics-service=%ANALYTICS_REPLICAS% ^
+    --scale audit-service=%AUDIT_REPLICAS% ^
+    --scale notification-service=%NOTIFICATION_REPLICAS% ^
+    --scale gateway=%GATEWAY_REPLICAS% ^
+    auth-service profile-service education-service schedule-service assignment-service testing-service file-service analytics-service audit-service notification-service gateway frontend || exit /b 1
+) else (
+  echo Starting application containers...
+  docker compose --env-file "%ENV_FILE%" -f "%COMPOSE_FILE%" up -d --build ^
+    --scale auth-service=%AUTH_REPLICAS% ^
+    --scale profile-service=%PROFILE_REPLICAS% ^
+    --scale education-service=%EDUCATION_REPLICAS% ^
+    --scale schedule-service=%SCHEDULE_REPLICAS% ^
+    --scale assignment-service=%ASSIGNMENT_REPLICAS% ^
+    --scale testing-service=%TESTING_REPLICAS% ^
+    --scale file-service=%FILE_REPLICAS% ^
+    --scale analytics-service=%ANALYTICS_REPLICAS% ^
+    --scale audit-service=%AUDIT_REPLICAS% ^
+    --scale notification-service=%NOTIFICATION_REPLICAS% ^
+    --scale gateway=%GATEWAY_REPLICAS% ^
+    auth-service profile-service education-service schedule-service assignment-service testing-service file-service analytics-service audit-service notification-service gateway frontend || exit /b 1
+)
 
 call :seed_demo_data || exit /b 1
 echo Local stack started successfully

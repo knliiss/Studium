@@ -53,6 +53,9 @@ public class Question {
 
     @Column(length = 2000)
     private String feedback;
+
+    @Column(length = 8000)
+    private String configurationJson;
     
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

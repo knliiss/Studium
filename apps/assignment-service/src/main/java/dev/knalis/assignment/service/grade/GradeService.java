@@ -8,6 +8,7 @@ import dev.knalis.assignment.entity.Grade;
 import dev.knalis.assignment.entity.Submission;
 import dev.knalis.assignment.exception.AssignmentNotFoundException;
 import dev.knalis.assignment.exception.AssignmentAccessDeniedException;
+import dev.knalis.assignment.exception.AssignmentInvalidStateException;
 import dev.knalis.assignment.exception.GradeAlreadyExistsException;
 import dev.knalis.assignment.exception.SubmissionNotFoundException;
 import dev.knalis.assignment.factory.grade.GradeFactory;
@@ -48,6 +49,13 @@ public class GradeService {
         Assignment assignment = assignmentRepository.findById(submission.getAssignmentId())
                 .orElseThrow(() -> new AssignmentNotFoundException(submission.getAssignmentId()));
         assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        if (request.score() > assignment.getMaxPoints()) {
+            throw new AssignmentInvalidStateException(
+                    assignment.getId(),
+                    assignment.getStatus(),
+                    "Grade score cannot exceed assignment max points"
+            );
+        }
         UUID subjectId = educationServiceClient.getTopic(assignment.getTopicId()).subjectId();
         
         Grade grade = gradeFactory.newGrade(

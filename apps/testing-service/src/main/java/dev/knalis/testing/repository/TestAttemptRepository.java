@@ -14,4 +14,8 @@ public interface TestAttemptRepository extends JpaRepository<TestAttempt, UUID> 
     Optional<TestAttempt> findFirstByTestIdAndUserIdAndCompletedAtIsNullOrderByStartedAtDesc(UUID testId, UUID userId);
 
     List<TestAttempt> findAllByUserId(UUID userId);
+
+    long countByTestId(UUID testId);
+
+    void deleteAllByTestId(UUID testId);
 }

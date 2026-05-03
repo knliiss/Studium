@@ -4,6 +4,7 @@ import dev.knalis.testing.dto.request.CreateAnswerRequest;
 import dev.knalis.testing.dto.response.AnswerResponse;
 import dev.knalis.testing.entity.Answer;
 import dev.knalis.testing.entity.Question;
+import dev.knalis.testing.entity.TestStatus;
 import dev.knalis.testing.exception.QuestionNotFoundException;
 import dev.knalis.testing.factory.answer.AnswerFactory;
 import dev.knalis.testing.mapper.AnswerMapper;
@@ -77,6 +78,10 @@ class AnswerServiceTest {
         Question question = new Question();
         question.setId(questionId);
         question.setTestId(testId);
+
+        dev.knalis.testing.entity.Test test = new dev.knalis.testing.entity.Test();
+        test.setId(testId);
+        test.setStatus(TestStatus.DRAFT);
         
         Answer answer = new Answer();
         answer.setId(answerId);
@@ -89,7 +94,8 @@ class AnswerServiceTest {
         AnswerResponse response = new AnswerResponse(answerId, questionId, "Answer", true, now, now);
         
         when(questionRepository.findById(questionId)).thenReturn(Optional.of(question));
-        when(testService.requireOwnedTest(actorId, false, testId)).thenReturn(null);
+        when(testService.requireOwnedTest(actorId, false, testId)).thenReturn(test);
+        when(answerRepository.existsByQuestionIdAndCorrectTrue(questionId)).thenReturn(false);
         when(answerRepository.save(any(Answer.class))).thenReturn(answer);
         when(answerMapper.toResponse(answer)).thenReturn(response);
         

@@ -25,6 +25,10 @@ public class UserRateLimiterFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        if (!userRateLimiterService.isEnabled()) {
+            return chain.filter(exchange);
+        }
+
         return exchange.getPrincipal()
                 .cast(Authentication.class)
                 .flatMap(authentication -> validate(authentication, exchange, chain))

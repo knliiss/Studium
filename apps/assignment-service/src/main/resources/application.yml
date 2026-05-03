@@ -11,6 +11,11 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
+  sql:
+    init:
+      continue-on-error: true
+      mode: always
+
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -24,6 +29,7 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        default_schema: ${ASSIGNMENT_DB_SCHEMA:assignment}
         format_sql: true
     show-sql: false
 

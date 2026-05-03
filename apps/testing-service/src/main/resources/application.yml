@@ -29,6 +29,7 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        default_schema: ${TESTING_DB_SCHEMA:testing}
         format_sql: true
     show-sql: false
 

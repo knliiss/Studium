@@ -18,7 +18,7 @@ public interface TestingOutboxRepository extends JpaRepository<TestingOutboxEven
     
     @Query(value = """
             select id
-            from testing_outbox_events
+            from testing.testing_outbox_events
             where status in ('PENDING', 'RETRY')
               and next_attempt_at <= :now
             order by created_at asc

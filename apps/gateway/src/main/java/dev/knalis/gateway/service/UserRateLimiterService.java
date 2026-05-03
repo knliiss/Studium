@@ -34,7 +34,15 @@ public class UserRateLimiterService {
     private final Clock clock;
     private final MeterRegistry meterRegistry;
 
+    public boolean isEnabled() {
+        return gatewayProperties.getRateLimit().isEnabled();
+    }
+
     public RateLimitDecision tryAcquire(UUID userId) {
+        if (!isEnabled()) {
+            return new RateLimitDecision(true, 0);
+        }
+
         Instant now = Instant.now(clock);
         Duration window = gatewayProperties.getRateLimit().getWindow();
         int maxRequests = gatewayProperties.getRateLimit().getMaxRequests();

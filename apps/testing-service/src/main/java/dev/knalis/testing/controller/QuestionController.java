@@ -1,6 +1,7 @@
 package dev.knalis.testing.controller;
 
 import dev.knalis.testing.dto.request.CreateQuestionRequest;
+import dev.knalis.testing.dto.request.UpdateQuestionRequest;
 import dev.knalis.testing.dto.response.QuestionResponse;
 import dev.knalis.shared.security.user.CurrentUserService;
 import dev.knalis.testing.service.question.QuestionService;
@@ -9,7 +10,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -44,6 +47,31 @@ public class QuestionController {
                 currentUserService.getCurrentUserId(authentication),
                 isAdmin(authentication),
                 testId
+        );
+    }
+
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public QuestionResponse updateQuestion(
+            Authentication authentication,
+            @PathVariable("id") UUID questionId,
+            @Valid @RequestBody UpdateQuestionRequest request
+    ) {
+        return questionService.updateQuestion(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                questionId,
+                request
+        );
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public void deleteQuestion(Authentication authentication, @PathVariable("id") UUID questionId) {
+        questionService.deleteQuestion(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                questionId
         );
     }
 

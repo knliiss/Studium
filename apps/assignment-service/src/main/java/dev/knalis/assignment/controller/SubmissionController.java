@@ -69,6 +69,34 @@ public class SubmissionController {
         );
     }
 
+    @GetMapping("/assignment/{assignmentId}/mine")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','STUDENT')")
+    public List<SubmissionResponse> getMySubmissionsByAssignment(
+            Authentication authentication,
+            @PathVariable UUID assignmentId
+    ) {
+        return submissionService.getMySubmissionsByAssignment(
+                currentUserService.getCurrentUserId(authentication),
+                currentUserService.getCurrentTokenValue(authentication),
+                assignmentId
+        );
+    }
+
+    @GetMapping("/{submissionId}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public SubmissionResponse getSubmission(
+            Authentication authentication,
+            @PathVariable UUID submissionId
+    ) {
+        return submissionService.getSubmission(
+                currentUserService.getCurrentUserId(authentication),
+                currentUserService.getCurrentTokenValue(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId
+        );
+    }
+
     @PostMapping("/{submissionId}/comments")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
     public SubmissionCommentResponse createComment(

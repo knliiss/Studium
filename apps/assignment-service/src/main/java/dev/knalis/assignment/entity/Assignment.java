@@ -80,6 +80,9 @@ public class Assignment {
 
     @Column
     private Integer maxFileSizeMb;
+
+    @Column(nullable = false)
+    private int maxPoints = 100;
     
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

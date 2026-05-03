@@ -69,6 +69,8 @@ public class GatewayProperties {
     @Setter
     public static class RateLimit {
 
+        private boolean enabled = false;
+
         @Min(1)
         private int maxRequests = 120;
 

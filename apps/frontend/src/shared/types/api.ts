@@ -270,6 +270,7 @@ export interface AssignmentResponse {
   allowResubmit: boolean
   acceptedFileTypes: string[]
   maxFileSizeMb: number | null
+  maxPoints: number
   createdAt: string
   updatedAt: string
 }
@@ -288,11 +289,24 @@ export interface AssignmentGroupAvailabilityResponse {
   updatedAt: string
 }
 
+export interface SubmissionFileResponse {
+  id: string
+  originalFileName: string
+  contentType: string | null
+  sizeBytes: number
+  status: string
+}
+
 export interface SubmissionResponse {
   id: string
   assignmentId: string
   userId: string
   fileId: string
+  file: SubmissionFileResponse | null
+  score: number | null
+  feedback: string | null
+  gradedAt: string | null
+  reviewed: boolean
   submittedAt: string
   updatedAt: string
 }
@@ -357,6 +371,8 @@ export interface QuestionResponse {
   orderIndex: number
   required: boolean
   feedback: string | null
+  configurationJson: string | null
+  answers: AnswerResponse[]
   createdAt: string
   updatedAt: string
 }
@@ -368,6 +384,40 @@ export interface AnswerResponse {
   isCorrect: boolean
   createdAt: string
   updatedAt: string
+}
+
+export interface TestQuestionAnswerResponse {
+  id: string
+  questionId: string
+  text: string
+  isCorrect: boolean | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestQuestionViewResponse {
+  id: string
+  testId: string
+  text: string
+  type: QuestionType
+  description: string | null
+  points: number
+  orderIndex: number
+  required: boolean
+  feedback: string | null
+  configurationJson: string | null
+  answers: TestQuestionAnswerResponse[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestStudentViewResponse {
+  test: TestResponse
+  questions: TestQuestionViewResponse[]
+  preview: boolean
+  totalPoints: number
+  timeLimitMinutes: number | null
+  generatedAt: string
 }
 
 export interface TestResultResponse {

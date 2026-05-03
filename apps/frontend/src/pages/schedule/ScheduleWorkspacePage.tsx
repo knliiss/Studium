@@ -9,6 +9,7 @@ import {
   CircleAlert,
   Copy,
   DoorOpen,
+  GripVertical,
   MonitorUp,
   Pencil,
   Plus,
@@ -44,6 +45,7 @@ import { cn } from '@/shared/lib/cn'
 import { getDayOfWeekLabel, getLessonFormatLabel, getLessonTypeLabel } from '@/shared/lib/enum-labels'
 import { formatDate } from '@/shared/lib/format'
 import { hasAnyRole } from '@/shared/lib/roles'
+import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
 import type {
   AcademicSemesterResponse,
   AdminUserResponse,
@@ -388,19 +390,19 @@ function ScheduleGroupsPage() {
   const { primaryRole, roles, session } = useAuth()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search.trim(), 300)
   const isAdmin = hasAnyRole(roles, ['ADMIN', 'OWNER'])
-  const normalizedSearch = search.trim()
   const accessibleGroupsQuery = useQuery({
     queryKey: ['schedule', 'groups', 'accessible', primaryRole, session?.user.id],
     queryFn: () => loadAccessibleGroups(primaryRole, session?.user.id ?? ''),
     enabled: !isAdmin && Boolean(session?.user.id),
   })
   const groupsQuery = useQuery({
-    queryKey: ['schedule', 'groups', 'admin', normalizedSearch, page],
+    queryKey: ['schedule', 'groups', 'admin', debouncedSearch, page],
     queryFn: () => educationService.listGroups({
       page,
       size: pageSize,
-      q: normalizedSearch || undefined,
+      q: debouncedSearch || undefined,
       sortBy: 'name',
       direction: 'asc',
     }),
@@ -416,7 +418,7 @@ function ScheduleGroupsPage() {
   }
 
   const localGroups = (accessibleGroupsQuery.data ?? [])
-    .filter((group) => !normalizedSearch || group.name.toLowerCase().includes(normalizedSearch.toLowerCase()))
+    .filter((group) => !debouncedSearch || group.name.toLowerCase().includes(debouncedSearch.toLowerCase()))
   const visibleGroups = isAdmin
     ? (groupsQuery.data?.items ?? [])
     : localGroups.slice(page * pageSize, (page + 1) * pageSize)
@@ -485,15 +487,15 @@ function ScheduleTeachersPage() {
   const { primaryRole, roles, session } = useAuth()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search.trim(), 300)
   const isAdmin = hasAnyRole(roles, ['ADMIN', 'OWNER'])
-  const normalizedSearch = search.trim()
   const teacherPageQuery = useQuery({
-    queryKey: ['schedule', 'teachers', 'admin', normalizedSearch, page],
+    queryKey: ['schedule', 'teachers', 'admin', debouncedSearch, page],
     queryFn: () => adminUserService.list({
       page,
       size: pageSize,
       role: 'TEACHER',
-      search: normalizedSearch || undefined,
+      search: debouncedSearch || undefined,
       sortBy: 'username',
       direction: 'asc',
     }),
@@ -532,7 +534,7 @@ function ScheduleTeachersPage() {
 
   const localTeachers = (teacherLookupQuery.data ?? []).filter((teacher) => {
     const label = `${teacher.username} ${teacher.email}`.toLowerCase()
-    return !normalizedSearch || label.includes(normalizedSearch.toLowerCase())
+    return !debouncedSearch || label.includes(debouncedSearch.toLowerCase())
   })
   const visibleTeachers = isAdmin
     ? (teacherPageQuery.data?.content ?? [])
@@ -605,7 +607,7 @@ function ScheduleRoomsPage() {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
-  const normalizedSearch = search.trim().toLowerCase()
+  const debouncedSearch = useDebouncedValue(search.trim().toLowerCase(), 300)
   const roomsQuery = useQuery({
     queryKey: ['schedule', 'rooms', 'directory'],
     queryFn: () => scheduleService.listRooms(),
@@ -621,7 +623,7 @@ function ScheduleRoomsPage() {
 
   const filteredRooms = (roomsQuery.data ?? []).filter((room) => {
     const label = `${room.building} ${room.code}`.toLowerCase()
-    return !normalizedSearch || label.includes(normalizedSearch)
+    return !debouncedSearch || label.includes(debouncedSearch)
   })
   const visibleRooms = filteredRooms.slice(page * pageSize, (page + 1) * pageSize)
   const totalPages = Math.max(Math.ceil(Math.max(filteredRooms.length, 1) / pageSize), 1)
@@ -1063,7 +1065,7 @@ function ScheduleDetailPage({
       return
     }
 
-    applyConflictResult(draft.localId, hash, 'pending', [], [])
+    applyConflictResult(draft.localId, hash, 'pending', [], [t('schedule.conflictChecking')])
 
     try {
       const result = await scheduleService.checkConflicts(buildDraftConflictPayload(draft))
@@ -1192,8 +1194,8 @@ function ScheduleDetailPage({
   })
 
   const editorTeacherIds = useMemo(
-    () => (subjectsForGroupQuery.data?.items ?? []).find((subject) => subject.id === drawer?.subjectId)?.teacherIds ?? [],
-    [drawer?.subjectId, subjectsForGroupQuery.data?.items],
+    () => uniqueIds((subjectsForGroupQuery.data?.items ?? []).flatMap((subject) => subject.teacherIds)),
+    [subjectsForGroupQuery.data?.items],
   )
   const editorTeachersQuery = useQuery({
     queryKey: ['schedule', 'editor-teachers', editorTeacherIds.join(',')],
@@ -2087,9 +2089,30 @@ function EditDayCard({
         {canonicalPairs.map((pair) => {
           const slot = canonicalSlotByPairNumber.get(pair.pairNumber)
           const pairDrafts = drafts.get(`${dayOfWeek}:${pair.pairNumber}`) ?? []
+          const dropActive = Boolean(movingLessonId)
+          const validDropTarget = Boolean(slot)
 
           return (
-            <div key={`${dayOfWeek}-${pair.pairNumber}`} className="rounded-[18px] border border-border bg-surface p-4">
+            <div
+              key={`${dayOfWeek}-${pair.pairNumber}`}
+              className={cn(
+                'rounded-[18px] border bg-surface p-4 transition',
+                dropActive && validDropTarget ? 'border-accent/60 bg-accent-muted/20' : 'border-border',
+                dropActive && !validDropTarget ? 'border-danger/40 bg-danger/5 opacity-70' : '',
+              )}
+              onDragOver={(event) => {
+                if (!validDropTarget || !movingLessonId) {
+                  return
+                }
+                event.preventDefault()
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                if (validDropTarget && movingLessonId) {
+                  onUseMoveTarget(dayOfWeek, pair.pairNumber)
+                }
+              }}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-text-primary">
@@ -2142,6 +2165,8 @@ function EditDayCard({
                       onDelete={() => onDeleteLesson(draft.localId)}
                       onEdit={() => onEditLesson(draft.localId)}
                       onMove={() => onSetMovingLesson(draft.localId)}
+                      onDragStart={() => onSetMovingLesson(draft.localId)}
+                      onDragEnd={() => onSetMovingLesson(null)}
                       onRestore={() => onRestoreLesson(draft.localId)}
                       onStopMove={() => onSetMovingLesson(null)}
                       copied={copiedLessonId === draft.localId}
@@ -2164,6 +2189,8 @@ function DraftLessonCard({
   moving,
   onCopy,
   onDelete,
+  onDragEnd,
+  onDragStart,
   onEdit,
   onMove,
   onRestore,
@@ -2177,6 +2204,8 @@ function DraftLessonCard({
   moving: boolean
   onCopy: () => void
   onDelete: () => void
+  onDragEnd: () => void
+  onDragStart: () => void
   onEdit: () => void
   onMove: () => void
   onRestore: () => void
@@ -2191,22 +2220,39 @@ function DraftLessonCard({
   const localChangeLabel = draft.changeReason ? t(`schedule.localChangeType.${draft.changeReason}`) : null
 
   return (
-    <div className={cn(
-      'rounded-[16px] border p-4',
-      draft.deleted
-        ? 'border-danger/30 bg-danger/5'
-        : draft.conflict.status === 'conflict' || draft.conflict.status === 'error'
+    <div
+      className={cn(
+        'rounded-[16px] border p-4 transition',
+        draft.deleted
           ? 'border-danger/30 bg-danger/5'
-          : draft.changeReason
-            ? 'border-accent/30 bg-accent/5'
-            : 'border-border bg-surface',
-    )}>
+          : draft.conflict.status === 'conflict' || draft.conflict.status === 'error'
+            ? 'border-danger/30 bg-danger/5'
+            : draft.changeReason
+              ? 'border-accent/30 bg-accent/5'
+              : 'border-border bg-surface',
+        moving && 'ring-4 ring-accent/15',
+      )}
+      draggable={!draft.deleted}
+      onDragEnd={onDragEnd}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', draft.localId)
+        onDragStart()
+      }}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-text-primary">
-            {subjectNameById.get(draft.subjectId) ?? t('education.subject')}
-          </p>
-          <p className="text-sm text-text-secondary">{getTeacherDisplayName(teacher)}</p>
+        <div className="flex min-w-0 items-start gap-3">
+          {!draft.deleted ? (
+            <span className="mt-1 inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-[10px] border border-border bg-surface-muted text-text-muted" title={t('schedule.dragLesson')}>
+              <GripVertical className="h-4 w-4" />
+            </span>
+          ) : null}
+          <div className="min-w-0 space-y-2">
+            <p className="text-base font-semibold text-text-primary">
+              {subjectNameById.get(draft.subjectId) ?? t('education.subject')}
+            </p>
+            <p className="text-sm text-text-secondary">{getTeacherDisplayName(teacher)}</p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {localChangeLabel ? (
@@ -2247,10 +2293,19 @@ function DraftLessonCard({
         </div>
         {draft.notes ? <p className="text-sm text-text-secondary">{draft.notes}</p> : null}
       </div>
-      {draft.conflict.messages.length > 0 ? (
-        <div className="mt-3 space-y-2 rounded-[14px] border border-danger/20 bg-danger/5 px-3 py-3">
+      {draft.conflict.status !== 'idle' || draft.conflict.messages.length > 0 ? (
+        <div className={cn(
+          'mt-3 space-y-2 rounded-[14px] border px-3 py-3',
+          getConflictStateClasses(draft.conflict.status),
+        )}>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            {t(`schedule.conflictStatus.${draft.conflict.status}`)}
+          </p>
           {draft.conflict.messages.map((message) => (
-            <div key={message} className="flex items-start gap-2 text-sm text-danger">
+            <div key={message} className={cn(
+              'flex items-start gap-2 text-sm',
+              draft.conflict.status === 'clear' ? 'text-success' : draft.conflict.status === 'pending' ? 'text-text-secondary' : 'text-danger',
+            )}>
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{message}</span>
             </div>
@@ -2258,7 +2313,9 @@ function DraftLessonCard({
           {draft.conflict.items.map((item) => {
             const hintKey = getConflictHintKey(item)
             return hintKey ? (
-              <p key={`${draft.localId}-${hintKey}`} className="text-xs text-text-secondary">
+              <p key={`${draft.localId}-${hintKey}`} className="text-xs leading-5 text-text-secondary">
+                {buildConflictDetail(item, t)}
+                {' '}
                 {t(hintKey)}
               </p>
             ) : null
@@ -2364,12 +2421,13 @@ function LessonDrawer({
 
             <FormField label={t('schedule.teacherLabel')}>
               <Select
+                disabled={!state.subjectId || teacherChoices.length === 0}
                 value={state.teacherId}
                 onChange={(event) => {
                   setState((current) => ({ ...current, teacherId: event.target.value }))
                 }}
               >
-                <option value="">{t('schedule.selectTeacher')}</option>
+                <option value="">{state.subjectId ? t('schedule.selectTeacher') : t('schedule.selectSubjectFirst')}</option>
                 {teacherChoices.map((teacher) => (
                   <option key={teacher.id} value={teacher.id}>
                     {getTeacherDisplayName(teacher)}
@@ -2377,6 +2435,15 @@ function LessonDrawer({
                 ))}
               </Select>
             </FormField>
+
+            {state.subjectId && teacherChoices.length === 0 ? (
+              <div className="md:col-span-2 rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
+                <p className="text-sm font-semibold text-text-primary">{t('schedule.emptyTeachersForSubject')}</p>
+                <Link className="mt-2 inline-flex text-sm font-medium text-accent" to={`/subjects/${state.subjectId}`}>
+                  {t('schedule.actions.manageSubjectTeachers')}
+                </Link>
+              </div>
+            ) : null}
 
             <FormField label={t('schedule.lessonTypeLabel')}>
               <SegmentedControl
@@ -2782,6 +2849,29 @@ function getConflictHintKey(item: ScheduleConflictItemResponse) {
     default:
       return null
   }
+}
+
+function getConflictStateClasses(status: ConflictStatus) {
+  if (status === 'clear') {
+    return 'border-success/30 bg-success/5'
+  }
+  if (status === 'conflict' || status === 'error') {
+    return 'border-danger/30 bg-danger/5'
+  }
+  if (status === 'pending') {
+    return 'border-border bg-surface-muted'
+  }
+  return 'border-border bg-surface-muted'
+}
+
+function buildConflictDetail(
+  item: ScheduleConflictItemResponse,
+  t: (key: string, values?: Record<string, unknown>) => string,
+) {
+  return t('schedule.conflictDetail', {
+    entity: item.conflictingEntityType,
+    type: item.type,
+  })
 }
 
 function buildScheduleSemesterOptions(

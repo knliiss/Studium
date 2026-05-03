@@ -43,4 +43,6 @@ public interface TestGroupAvailabilityRepository extends JpaRepository<TestGroup
             order by availability.availableUntil asc nulls last
             """)
     List<TestGroupAvailability> findAvailableForTestAndGroups(UUID testId, Collection<UUID> groupIds, Instant now);
+
+    void deleteAllByTestId(UUID testId);
 }

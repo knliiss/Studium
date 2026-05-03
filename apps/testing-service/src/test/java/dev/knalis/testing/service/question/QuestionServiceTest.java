@@ -66,6 +66,7 @@ class QuestionServiceTest {
                         1,
                         0,
                         true,
+                        null,
                         null
                 ))
         );
@@ -99,6 +100,7 @@ class QuestionServiceTest {
                 0,
                 true,
                 null,
+                null,
                 now,
                 now
         );
@@ -121,6 +123,7 @@ class QuestionServiceTest {
                 1,
                 0,
                 true,
+                null,
                 null
         ));
         
@@ -150,6 +153,7 @@ class QuestionServiceTest {
                         3,
                         0,
                         true,
+                        null,
                         null
                 ))
         );

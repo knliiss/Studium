@@ -8,7 +8,12 @@ import dev.knalis.testing.dto.response.SearchItemResponse;
 import dev.knalis.testing.dto.response.SearchPageResponse;
 import dev.knalis.testing.dto.response.TestGroupAvailabilityResponse;
 import dev.knalis.testing.dto.response.TestPageResponse;
+import dev.knalis.testing.dto.response.TestQuestionAnswerResponse;
+import dev.knalis.testing.dto.response.TestQuestionViewResponse;
 import dev.knalis.testing.dto.response.TestResponse;
+import dev.knalis.testing.dto.response.TestStudentViewResponse;
+import dev.knalis.testing.entity.Answer;
+import dev.knalis.testing.entity.Question;
 import dev.knalis.testing.entity.TestAttempt;
 import dev.knalis.testing.entity.TestGroupAvailability;
 import dev.knalis.testing.entity.TestStatus;
@@ -22,10 +27,12 @@ import dev.knalis.testing.exception.TestStateTransitionException;
 import dev.knalis.testing.factory.attempt.TestAttemptFactory;
 import dev.knalis.testing.factory.test.TestFactory;
 import dev.knalis.testing.mapper.TestMapper;
+import dev.knalis.testing.repository.AnswerRepository;
+import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.TestGroupAvailabilityRepository;
 import dev.knalis.testing.repository.TestRepository;
-import dev.knalis.testing.repository.QuestionRepository;
+import dev.knalis.testing.repository.TestResultRepository;
 import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
 import dev.knalis.contracts.event.TestPublishedEventV1;
@@ -63,6 +70,8 @@ public class TestService {
     private final TestAttemptRepository testAttemptRepository;
     private final TestGroupAvailabilityRepository testGroupAvailabilityRepository;
     private final QuestionRepository questionRepository;
+    private final AnswerRepository answerRepository;
+    private final TestResultRepository testResultRepository;
     private final TestFactory testFactory;
     private final TestAttemptFactory testAttemptFactory;
     private final TestMapper testMapper;
@@ -101,6 +110,20 @@ public class TestService {
         }
         TestGroupAvailability availability = requireAvailableForStudent(test, currentUserId, Instant.now());
         return toStudentResponse(test, availability);
+    }
+
+    @Transactional(readOnly = true)
+    public TestStudentViewResponse getPreviewView(UUID currentUserId, boolean privilegedAccess, UUID testId) {
+        Test test = requireTest(testId);
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+        return buildStudentView(testMapper.toResponse(test), test, true);
+    }
+
+    @Transactional(readOnly = true)
+    public TestStudentViewResponse getStudentView(UUID currentUserId, UUID testId) {
+        Test test = requireTest(testId);
+        TestGroupAvailability availability = requireAvailableForStudent(test, currentUserId, Instant.now());
+        return buildStudentView(toStudentResponse(test, availability), test, false);
     }
 
     @Transactional(readOnly = true)
@@ -352,6 +375,29 @@ public class TestService {
         return response;
     }
 
+    @Transactional
+    public void deleteTest(UUID currentUserId, boolean privilegedAccess, UUID testId) {
+        Test test = requireTest(testId);
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+        if (test.getStatus() != TestStatus.DRAFT) {
+            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Only draft tests can be deleted");
+        }
+        if (testAttemptRepository.countByTestId(testId) > 0 || testResultRepository.countByTestId(testId) > 0) {
+            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Tests with attempts or results cannot be deleted");
+        }
+
+        List<Question> questions = questionRepository.findAllByTestId(testId);
+        List<UUID> questionIds = questions.stream().map(Question::getId).toList();
+        if (!questionIds.isEmpty()) {
+            answerRepository.deleteAllByQuestionIdIn(questionIds);
+        }
+        questionRepository.deleteAllByTestId(testId);
+        testGroupAvailabilityRepository.deleteAllByTestId(testId);
+        testAttemptRepository.deleteAllByTestId(testId);
+        testResultRepository.deleteAllByTestId(testId);
+        testRepository.delete(test);
+    }
+
     private Test requireTest(UUID testId) {
         return testRepository.findById(testId)
                 .orElseThrow(() -> new TestNotFoundException(testId));
@@ -424,6 +470,74 @@ public class TestService {
                 now
         ).forEach(availability -> availabilityByTestId.putIfAbsent(availability.getTestId(), availability));
         return availabilityByTestId;
+    }
+
+    private TestStudentViewResponse buildStudentView(TestResponse testResponse, Test test, boolean preview) {
+        List<Question> questions = questionRepository.findAllByTestIdOrderByOrderIndexAscCreatedAtAsc(test.getId());
+        List<UUID> questionIds = questions.stream()
+                .map(Question::getId)
+                .toList();
+        Map<UUID, List<Answer>> answersByQuestionId = questionIds.isEmpty()
+                ? Map.of()
+                : answerRepository.findAllByQuestionIdInOrderByCreatedAtAsc(questionIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                Answer::getQuestionId,
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ));
+
+        List<TestQuestionViewResponse> questionResponses = questions.stream()
+                .map(question -> toQuestionViewResponse(
+                        question,
+                        answersByQuestionId.getOrDefault(question.getId(), List.of()),
+                        !preview && test.isShowCorrectAnswersAfterSubmit()
+                ))
+                .toList();
+
+        return new TestStudentViewResponse(
+                testResponse,
+                questionResponses,
+                preview,
+                test.getMaxPoints(),
+                test.getTimeLimitMinutes(),
+                Instant.now()
+        );
+    }
+
+    private TestQuestionViewResponse toQuestionViewResponse(
+            Question question,
+            List<Answer> answers,
+            boolean includeCorrectAnswers
+    ) {
+        return new TestQuestionViewResponse(
+                question.getId(),
+                question.getTestId(),
+                question.getText(),
+                question.getType(),
+                question.getDescription(),
+                question.getPoints(),
+                question.getOrderIndex(),
+                question.isRequired(),
+                question.getFeedback(),
+                question.getConfigurationJson(),
+                answers.stream()
+                        .map(answer -> toQuestionAnswerResponse(answer, includeCorrectAnswers))
+                        .toList(),
+                question.getCreatedAt(),
+                question.getUpdatedAt()
+        );
+    }
+
+    private TestQuestionAnswerResponse toQuestionAnswerResponse(Answer answer, boolean includeCorrectAnswers) {
+        return new TestQuestionAnswerResponse(
+                answer.getId(),
+                answer.getQuestionId(),
+                answer.getText(),
+                includeCorrectAnswers ? answer.isCorrect() : null,
+                answer.getCreatedAt(),
+                answer.getUpdatedAt()
+        );
     }
 
     private TestResponse toStudentResponse(Test test, TestGroupAvailability availability) {

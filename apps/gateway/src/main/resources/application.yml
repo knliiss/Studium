@@ -38,51 +38,55 @@ spring:
         webflux:
           routes:
             - id: auth-service
-              uri: http://auth-service:${AUTH_PORT:8081}
+              uri: http://${AUTH_ROUTE_HOST:auth-service}:${AUTH_ROUTE_PORT:8081}
               predicates:
                 - Path=/api/auth/**
             - id: auth-admin-service
-              uri: http://auth-service:${AUTH_PORT:8081}
+              uri: http://${AUTH_ROUTE_HOST:auth-service}:${AUTH_ROUTE_PORT:8081}
               predicates:
                 - Path=/api/admin/**
             - id: profile-service
-              uri: http://profile-service:${PROFILE_PORT:8082}
+              uri: http://${PROFILE_ROUTE_HOST:profile-service}:${PROFILE_ROUTE_PORT:8082}
               predicates:
                 - Path=/api/profile/**
             - id: education-service
-              uri: http://education-service:${EDUCATION_PORT:8085}
+              uri: http://${EDUCATION_ROUTE_HOST:education-service}:${EDUCATION_ROUTE_PORT:8085}
               predicates:
                 - Path=/api/v1/education/**
             - id: schedule-service
-              uri: http://schedule-service:${SCHEDULE_PORT:8088}
+              uri: http://${SCHEDULE_ROUTE_HOST:schedule-service}:${SCHEDULE_ROUTE_PORT:8088}
               predicates:
                 - Path=/api/v1/schedule/**
             - id: assignment-service
-              uri: http://assignment-service:${ASSIGNMENT_PORT:8086}
+              uri: http://${ASSIGNMENT_ROUTE_HOST:assignment-service}:${ASSIGNMENT_ROUTE_PORT:8086}
               predicates:
                 - Path=/api/v1/assignments/**,/api/v1/submissions/**,/api/v1/grades/**
             - id: testing-service
-              uri: http://testing-service:${TESTING_PORT:8087}
+              uri: http://${TESTING_ROUTE_HOST:testing-service}:${TESTING_ROUTE_PORT:8087}
               predicates:
                 - Path=/api/v1/testing/**
+            - id: content-service
+              uri: http://${CONTENT_ROUTE_HOST:content-service}:${CONTENT_ROUTE_PORT:8091}
+              predicates:
+                - Path=/api/v1/content/**
             - id: file-service
-              uri: http://file-service:${FILE_PORT:8083}
+              uri: http://${FILE_ROUTE_HOST:file-service}:${FILE_ROUTE_PORT:8083}
               predicates:
                 - Path=/api/files/**
             - id: notification-service
-              uri: http://notification-service:${NOTIFICATION_PORT:8084}
+              uri: http://${NOTIFICATION_ROUTE_HOST:notification-service}:${NOTIFICATION_ROUTE_PORT:8084}
               predicates:
                 - Path=/api/notifications/**
             - id: analytics-service
-              uri: http://analytics-service:${ANALYTICS_PORT:8089}
+              uri: http://${ANALYTICS_ROUTE_HOST:analytics-service}:${ANALYTICS_ROUTE_PORT:8089}
               predicates:
                 - Path=/api/v1/analytics/**
             - id: audit-service
-              uri: http://audit-service:${AUDIT_PORT:8090}
+              uri: http://${AUDIT_ROUTE_HOST:audit-service}:${AUDIT_ROUTE_PORT:8090}
               predicates:
                 - Path=/api/v1/audit/**
             - id: notification-websocket
-              uri: ws://notification-service:${NOTIFICATION_PORT:8084}
+              uri: ws://${NOTIFICATION_ROUTE_HOST:notification-service}:${NOTIFICATION_ROUTE_PORT:8084}
               predicates:
                 - Path=/ws/notifications,/ws/notifications/**
           httpclient:
@@ -155,6 +159,7 @@ app:
       connect-timeout: ${GATEWAY_AUDIT_SERVICE_CONNECT_TIMEOUT:2s}
       read-timeout: ${GATEWAY_AUDIT_SERVICE_READ_TIMEOUT:5s}
     rate-limit:
+      enabled: ${GATEWAY_RATE_LIMIT_ENABLED:false}
       max-requests: ${GATEWAY_RATE_LIMIT_MAX_REQUESTS:120}
       window: ${GATEWAY_RATE_LIMIT_WINDOW:1m}
     redis:

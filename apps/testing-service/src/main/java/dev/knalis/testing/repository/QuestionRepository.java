@@ -12,10 +12,14 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
 
     List<Question> findAllByTestIdOrderByOrderIndexAscCreatedAtAsc(UUID testId);
 
+    List<Question> findAllByTestId(UUID testId);
+
     @Query("""
             select coalesce(sum(question.points), 0)
             from Question question
             where question.testId = :testId
             """)
     int sumPointsByTestId(@Param("testId") UUID testId);
+
+    void deleteAllByTestId(UUID testId);
 }

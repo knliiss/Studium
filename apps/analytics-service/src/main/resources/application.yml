@@ -7,7 +7,7 @@ spring:
     name: analytics-service
 
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${ANALYTICS_DB_SCHEMA:analytics}
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
@@ -24,6 +24,7 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        default_schema: ${ANALYTICS_DB_SCHEMA:analytics}
         format_sql: true
     show-sql: false
 

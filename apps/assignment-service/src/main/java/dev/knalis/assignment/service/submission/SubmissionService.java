@@ -5,10 +5,12 @@ import dev.knalis.assignment.client.FileServiceClient;
 import dev.knalis.assignment.client.dto.RemoteStoredFileResponse;
 import dev.knalis.assignment.dto.request.CreateSubmissionRequest;
 import dev.knalis.assignment.dto.response.SubmissionPageResponse;
+import dev.knalis.assignment.dto.response.SubmissionFileResponse;
 import dev.knalis.assignment.entity.Assignment;
 import dev.knalis.assignment.entity.AssignmentGroupAvailability;
 import dev.knalis.assignment.entity.AssignmentStatus;
 import dev.knalis.assignment.dto.response.SubmissionResponse;
+import dev.knalis.assignment.entity.Grade;
 import dev.knalis.assignment.entity.Submission;
 import dev.knalis.assignment.exception.AssignmentAccessDeniedException;
 import dev.knalis.assignment.exception.AssignmentNotFoundException;
@@ -18,10 +20,11 @@ import dev.knalis.assignment.exception.FileTooLargeException;
 import dev.knalis.assignment.exception.FileTypeNotAllowedException;
 import dev.knalis.assignment.exception.InvalidSubmissionFileException;
 import dev.knalis.assignment.exception.MaxSubmissionsExceededException;
+import dev.knalis.assignment.exception.SubmissionNotFoundException;
 import dev.knalis.assignment.factory.submission.SubmissionFactory;
-import dev.knalis.assignment.mapper.SubmissionMapper;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
+import dev.knalis.assignment.repository.GradeRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
@@ -55,8 +58,8 @@ public class SubmissionService {
     private final AssignmentRepository assignmentRepository;
     private final AssignmentGroupAvailabilityRepository assignmentGroupAvailabilityRepository;
     private final SubmissionFactory submissionFactory;
-    private final SubmissionMapper submissionMapper;
     private final FileServiceClient fileServiceClient;
+    private final GradeRepository gradeRepository;
     private final AssignmentAuditService assignmentAuditService;
     private final AssignmentEventPublisher assignmentEventPublisher;
     private final EducationServiceClient educationServiceClient;
@@ -101,7 +104,7 @@ public class SubmissionService {
                     availability.getDeadline()
             ));
         }
-        SubmissionResponse response = submissionMapper.toResponse(savedSubmission);
+        SubmissionResponse response = toResponse(savedSubmission, file);
         assignmentAuditService.record(userId, "SUBMISSION_CREATED", "SUBMISSION", response.id(), null, response);
         return response;
     }
@@ -129,7 +132,9 @@ public class SubmissionService {
         );
         
         return new SubmissionPageResponse(
-                submissionPage.getContent().stream().map(submissionMapper::toResponse).toList(),
+                submissionPage.getContent().stream()
+                        .map(submission -> toResponse(submission, null))
+                        .toList(),
                 submissionPage.getNumber(),
                 submissionPage.getSize(),
                 submissionPage.getTotalElements(),
@@ -137,6 +142,35 @@ public class SubmissionService {
                 submissionPage.isFirst(),
                 submissionPage.isLast()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<SubmissionResponse> getMySubmissionsByAssignment(UUID currentUserId, String bearerToken, UUID assignmentId) {
+        Assignment assignment = getAssignment(assignmentId);
+        resolveAvailability(assignment, currentUserId, Instant.now());
+        return submissionRepository.findAllByAssignmentIdAndUserIdOrderBySubmittedAtDesc(assignmentId, currentUserId).stream()
+                .map(submission -> toResponse(submission, fileServiceClient.getMyFile(bearerToken, submission.getFileId())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public SubmissionResponse getSubmission(
+            UUID currentUserId,
+            String bearerToken,
+            boolean privilegedAccess,
+            boolean teacherAccess,
+            UUID submissionId
+    ) {
+        Submission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new SubmissionNotFoundException(submissionId));
+        Assignment assignment = getAssignment(submission.getAssignmentId());
+        if (!privilegedAccess && !(teacherAccess && canManageAssignment(assignment, currentUserId)) && !submission.getUserId().equals(currentUserId)) {
+            throw new AssignmentAccessDeniedException(assignment.getId(), currentUserId);
+        }
+        RemoteStoredFileResponse file = submission.getUserId().equals(currentUserId)
+                ? fileServiceClient.getMyFile(bearerToken, submission.getFileId())
+                : null;
+        return toResponse(submission, file);
     }
     
     private Assignment getAssignment(UUID assignmentId) {
@@ -220,12 +254,40 @@ public class SubmissionService {
     }
 
     private void assertTeacherOwnership(Assignment assignment, UUID currentUserId, boolean privilegedAccess) {
-        if (privilegedAccess) {
-            return;
-        }
-        if (assignment.getCreatedByUserId() != null && assignment.getCreatedByUserId().equals(currentUserId)) {
+        if (privilegedAccess || canManageAssignment(assignment, currentUserId)) {
             return;
         }
         throw new AssignmentAccessDeniedException(assignment.getId(), currentUserId);
+    }
+
+    private boolean canManageAssignment(Assignment assignment, UUID currentUserId) {
+        if (assignment.getCreatedByUserId() != null && assignment.getCreatedByUserId().equals(currentUserId)) {
+            return true;
+        }
+        UUID subjectId = educationServiceClient.getTopic(assignment.getTopicId()).subjectId();
+        return educationServiceClient.getSubject(subjectId).teacherIds().contains(currentUserId);
+    }
+
+    private SubmissionResponse toResponse(Submission submission, RemoteStoredFileResponse file) {
+        Grade grade = gradeRepository.findBySubmissionId(submission.getId()).orElse(null);
+        return new SubmissionResponse(
+                submission.getId(),
+                submission.getAssignmentId(),
+                submission.getUserId(),
+                submission.getFileId(),
+                file == null ? null : new SubmissionFileResponse(
+                        file.id(),
+                        file.originalFileName(),
+                        file.contentType(),
+                        file.sizeBytes(),
+                        file.status()
+                ),
+                grade == null ? null : grade.getScore(),
+                grade == null ? null : grade.getFeedback(),
+                grade == null ? null : grade.getUpdatedAt(),
+                grade != null,
+                submission.getSubmittedAt(),
+                submission.getUpdatedAt()
+        );
     }
 }

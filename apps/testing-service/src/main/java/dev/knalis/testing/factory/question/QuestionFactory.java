@@ -17,7 +17,8 @@ public class QuestionFactory {
             int points,
             int orderIndex,
             boolean required,
-            String feedback
+            String feedback,
+            String configurationJson
     ) {
         Question question = new Question();
         question.setTestId(testId);
@@ -28,6 +29,9 @@ public class QuestionFactory {
         question.setOrderIndex(orderIndex);
         question.setRequired(required);
         question.setFeedback(feedback == null || feedback.isBlank() ? null : feedback.trim());
+        question.setConfigurationJson(configurationJson == null || configurationJson.isBlank()
+                ? null
+                : configurationJson.trim());
         return question;
     }
 }

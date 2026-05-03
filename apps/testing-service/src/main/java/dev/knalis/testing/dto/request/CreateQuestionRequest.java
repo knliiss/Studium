@@ -32,6 +32,9 @@ public record CreateQuestionRequest(
         Boolean required,
 
         @Size(max = 2000)
-        String feedback
+        String feedback,
+
+        @Size(max = 8000)
+        String configurationJson
 ) {
 }

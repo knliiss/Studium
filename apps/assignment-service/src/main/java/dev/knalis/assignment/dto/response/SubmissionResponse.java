@@ -8,6 +8,11 @@ public record SubmissionResponse(
         UUID assignmentId,
         UUID userId,
         UUID fileId,
+        SubmissionFileResponse file,
+        Integer score,
+        String feedback,
+        Instant gradedAt,
+        boolean reviewed,
         Instant submittedAt,
         Instant updatedAt
 ) {

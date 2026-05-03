@@ -1,9 +1,22 @@
 name: studium-local
 
+x-db-pool-env: &db-pool-env
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:-4}
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:-0}
+  SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:-30000}
+  SPRING_DATASOURCE_HIKARI_MAX_LIFETIME: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:-600000}
+  SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:-10000}
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: studium-postgres
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-250}
+      - -c
+      - superuser_reserved_connections=${POSTGRES_SUPERUSER_RESERVED_CONNECTIONS:-10}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -17,6 +30,42 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: studium-pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-postgres}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+      LISTEN_ADDR: 0.0.0.0
+      LISTEN_PORT: 6432
+
+      AUTH_TYPE: scram-sha-256
+
+      POOL_MODE: ${PGBOUNCER_POOL_MODE:-transaction}
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-1000}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-25}
+      RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      RESERVE_POOL_TIMEOUT: ${PGBOUNCER_RESERVE_POOL_TIMEOUT:-5}
+      SERVER_RESET_QUERY: DISCARD ALL
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,search_path
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  service-lb:
+    image: haproxy:2.9-alpine
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+      - "${FRONTEND_PORT:-3000}:3000"
 
   redis:
     image: redis:7-alpine
@@ -117,7 +166,9 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       AUTH_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
@@ -127,14 +178,14 @@ services:
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${AUTH_PORT:-8081}:8081"
 
   profile-service:
     build:
@@ -142,25 +193,27 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       MINIO_ENDPOINT: http://minio:9000
-      FILE_SERVICE_BASE_URL: http://file-service:8083
+      FILE_SERVICE_BASE_URL: http://service-lb:18083
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
       minio:
         condition: service_healthy
-    ports:
-      - "${PROFILE_PORT:-8082}:8082"
 
   education-service:
     build:
@@ -168,7 +221,9 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
@@ -178,14 +233,14 @@ services:
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${EDUCATION_PORT:-8085}:8085"
 
   schedule-service:
     build:
@@ -193,25 +248,27 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
-      SCHEDULE_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      SCHEDULE_AUDIT_SERVICE_BASE_URL: http://service-lb:18090
       AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
-      NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${SCHEDULE_PORT:-8088}:8088"
 
   assignment-service:
     build:
@@ -219,13 +276,15 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      FILE_SERVICE_BASE_URL: http://file-service:8083
-      ASSIGNMENT_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
-      ASSIGNMENT_NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
-      ASSIGNMENT_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      FILE_SERVICE_BASE_URL: http://service-lb:18083
+      ASSIGNMENT_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
+      ASSIGNMENT_NOTIFICATION_SERVICE_BASE_URL: http://service-lb:18084
+      ASSIGNMENT_AUDIT_SERVICE_BASE_URL: http://service-lb:18090
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
       NOTIFICATION_INTERNAL_SHARED_SECRET: ${NOTIFICATION_INTERNAL_SHARED_SECRET:-change-me-notification-internal}
       AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
@@ -233,14 +292,40 @@ services:
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${ASSIGNMENT_PORT:-8086}:8086"
+
+  content-service:
+    build:
+      context: ../../apps/content-service
+    env_file:
+      - ../../.env
+    environment:
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CONTENT_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
+      EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
+    volumes:
+      - ../keys:/opt/keys:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
 
   testing-service:
     build:
@@ -248,12 +333,14 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      TESTING_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
-      TESTING_NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
-      TESTING_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      TESTING_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
+      TESTING_NOTIFICATION_SERVICE_BASE_URL: http://service-lb:18084
+      TESTING_AUDIT_SERVICE_BASE_URL: http://service-lb:18090
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
       NOTIFICATION_INTERNAL_SHARED_SECRET: ${NOTIFICATION_INTERNAL_SHARED_SECRET:-change-me-notification-internal}
       AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
@@ -261,14 +348,14 @@ services:
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${TESTING_PORT:-8087}:8087"
 
   file-service:
     build:
@@ -276,19 +363,21 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       MINIO_ENDPOINT: http://minio:9000
       FILE_INTERNAL_SHARED_SECRET: ${FILE_INTERNAL_SHARED_SECRET:-change-me-file-internal}
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       minio:
         condition: service_healthy
-    ports:
-      - "${FILE_PORT:-8083}:8083"
 
   analytics-service:
     build:
@@ -296,23 +385,25 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      ANALYTICS_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      ANALYTICS_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${ANALYTICS_PORT:-8089}:8089"
 
   audit-service:
     build:
@@ -320,19 +411,21 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
       AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
-    ports:
-      - "${AUDIT_PORT:-8090}:8090"
 
   notification-service:
     build:
@@ -340,25 +433,27 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      <<: *db-pool-env
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: 6432
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
+      NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
       audit-service:
         condition: service_started
-    ports:
-      - "${NOTIFICATION_PORT:-8084}:8084"
 
   gateway:
     build:
@@ -368,24 +463,37 @@ services:
     environment:
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      AUTH_PORT: 8081
-      PROFILE_PORT: 8082
-      EDUCATION_PORT: 8085
-      GATEWAY_EDUCATION_SERVICE_BASE_URL: http://education-service:8085
-      GATEWAY_SCHEDULE_SERVICE_BASE_URL: http://schedule-service:8088
-      GATEWAY_ASSIGNMENT_SERVICE_BASE_URL: http://assignment-service:8086
-      GATEWAY_TESTING_SERVICE_BASE_URL: http://testing-service:8087
-      GATEWAY_AUTH_SERVICE_BASE_URL: http://auth-service:8081
-      GATEWAY_ANALYTICS_SERVICE_BASE_URL: http://analytics-service:8089
-      GATEWAY_NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
-      GATEWAY_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      AUTH_ROUTE_HOST: service-lb
+      AUTH_ROUTE_PORT: 18081
+      PROFILE_ROUTE_HOST: service-lb
+      PROFILE_ROUTE_PORT: 18082
+      FILE_ROUTE_HOST: service-lb
+      FILE_ROUTE_PORT: 18083
+      NOTIFICATION_ROUTE_HOST: service-lb
+      NOTIFICATION_ROUTE_PORT: 18084
+      EDUCATION_ROUTE_HOST: service-lb
+      EDUCATION_ROUTE_PORT: 18085
+      ASSIGNMENT_ROUTE_HOST: service-lb
+      ASSIGNMENT_ROUTE_PORT: 18086
+      CONTENT_ROUTE_HOST: service-lb
+      CONTENT_ROUTE_PORT: 18091
+      TESTING_ROUTE_HOST: service-lb
+      TESTING_ROUTE_PORT: 18087
+      SCHEDULE_ROUTE_HOST: service-lb
+      SCHEDULE_ROUTE_PORT: 18088
+      ANALYTICS_ROUTE_HOST: service-lb
+      ANALYTICS_ROUTE_PORT: 18089
+      AUDIT_ROUTE_HOST: service-lb
+      AUDIT_ROUTE_PORT: 18090
+      GATEWAY_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
+      GATEWAY_SCHEDULE_SERVICE_BASE_URL: http://service-lb:18088
+      GATEWAY_ASSIGNMENT_SERVICE_BASE_URL: http://service-lb:18086
+      GATEWAY_TESTING_SERVICE_BASE_URL: http://service-lb:18087
+      GATEWAY_AUTH_SERVICE_BASE_URL: http://service-lb:18081
+      GATEWAY_ANALYTICS_SERVICE_BASE_URL: http://service-lb:18089
+      GATEWAY_NOTIFICATION_SERVICE_BASE_URL: http://service-lb:18084
+      GATEWAY_AUDIT_SERVICE_BASE_URL: http://service-lb:18090
       GATEWAY_CORS_ALLOWED_ORIGINS: ${GATEWAY_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
-      SCHEDULE_PORT: 8088
-      ASSIGNMENT_PORT: 8086
-      TESTING_PORT: 8087
-      FILE_PORT: 8083
-      ANALYTICS_PORT: 8089
-      NOTIFICATION_PORT: 8084
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
@@ -399,6 +507,8 @@ services:
       schedule-service:
         condition: service_started
       assignment-service:
+        condition: service_started
+      content-service:
         condition: service_started
       testing-service:
         condition: service_started
@@ -414,8 +524,6 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    ports:
-      - "${GATEWAY_PORT:-8080}:8080"
 
   frontend:
     build:
@@ -425,8 +533,6 @@ services:
     depends_on:
       gateway:
         condition: service_started
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
 
 volumes:
   postgres-data:

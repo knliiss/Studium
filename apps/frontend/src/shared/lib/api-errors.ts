@@ -63,6 +63,16 @@ export function normalizeApiErrorPayload(payload: unknown): NormalizedApiError |
 export function normalizeApiError(error: unknown): NormalizedApiError | null {
   if (isAxiosError(error)) {
     return normalizeApiErrorPayload(error.response?.data)
+      ?? (typeof error.response?.status === 'number'
+        ? {
+            status: error.response.status,
+            code: error.response.status === 429
+              ? 'TOO_MANY_REQUESTS'
+              : error.response.status >= 500
+                ? 'INTERNAL_ERROR'
+                : 'UNKNOWN_ERROR',
+          }
+        : null)
   }
 
   return normalizeApiErrorPayload(error)

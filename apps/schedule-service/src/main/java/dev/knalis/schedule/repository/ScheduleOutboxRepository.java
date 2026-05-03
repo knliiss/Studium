@@ -18,7 +18,7 @@ public interface ScheduleOutboxRepository extends JpaRepository<ScheduleOutboxEv
     
     @Query(value = """
             select id
-            from schedule_outbox_events
+            from schedule.schedule_outbox_events
             where status in ('PENDING', 'RETRY')
               and next_attempt_at <= :now
             order by created_at asc
