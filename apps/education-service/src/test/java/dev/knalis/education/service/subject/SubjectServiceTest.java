@@ -16,6 +16,7 @@ import dev.knalis.education.service.common.EducationAuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -107,7 +109,7 @@ class SubjectServiceTest {
         subject.setCreatedAt(Instant.now());
         subject.setUpdatedAt(Instant.now());
 
-        when(subjectRepository.findById(subjectId)).thenReturn(Optional.of(subject));
+        when(subjectRepository.findWithLockingById(subjectId)).thenReturn(Optional.of(subject));
 
         assertThrows(
                 SubjectBindingRequiredException.class,
@@ -156,5 +158,48 @@ class SubjectServiceTest {
         assertEquals(List.of(subjectResponse), result.items());
         assertEquals(1L, result.totalElements());
         assertEquals(1, result.totalPages());
+    }
+
+    @Test
+    void updateSubjectFlushesJoinTableDeletesBeforeInsert() {
+        UUID currentUserId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID teacherId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        Subject subject = new Subject();
+        subject.setId(subjectId);
+        subject.setName("Math");
+        subject.setDescription("Core subject");
+        subject.setGroupId(groupId);
+        subject.setCreatedAt(now);
+        subject.setUpdatedAt(now);
+
+        UpdateSubjectRequest request = new UpdateSubjectRequest(
+                "Networks",
+                groupId,
+                List.of(groupId),
+                List.of(teacherId),
+                "Networking fundamentals"
+        );
+
+        when(subjectRepository.findWithLockingById(subjectId)).thenReturn(Optional.of(subject));
+        when(groupRepository.existsById(groupId)).thenReturn(true);
+        when(subjectRepository.save(any(Subject.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(subjectGroupRepository.findAllBySubjectIdOrderByCreatedAtAsc(subjectId)).thenReturn(List.of());
+        when(subjectTeacherRepository.findAllBySubjectIdOrderByCreatedAtAsc(subjectId)).thenReturn(List.of());
+
+        subjectService.updateSubject(currentUserId, subjectId, request);
+
+        InOrder subjectGroupOrder = inOrder(subjectGroupRepository);
+        subjectGroupOrder.verify(subjectGroupRepository).deleteAllBySubjectId(subjectId);
+        subjectGroupOrder.verify(subjectGroupRepository).flush();
+        subjectGroupOrder.verify(subjectGroupRepository).saveAll(any());
+
+        InOrder subjectTeacherOrder = inOrder(subjectTeacherRepository);
+        subjectTeacherOrder.verify(subjectTeacherRepository).deleteAllBySubjectId(subjectId);
+        subjectTeacherOrder.verify(subjectTeacherRepository).flush();
+        subjectTeacherOrder.verify(subjectTeacherRepository).saveAll(any());
     }
 }

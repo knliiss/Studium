@@ -61,7 +61,7 @@ public class SubjectService {
 
     @Transactional
     public SubjectResponse updateSubject(UUID currentUserId, UUID subjectId, UpdateSubjectRequest request) {
-        Subject subject = subjectRepository.findById(subjectId)
+        Subject subject = subjectRepository.findWithLockingById(subjectId)
                 .orElseThrow(() -> new SubjectNotFoundException(subjectId));
         SubjectResponse oldValue = toResponse(subject);
         List<UUID> groupIds = normalizeGroupIds(request.groupId(), request.groupIds());
@@ -191,6 +191,7 @@ public class SubjectService {
 
     private void replaceSubjectGroups(UUID subjectId, List<UUID> groupIds) {
         subjectGroupRepository.deleteAllBySubjectId(subjectId);
+        subjectGroupRepository.flush();
         List<SubjectGroup> subjectGroups = new ArrayList<>();
         for (UUID groupId : groupIds) {
             SubjectGroup subjectGroup = new SubjectGroup();
@@ -203,6 +204,7 @@ public class SubjectService {
 
     private void replaceSubjectTeachers(UUID subjectId, List<UUID> teacherIds) {
         subjectTeacherRepository.deleteAllBySubjectId(subjectId);
+        subjectTeacherRepository.flush();
         if (teacherIds.isEmpty()) {
             return;
         }

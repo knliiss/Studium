@@ -42,7 +42,10 @@ BOOTJAR_TASKS=(
 SKIP_BUILD=false
 FRONTEND_ONLY=false
 FORCE_REBUILD=false
+FRESH_START=false
 CHANGED_SERVICES=()
+CACHE_KEYS=()
+CACHE_VALUES=()
 
 usage() {
   cat <<'USAGE'
@@ -52,6 +55,7 @@ Options:
   --skip-build, -s            Skip Gradle build (use existing JARs)
   --frontend-only, -f         Rebuild and restart only frontend without restarting the rest
   --rebuild, -r               Force complete rebuild and restart of all services
+  --fresh, --from-scratch     Stop stack, remove volumes, rebuild and start from zero
   --help, -h                  Show this help message
 
 Smart restart behavior:
@@ -276,8 +280,21 @@ load_cache() {
     if [[ -z "$service_name" ]] || [[ -z "$cached_hash" ]]; then
       continue
     fi
-    eval "CACHE_${service_name}='$cached_hash'"
+    CACHE_KEYS+=("$service_name")
+    CACHE_VALUES+=("$cached_hash")
   done <"$BUILD_CACHE_FILE"
+}
+
+cache_get() {
+  local key="$1"
+  local i
+  for i in "${!CACHE_KEYS[@]}"; do
+    if [[ "${CACHE_KEYS[$i]}" == "$key" ]]; then
+      printf '%s' "${CACHE_VALUES[$i]}"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # Save current hashes to cache
@@ -308,8 +325,8 @@ detect_changed_services() {
       local current_hash=$(compute_service_hash "$service_name")
     fi
 
-    local cache_var="CACHE_${service_name}"
-    local cached_hash="${!cache_var:-}"
+    local cached_hash=""
+    cached_hash=$(cache_get "$service_name" || true)
 
     # If no cached hash or hash differs, mark as changed
     if [[ -z "$cached_hash" ]] || [[ "$current_hash" != "$cached_hash" ]]; then
@@ -389,6 +406,12 @@ start_frontend_only() {
   echo "Frontend container started successfully"
 }
 
+fresh_start_cleanup() {
+  echo "Fresh start requested: stopping existing stack and removing volumes..."
+  compose down -v --remove-orphans || true
+  rm -f "$BUILD_CACHE_FILE"
+}
+
 start_stack() {
   local auth_replicas="${AUTH_REPLICAS:-1}"
   local profile_replicas="${PROFILE_REPLICAS:-1}"
@@ -456,6 +479,9 @@ for arg in "$@"; do
     --rebuild|-r)
       FORCE_REBUILD=true
       ;;
+    --fresh|--from-scratch)
+      FRESH_START=true
+      ;;
     --help|-h)
       usage
       exit 0
@@ -472,6 +498,21 @@ ensure_env
 sync_missing_env_keys
 load_env
 ensure_keys
+
+if [[ "$FRESH_START" == "true" && "$FRONTEND_ONLY" == "true" ]]; then
+  echo "--fresh/--from-scratch cannot be used with --frontend-only" >&2
+  exit 1
+fi
+
+if [[ "$FRESH_START" == "true" && "$SKIP_BUILD" == "true" ]]; then
+  echo "--fresh/--from-scratch requires build; do not use with --skip-build" >&2
+  exit 1
+fi
+
+if [[ "$FRESH_START" == "true" ]]; then
+  FORCE_REBUILD=true
+  fresh_start_cleanup
+fi
 
 if [[ "$FRONTEND_ONLY" == "true" ]]; then
   start_frontend_only

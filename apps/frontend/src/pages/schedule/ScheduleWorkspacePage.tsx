@@ -1212,9 +1212,13 @@ function ScheduleDetailPage({
         return true
       }
 
+      if (viewMode === 'EDIT') {
+        return true
+      }
+
       return matchesSubgroupFilter(lesson.subgroup, viewSubgroup)
     }),
-    [scope, scheduleQuery.data, viewSubgroup],
+    [scope, scheduleQuery.data, viewMode, viewSubgroup],
   )
   const lessonsByDate = useMemo(() => {
     const map = new Map<string, ResolvedLessonResponse[]>()
@@ -1241,10 +1245,6 @@ function ScheduleDetailPage({
     const map = new Map<string, ScheduleTemplateDraft[]>()
 
     for (const draft of visibleDrafts) {
-      if (!matchesSubgroupFilter(draft.subgroup, viewSubgroup)) {
-        continue
-      }
-
       const pairNumber = slotById.get(draft.slotId)?.number
       if (!pairNumber || pairNumber < 1 || pairNumber > 8) {
         continue
@@ -1268,7 +1268,7 @@ function ScheduleDetailPage({
     }
 
     return map
-  }, [slotById, viewSubgroup, visibleDrafts])
+  }, [slotById, visibleDrafts])
 
   const resolveMoveTargetState = useCallback((
     targetDay: DayOfWeekValue,
@@ -1642,8 +1642,8 @@ function ScheduleDetailPage({
           <ErrorState description={t('common.states.error')} title={detailHeader.title} />
         ) : (
           <div ref={carouselRef} className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
-            {weekDays.map((date, index) => {
-              const dayOfWeek = orderedDays[index]
+            {weekDays.map((date) => {
+              const dayOfWeek = getDayOfWeekValue(date)
               return viewMode === 'EDIT' && canEditTemplates ? (
                 <EditDayCard
                   key={date}
@@ -1659,7 +1659,7 @@ function ScheduleDetailPage({
                   resolveMoveTargetState={resolveMoveTargetState}
                   subjectNameById={subjectNameById}
                   teacherById={teacherById}
-                  onAddLesson={(pairNumber) => {
+                  onAddLesson={(pairNumber, weekType, subgroupChoice) => {
                     const slot = canonicalSlotByPairNumber.get(pairNumber)
                     if (!slot) {
                       setFeedback({ tone: 'error', message: t('schedule.slotSetupError') })
@@ -1667,8 +1667,8 @@ function ScheduleDetailPage({
                     }
                     setDrawer({
                       dayOfWeek,
-                      forBothWeeks: viewSubgroup !== 'ALL' ? false : true,
-                      forWholeGroup: viewSubgroup === 'ALL',
+                      forBothWeeks: false,
+                      forWholeGroup: false,
                       lessonFormat: 'OFFLINE',
                       lessonType: 'LECTURE',
                       localId: null,
@@ -1677,10 +1677,10 @@ function ScheduleDetailPage({
                       pairNumber,
                       roomId: '',
                       slotId: slot.id,
-                      subgroupChoice: viewSubgroup === 'SECOND' ? 'SECOND' : 'FIRST',
+                      subgroupChoice,
                       subjectId: '',
                       teacherId: '',
-                      weekType: selectedWeekType,
+                      weekType,
                     })
                   }}
                   onCopyDay={() => {
@@ -2125,7 +2125,7 @@ function EditDayCard({
   drafts: Map<string, ScheduleTemplateDraft[]>
   hoverDropTargetKey: string | null
   movingLessonId: string | null
-  onAddLesson: (pairNumber: number) => void
+  onAddLesson: (pairNumber: number, weekType: ScheduleWeekType, subgroupChoice: 'FIRST' | 'SECOND') => void
   onCopyDay: () => void
   onDragHoverTarget: (key: string | null) => void
   onDragEndLesson: (localId: string) => void
@@ -2144,9 +2144,38 @@ function EditDayCard({
   teacherById: Map<string, TeacherUser>
 }) {
   const { t } = useTranslation()
+  const renderDraftCards = (items: ScheduleTemplateDraft[]) => (
+    <div className="space-y-2">
+      {items.map((draft) => (
+        <DraftLessonCard
+          key={draft.localId}
+          draft={draft}
+          roomById={roomById}
+          subjectNameById={subjectNameById}
+          teacherById={teacherById}
+          onCopy={() => onSetCopiedLesson(draft.localId)}
+          onDelete={() => onDeleteLesson(draft.localId)}
+          onDragEnd={() => onDragEndLesson(draft.localId)}
+          onDragStart={() => onDragStartLesson(draft.localId)}
+          onEdit={() => onEditLesson(draft.localId)}
+          onMove={() => {
+            onDragHoverTarget(null)
+            onSetMovingLesson(draft.localId)
+          }}
+          onRestore={() => onRestoreLesson(draft.localId)}
+          onStopMove={() => {
+            onDragHoverTarget(null)
+            onSetMovingLesson(null)
+          }}
+          copied={copiedLessonId === draft.localId}
+          moving={movingLessonId === draft.localId}
+        />
+      ))}
+    </div>
+  )
 
   return (
-    <div className="min-w-[min(92vw,520px)] max-w-[520px] flex-1 snap-start rounded-[20px] border border-border bg-surface-muted p-4 xl:min-w-[500px]">
+    <div className="min-w-[min(94vw,500px)] max-w-[500px] flex-1 snap-start rounded-[20px] border border-border bg-surface-muted p-3.5 xl:min-w-[480px]">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">{t(`schedule.dayOfWeekValues.${dayOfWeek}`)}</p>
@@ -2166,7 +2195,7 @@ function EditDayCard({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         {canonicalPairs.map((pair) => {
           const slot = canonicalSlotByPairNumber.get(pair.pairNumber)
           const pairDrafts = drafts.get(`${dayOfWeek}:${pair.pairNumber}`) ?? []
@@ -2176,12 +2205,18 @@ function EditDayCard({
           const validDropTarget = moveTargetState.canDrop
           const invalidDropTarget = dropActive && !validDropTarget && moveTargetState.reason !== 'NO_SOURCE'
           const isHoverDropTarget = hoverDropTargetKey === dropKey
+          const oddWeekDrafts = pairDrafts.filter((draft) => draft.weekType === 'ODD' || draft.weekType === 'ALL')
+          const evenWeekDrafts = pairDrafts.filter((draft) => draft.weekType === 'EVEN' || draft.weekType === 'ALL')
+          const weekSections = [
+            { drafts: oddWeekDrafts, weekType: 'ODD' as const },
+            { drafts: evenWeekDrafts, weekType: 'EVEN' as const },
+          ]
 
           return (
             <div
               key={`${dayOfWeek}-${pair.pairNumber}`}
               className={cn(
-                'rounded-[18px] border bg-surface p-4 transition',
+                'rounded-[16px] border bg-surface p-3 transition',
                 dropActive && validDropTarget ? 'border-accent/60 bg-accent-muted/15' : 'border-border',
                 dropActive && validDropTarget && isHoverDropTarget ? 'border-success/50 bg-success/10 ring-2 ring-success/25' : '',
                 invalidDropTarget ? 'border-border-strong bg-surface-muted opacity-75' : '',
@@ -2205,7 +2240,7 @@ function EditDayCard({
                 onUseMoveTarget(dayOfWeek, pair.pairNumber, 'drag', sourceDraftId)
               }}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+              <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border pb-2.5">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-text-primary">
                     {t('schedule.pairSummary', {
@@ -2233,10 +2268,6 @@ function EditDayCard({
                 </div>
                 {slot ? (
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="ghost" onClick={() => onAddLesson(pair.pairNumber)}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      {t('schedule.addLesson')}
-                    </Button>
                     {copiedLessonId ? (
                       <Button variant="ghost" onClick={() => onPasteLesson(dayOfWeek, pair.pairNumber)}>
                         <Copy className="mr-2 h-4 w-4" />
@@ -2258,39 +2289,80 @@ function EditDayCard({
                 ) : null}
               </div>
 
-              {pairDrafts.length === 0 ? (
-                <div className="mt-3 rounded-[14px] border border-dashed border-border-strong bg-surface-muted px-4 py-4 text-sm text-text-secondary">
-                  {slot ? t('schedule.editSlotEmpty') : t('schedule.slotSetupError')}
-                </div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  {pairDrafts.map((draft) => (
-                    <DraftLessonCard
-                      key={draft.localId}
-                      draft={draft}
-                      roomById={roomById}
-                      subjectNameById={subjectNameById}
-                      teacherById={teacherById}
-                      onCopy={() => onSetCopiedLesson(draft.localId)}
-                      onDelete={() => onDeleteLesson(draft.localId)}
-                      onDragEnd={() => onDragEndLesson(draft.localId)}
-                      onDragStart={() => onDragStartLesson(draft.localId)}
-                      onEdit={() => onEditLesson(draft.localId)}
-                      onMove={() => {
-                        onDragHoverTarget(null)
-                        onSetMovingLesson(draft.localId)
-                      }}
-                      onRestore={() => onRestoreLesson(draft.localId)}
-                      onStopMove={() => {
-                        onDragHoverTarget(null)
-                        onSetMovingLesson(null)
-                      }}
-                      copied={copiedLessonId === draft.localId}
-                      moving={movingLessonId === draft.localId}
-                    />
-                  ))}
-                </div>
-              )}
+              <div className="mt-2.5 space-y-2.5">
+                {weekSections.map((weekSection) => {
+                  const sharedDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'ALL')
+                  const firstDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'FIRST')
+                  const secondDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'SECOND')
+                  const hasSharedActive = sharedDrafts.some((draft) => !draft.deleted)
+                  const hasFirstActive = firstDrafts.some((draft) => !draft.deleted)
+                  const hasSecondActive = secondDrafts.some((draft) => !draft.deleted)
+                  const sectionIsEmpty = !hasSharedActive && !hasFirstActive && !hasSecondActive
+                  const showFirstAdd = !hasSharedActive && !hasFirstActive && hasSecondActive
+                  const showSecondAdd = !hasSharedActive && hasFirstActive && !hasSecondActive
+
+                  return (
+                    <div key={`${pair.pairNumber}-${weekSection.weekType}`} className="space-y-2 rounded-[12px] border border-border bg-surface-muted/70 p-2.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                        {t(`schedule.weekType.${weekSection.weekType}`)}
+                      </p>
+
+                      {sharedDrafts.length > 0 ? (
+                        renderDraftCards(sharedDrafts)
+                      ) : null}
+
+                      {sectionIsEmpty ? (
+                        <div className="rounded-[10px] border border-dashed border-border-strong bg-surface p-2">
+                          {slot ? (
+                            <Button variant="ghost" onClick={() => onAddLesson(pair.pairNumber, weekSection.weekType, 'FIRST')}>
+                              <Plus className="mr-2 h-4 w-4" />
+                              {t('schedule.addLesson')}
+                            </Button>
+                          ) : (
+                            <p className="text-xs text-danger">{t('schedule.slotSetupError')}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {([
+                            { drafts: firstDrafts, showAdd: showFirstAdd, subgroup: 'FIRST' as const },
+                            { drafts: secondDrafts, showAdd: showSecondAdd, subgroup: 'SECOND' as const },
+                          ]).map((subgroupSection) => (
+                            <div
+                              key={`${pair.pairNumber}-${weekSection.weekType}-${subgroupSection.subgroup}`}
+                              className={cn(
+                                'space-y-2 rounded-[10px] border bg-surface p-2',
+                                subgroupSection.drafts.length > 0 ? 'border-border-strong' : 'border-border',
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-text-muted">
+                                  {t(`schedule.subgroupChoice.${subgroupSection.subgroup}`)}
+                                </p>
+                                {subgroupSection.showAdd && slot ? (
+                                  <Button
+                                    variant="ghost"
+                                    onClick={() => onAddLesson(pair.pairNumber, weekSection.weekType, subgroupSection.subgroup)}
+                                  >
+                                    <Plus className="h-4 w-4" />
+                                  </Button>
+                                ) : null}
+                              </div>
+                              {subgroupSection.drafts.length === 0 ? (
+                                <div className="rounded-[8px] border border-dashed border-border-strong px-2 py-1.5 text-xs text-text-secondary">
+                                  {t('schedule.editSlotEmpty')}
+                                </div>
+                              ) : (
+                                renderDraftCards(subgroupSection.drafts)
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )
         })}
@@ -2348,7 +2420,7 @@ function DraftLessonCard({
   return (
     <div
       className={cn(
-        'rounded-[16px] border p-4 transition',
+        'rounded-[14px] border p-3 transition',
         draft.deleted
           ? 'border-danger/30 bg-danger/5'
           : draft.conflict.status === 'clear'
@@ -2460,7 +2532,7 @@ function DraftLessonCard({
           })}
         </div>
       ) : null}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {draft.deleted ? (
           <Button variant="secondary" onClick={onRestore}>
             <RotateCcw className="mr-2 h-4 w-4" />
@@ -3232,7 +3304,10 @@ function getDayOfWeekValue(date: string) {
 }
 
 function toIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10)
+  const year = value.getFullYear()
+  const month = `${value.getMonth() + 1}`.padStart(2, '0')
+  const day = `${value.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function createLocalId() {
