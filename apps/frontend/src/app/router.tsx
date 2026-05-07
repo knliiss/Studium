@@ -21,6 +21,7 @@ import { SubjectDetailPage } from '@/pages/education/SubjectDetailPage'
 import { SubjectsPage } from '@/pages/education/SubjectsPage'
 import { TeachersPage } from '@/pages/education/TeachersPage'
 import { TopicDetailPage } from '@/pages/education/TopicDetailPage'
+import { LecturePage } from '@/pages/education/LecturePage'
 import { NotificationsPage } from '@/pages/notifications/NotificationsPage'
 import { ProfilePage } from '@/pages/profile/ProfilePage'
 import { SchedulePage } from '@/pages/schedule/SchedulePage'
@@ -63,6 +64,7 @@ export function AppRouter() {
           <Route path="/subjects" element={<SubjectsPage />} />
           <Route path="/subjects/:subjectId" element={<SubjectDetailPage />} />
           <Route path="/subjects/:subjectId/topics/:topicId" element={<TopicDetailPage />} />
+          <Route path="/lectures/:lectureId" element={<LecturePage />} />
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/teachers" element={<TeachersPage />} />

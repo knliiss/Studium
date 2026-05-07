@@ -9,9 +9,12 @@ import dev.knalis.assignment.dto.response.AssignmentPageResponse;
 import dev.knalis.assignment.dto.response.AssignmentResponse;
 import dev.knalis.assignment.entity.Assignment;
 import dev.knalis.assignment.entity.AssignmentStatus;
+import dev.knalis.assignment.exception.AssignmentHasSubmissionsException;
+import dev.knalis.assignment.exception.AssignmentNotArchivedException;
 import dev.knalis.assignment.factory.assignment.AssignmentFactory;
 import dev.knalis.assignment.mapper.AssignmentMapper;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
+import dev.knalis.assignment.repository.AssignmentAttachmentRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
@@ -34,8 +37,10 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,6 +52,9 @@ class AssignmentServiceTest {
 
     @Mock
     private AssignmentGroupAvailabilityRepository assignmentGroupAvailabilityRepository;
+
+    @Mock
+    private AssignmentAttachmentRepository assignmentAttachmentRepository;
 
     @Mock
     private SubmissionRepository submissionRepository;
@@ -70,6 +78,7 @@ class AssignmentServiceTest {
         assignmentService = new AssignmentService(
                 assignmentRepository,
                 assignmentGroupAvailabilityRepository,
+                assignmentAttachmentRepository,
                 submissionRepository,
                 new AssignmentFactory(),
                 assignmentMapper,
@@ -431,5 +440,77 @@ class AssignmentServiceTest {
 
         assertEquals(AssignmentStatus.PUBLISHED, assignment.getStatus());
         verify(assignmentEventPublisher).publishAssignmentCreated(any());
+    }
+
+    @Test
+    void closeAndReopenAssignmentTransitionsStatus() {
+        UUID assignmentId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        Assignment assignment = new Assignment();
+        assignment.setId(assignmentId);
+        assignment.setTopicId(topicId);
+        assignment.setTitle("Draft");
+        assignment.setDeadline(now.plusSeconds(3600));
+        assignment.setStatus(AssignmentStatus.PUBLISHED);
+
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+        when(assignmentRepository.save(assignment)).thenReturn(assignment);
+        when(assignmentMapper.toResponse(assignment)).thenReturn(new AssignmentResponse(
+                assignmentId,
+                topicId,
+                "Draft",
+                null,
+                assignment.getDeadline(),
+                0,
+                assignment.getStatus(),
+                false,
+                1,
+                false,
+                Set.of(),
+                null,
+                100,
+                now,
+                now
+        ));
+
+        assignmentService.closeAssignment(UUID.randomUUID(), true, assignmentId);
+        assertEquals(AssignmentStatus.CLOSED, assignment.getStatus());
+        assignmentService.reopenAssignment(UUID.randomUUID(), true, assignmentId);
+        assertEquals(AssignmentStatus.PUBLISHED, assignment.getStatus());
+    }
+
+    @Test
+    void restoreAssignmentRequiresArchivedStatus() {
+        UUID assignmentId = UUID.randomUUID();
+        Assignment assignment = new Assignment();
+        assignment.setId(assignmentId);
+        assignment.setStatus(AssignmentStatus.DRAFT);
+
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+
+        assertThrows(
+                AssignmentNotArchivedException.class,
+                () -> assignmentService.restoreAssignment(UUID.randomUUID(), true, assignmentId)
+        );
+        verify(assignmentRepository, never()).save(any(Assignment.class));
+    }
+
+    @Test
+    void deleteAssignmentWithSubmissionsReturnsDependencyConflict() {
+        UUID assignmentId = UUID.randomUUID();
+        Assignment assignment = new Assignment();
+        assignment.setId(assignmentId);
+        assignment.setStatus(AssignmentStatus.ARCHIVED);
+
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+        when(submissionRepository.countByAssignmentId(assignmentId)).thenReturn(2L);
+
+        assertThrows(
+                AssignmentHasSubmissionsException.class,
+                () -> assignmentService.deleteAssignment(UUID.randomUUID(), true, assignmentId)
+        );
+        verify(assignmentRepository, never()).delete(any(Assignment.class));
     }
 }

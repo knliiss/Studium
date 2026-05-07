@@ -7,6 +7,7 @@ import type {
   AdminUserStatsResponse,
   AnswerResponse,
   AssignmentGroupAvailabilityResponse,
+  AssignmentAttachmentResponse,
   AssignmentResponse,
   AuditEventResponse,
   DashboardOverviewResponse,
@@ -33,6 +34,7 @@ import type {
   SubjectAnalyticsResponse,
   SubjectResponse,
   SubmissionCommentResponse,
+  SubmissionAttachmentResponse,
   SubmissionResponse,
   TeacherAnalyticsResponse,
   TeacherDashboardResponse,
@@ -44,6 +46,8 @@ import type {
   UnreadCountResponse,
   UserProfileResponse,
   UserSummaryResponse,
+  LectureAttachmentResponse,
+  LectureResponse,
 } from '@/shared/types/api'
 
 export interface PaginationParams {
@@ -111,7 +115,7 @@ export const educationService = {
   async removeGroupStudent(groupId: string, userId: string) {
     await apiClient.delete(`/api/v1/education/groups/${groupId}/students/${userId}`)
   },
-  async createSubject(payload: { name: string; groupId?: string; groupIds?: string[]; teacherIds?: string[]; description?: string }) {
+  async createSubject(payload: { name: string; description?: string }) {
     const response = await apiClient.post<SubjectResponse>('/api/v1/education/subjects', payload)
     return response.data
   },
@@ -123,8 +127,24 @@ export const educationService = {
     const response = await apiClient.get<SubjectResponse>(`/api/v1/education/subjects/${id}`)
     return response.data
   },
-  async updateSubject(id: string, payload: { name: string; groupId?: string; groupIds?: string[]; teacherIds?: string[]; description?: string }) {
+  async updateSubject(id: string, payload: { name: string; description?: string }) {
     const response = await apiClient.put<SubjectResponse>(`/api/v1/education/subjects/${id}`, payload)
+    return response.data
+  },
+  async getSubjectGroups(id: string) {
+    const response = await apiClient.get<string[]>(`/api/v1/education/subjects/${id}/groups`)
+    return response.data
+  },
+  async updateSubjectGroups(id: string, payload: { groupIds: string[] }) {
+    const response = await apiClient.put<SubjectResponse>(`/api/v1/education/subjects/${id}/groups`, payload)
+    return response.data
+  },
+  async getSubjectTeachers(id: string) {
+    const response = await apiClient.get<string[]>(`/api/v1/education/subjects/${id}/teachers`)
+    return response.data
+  },
+  async updateSubjectTeachers(id: string, payload: { teacherIds: string[] }) {
+    const response = await apiClient.put<SubjectResponse>(`/api/v1/education/subjects/${id}/teachers`, payload)
     return response.data
   },
   async getSubjectsByGroup(groupId: string, params: PaginationParams = {}) {
@@ -146,6 +166,80 @@ export const educationService = {
   async getTopicsBySubject(subjectId: string, params: PaginationParams = {}) {
     const response = await apiClient.get(`/api/v1/education/topics/subject/${subjectId}`, { params })
     return normalizePage<TopicResponse>(response.data)
+  },
+  async createLecture(subjectId: string, topicId: string, payload: { title: string; content?: string; orderIndex: number }) {
+    const response = await apiClient.post<LectureResponse>(
+      `/api/v1/education/subjects/${subjectId}/topics/${topicId}/lectures`,
+      payload,
+    )
+    return response.data
+  },
+  async updateLecture(lectureId: string, payload: { title: string; content?: string; orderIndex: number }) {
+    const response = await apiClient.put<LectureResponse>(`/api/v1/education/lectures/${lectureId}`, payload)
+    return response.data
+  },
+  async getLecture(lectureId: string) {
+    const response = await apiClient.get<LectureResponse>(`/api/v1/education/lectures/${lectureId}`)
+    return response.data
+  },
+  async getLecturesByTopic(topicId: string, params: PaginationParams = {}) {
+    const response = await apiClient.get(`/api/v1/education/topics/${topicId}/lectures`, { params })
+    return normalizePage<LectureResponse>(response.data)
+  },
+  async publishLecture(lectureId: string) {
+    const response = await apiClient.post<LectureResponse>(`/api/v1/education/lectures/${lectureId}/publish`)
+    return response.data
+  },
+  async closeLecture(lectureId: string) {
+    const response = await apiClient.post<LectureResponse>(`/api/v1/education/lectures/${lectureId}/close`)
+    return response.data
+  },
+  async reopenLecture(lectureId: string) {
+    const response = await apiClient.post<LectureResponse>(`/api/v1/education/lectures/${lectureId}/reopen`)
+    return response.data
+  },
+  async archiveLecture(lectureId: string) {
+    const response = await apiClient.post<LectureResponse>(`/api/v1/education/lectures/${lectureId}/archive`)
+    return response.data
+  },
+  async restoreLecture(lectureId: string) {
+    const response = await apiClient.post<LectureResponse>(`/api/v1/education/lectures/${lectureId}/restore`)
+    return response.data
+  },
+  async deleteLecture(lectureId: string) {
+    await apiClient.delete(`/api/v1/education/lectures/${lectureId}`)
+  },
+  async moveLecture(lectureId: string, payload: { topicId: string; orderIndex: number }) {
+    const response = await apiClient.patch<LectureResponse>(`/api/v1/education/lectures/${lectureId}/position`, payload)
+    return response.data
+  },
+  async listLectureAttachments(lectureId: string) {
+    const response = await apiClient.get<LectureAttachmentResponse[]>(`/api/v1/education/lectures/${lectureId}/attachments`)
+    return response.data
+  },
+  async addLectureAttachment(lectureId: string, payload: { fileId: string; displayName?: string }) {
+    const response = await apiClient.post<LectureAttachmentResponse>(
+      `/api/v1/education/lectures/${lectureId}/attachments`,
+      payload,
+    )
+    return response.data
+  },
+  async removeLectureAttachment(lectureId: string, attachmentId: string) {
+    await apiClient.delete(`/api/v1/education/lectures/${lectureId}/attachments/${attachmentId}`)
+  },
+  async previewLectureAttachment(lectureId: string, attachmentId: string) {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/education/lectures/${lectureId}/attachments/${attachmentId}/preview`,
+      { responseType: 'blob' },
+    )
+    return response.data
+  },
+  async downloadLectureAttachment(lectureId: string, attachmentId: string) {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/education/lectures/${lectureId}/attachments/${attachmentId}/download`,
+      { responseType: 'blob' },
+    )
+    return response.data
   },
 }
 
@@ -341,8 +435,20 @@ export const assignmentService = {
     const response = await apiClient.post<AssignmentResponse>(`/api/v1/assignments/${id}/publish`)
     return response.data
   },
+  async closeAssignment(id: string) {
+    const response = await apiClient.post<AssignmentResponse>(`/api/v1/assignments/${id}/close`)
+    return response.data
+  },
+  async reopenAssignment(id: string) {
+    const response = await apiClient.post<AssignmentResponse>(`/api/v1/assignments/${id}/reopen`)
+    return response.data
+  },
   async archiveAssignment(id: string) {
     const response = await apiClient.post<AssignmentResponse>(`/api/v1/assignments/${id}/archive`)
+    return response.data
+  },
+  async restoreAssignment(id: string) {
+    const response = await apiClient.post<AssignmentResponse>(`/api/v1/assignments/${id}/restore`)
     return response.data
   },
   async deleteAssignment(id: string) {
@@ -358,6 +464,34 @@ export const assignmentService = {
   },
   async getAssignmentAvailability(id: string) {
     const response = await apiClient.get<AssignmentGroupAvailabilityResponse[]>(`/api/v1/assignments/${id}/availability`)
+    return response.data
+  },
+  async listAssignmentAttachments(assignmentId: string) {
+    const response = await apiClient.get<AssignmentAttachmentResponse[]>(`/api/v1/assignments/${assignmentId}/attachments`)
+    return response.data
+  },
+  async addAssignmentAttachment(assignmentId: string, payload: { fileId: string; displayName?: string }) {
+    const response = await apiClient.post<AssignmentAttachmentResponse>(
+      `/api/v1/assignments/${assignmentId}/attachments`,
+      payload,
+    )
+    return response.data
+  },
+  async removeAssignmentAttachment(assignmentId: string, attachmentId: string) {
+    await apiClient.delete(`/api/v1/assignments/${assignmentId}/attachments/${attachmentId}`)
+  },
+  async previewAssignmentAttachment(assignmentId: string, attachmentId: string) {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/assignments/${assignmentId}/attachments/${attachmentId}/preview`,
+      { responseType: 'blob' },
+    )
+    return response.data
+  },
+  async downloadAssignmentAttachment(assignmentId: string, attachmentId: string) {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/assignments/${assignmentId}/attachments/${attachmentId}/download`,
+      { responseType: 'blob' },
+    )
     return response.data
   },
   async upsertAssignmentAvailability(id: string, payload: Record<string, unknown>) {
@@ -393,6 +527,34 @@ export const assignmentService = {
   },
   async getSubmission(id: string) {
     const response = await apiClient.get<SubmissionResponse>(`/api/v1/submissions/${id}`)
+    return response.data
+  },
+  async listSubmissionAttachments(submissionId: string) {
+    const response = await apiClient.get<SubmissionAttachmentResponse[]>(`/api/v1/submissions/${submissionId}/attachments`)
+    return response.data
+  },
+  async addSubmissionAttachment(submissionId: string, payload: { fileId: string; displayName?: string }) {
+    const response = await apiClient.post<SubmissionAttachmentResponse>(
+      `/api/v1/submissions/${submissionId}/attachments`,
+      payload,
+    )
+    return response.data
+  },
+  async removeSubmissionAttachment(submissionId: string, attachmentId: string) {
+    await apiClient.delete(`/api/v1/submissions/${submissionId}/attachments/${attachmentId}`)
+  },
+  async previewSubmissionAttachment(submissionId: string, attachmentId: string) {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/submissions/${submissionId}/attachments/${attachmentId}/preview`,
+      { responseType: 'blob' },
+    )
+    return response.data
+  },
+  async downloadSubmissionAttachment(submissionId: string, attachmentId: string) {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/submissions/${submissionId}/attachments/${attachmentId}/download`,
+      { responseType: 'blob' },
+    )
     return response.data
   },
   async listSubmissionComments(submissionId: string) {
@@ -472,8 +634,16 @@ export const testingService = {
     const response = await apiClient.post<TestResponse>(`/api/v1/testing/tests/${id}/close`)
     return response.data
   },
+  async reopenTest(id: string) {
+    const response = await apiClient.post<TestResponse>(`/api/v1/testing/tests/${id}/reopen`)
+    return response.data
+  },
   async archiveTest(id: string) {
     const response = await apiClient.post<TestResponse>(`/api/v1/testing/tests/${id}/archive`)
+    return response.data
+  },
+  async restoreTest(id: string) {
+    const response = await apiClient.post<TestResponse>(`/api/v1/testing/tests/${id}/restore`)
     return response.data
   },
   async deleteTest(id: string) {

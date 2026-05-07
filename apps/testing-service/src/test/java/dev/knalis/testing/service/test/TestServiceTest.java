@@ -10,7 +10,9 @@ import dev.knalis.testing.dto.response.TestResponse;
 import dev.knalis.testing.entity.Test;
 import dev.knalis.testing.entity.TestGroupAvailability;
 import dev.knalis.testing.entity.TestStatus;
+import dev.knalis.testing.exception.TestHasAttemptsException;
 import dev.knalis.testing.exception.TestInvalidStateException;
+import dev.knalis.testing.exception.TestNotArchivedException;
 import dev.knalis.testing.factory.attempt.TestAttemptFactory;
 import dev.knalis.testing.factory.test.TestFactory;
 import dev.knalis.testing.mapper.TestMapper;
@@ -385,6 +387,79 @@ class TestServiceTest {
         assertThrows(
                 TestInvalidStateException.class,
                 () -> testService.publishTest(UUID.randomUUID(), true, testId)
+        );
+    }
+
+    @org.junit.jupiter.api.Test
+    void closeAndReopenTestTransitionsStatus() {
+        UUID testId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        Test test = new Test();
+        test.setId(testId);
+        test.setTopicId(topicId);
+        test.setTitle("Quiz 1");
+        test.setOrderIndex(0);
+        test.setStatus(TestStatus.PUBLISHED);
+        test.setMaxAttempts(1);
+        test.setMaxPoints(100);
+
+        when(testRepository.findById(testId)).thenReturn(Optional.of(test));
+        when(testRepository.save(test)).thenReturn(test);
+        when(testMapper.toResponse(test)).thenReturn(new TestResponse(
+                testId,
+                topicId,
+                "Quiz 1",
+                0,
+                test.getStatus(),
+                1,
+                100,
+                null,
+                null,
+                null,
+                false,
+                false,
+                false,
+                now,
+                now
+        ));
+
+        testService.closeTest(UUID.randomUUID(), true, testId);
+        assertEquals(TestStatus.CLOSED, test.getStatus());
+        testService.reopenTest(UUID.randomUUID(), true, testId);
+        assertEquals(TestStatus.PUBLISHED, test.getStatus());
+    }
+
+    @org.junit.jupiter.api.Test
+    void restoreTestRequiresArchivedStatus() {
+        UUID testId = UUID.randomUUID();
+        Test test = new Test();
+        test.setId(testId);
+        test.setStatus(TestStatus.DRAFT);
+
+        when(testRepository.findById(testId)).thenReturn(Optional.of(test));
+
+        assertThrows(
+                TestNotArchivedException.class,
+                () -> testService.restoreTest(UUID.randomUUID(), true, testId)
+        );
+    }
+
+    @org.junit.jupiter.api.Test
+    void deleteTestBlocksWhenAttemptsExist() {
+        UUID testId = UUID.randomUUID();
+        Test test = new Test();
+        test.setId(testId);
+        test.setStatus(TestStatus.ARCHIVED);
+
+        when(testRepository.findById(testId)).thenReturn(Optional.of(test));
+        when(testAttemptRepository.countByTestId(testId)).thenReturn(1L);
+        when(testResultRepository.countByTestId(testId)).thenReturn(0L);
+
+        assertThrows(
+                TestHasAttemptsException.class,
+                () -> testService.deleteTest(UUID.randomUUID(), true, testId)
         );
     }
 }

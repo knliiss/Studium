@@ -73,6 +73,12 @@ public class ScheduleTemplateController {
         scheduleTemplateService.deleteTemplate(currentUserService.getCurrentUserId(authentication), templateId);
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
+    public ScheduleTemplateResponse restoreTemplate(Authentication authentication, @PathVariable("id") UUID templateId) {
+        return scheduleTemplateService.restoreTemplate(currentUserService.getCurrentUserId(authentication), templateId);
+    }
     
     @GetMapping("/semester/{semesterId}")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")

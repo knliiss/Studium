@@ -10,6 +10,8 @@ import java.util.UUID;
 public interface GroupStudentRepository extends JpaRepository<GroupStudent, UUID> {
     
     boolean existsByGroupIdAndUserId(UUID groupId, UUID userId);
+
+    boolean existsByUserIdAndGroupId(UUID userId, UUID groupId);
     
     List<GroupStudent> findAllByGroupIdOrderByCreatedAtAsc(UUID groupId);
     

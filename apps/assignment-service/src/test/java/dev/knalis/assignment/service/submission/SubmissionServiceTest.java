@@ -13,6 +13,7 @@ import dev.knalis.assignment.entity.Assignment;
 import dev.knalis.assignment.entity.AssignmentGroupAvailability;
 import dev.knalis.assignment.entity.AssignmentStatus;
 import dev.knalis.assignment.entity.Submission;
+import dev.knalis.assignment.exception.AssignmentClosedException;
 import dev.knalis.assignment.exception.MaxSubmissionsExceededException;
 import dev.knalis.assignment.exception.InvalidSubmissionFileException;
 import dev.knalis.assignment.factory.submission.SubmissionFactory;
@@ -20,6 +21,7 @@ import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.GradeRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
+import dev.knalis.assignment.service.attachment.SubmissionAttachmentService;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +71,9 @@ class SubmissionServiceTest {
     
     @Mock
     private EducationServiceClient educationServiceClient;
+
+    @Mock
+    private SubmissionAttachmentService submissionAttachmentService;
     
     private SubmissionService submissionService;
     
@@ -83,7 +88,8 @@ class SubmissionServiceTest {
                 gradeRepository,
                 assignmentAuditService,
                 assignmentEventPublisher,
-                educationServiceClient
+                educationServiceClient,
+                submissionAttachmentService
         );
     }
     
@@ -334,6 +340,26 @@ class SubmissionServiceTest {
 
         assertThrows(
                 MaxSubmissionsExceededException.class,
+                () -> submissionService.createSubmission(userId, "token", new CreateSubmissionRequest(assignmentId, fileId))
+        );
+    }
+
+    @Test
+    void createSubmissionThrowsWhenAssignmentClosed() {
+        UUID userId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+
+        Assignment assignment = new Assignment();
+        assignment.setId(assignmentId);
+        assignment.setTopicId(UUID.randomUUID());
+        assignment.setDeadline(Instant.now().plusSeconds(3600));
+        assignment.setStatus(AssignmentStatus.CLOSED);
+
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+
+        assertThrows(
+                AssignmentClosedException.class,
                 () -> submissionService.createSubmission(userId, "token", new CreateSubmissionRequest(assignmentId, fileId))
         );
     }

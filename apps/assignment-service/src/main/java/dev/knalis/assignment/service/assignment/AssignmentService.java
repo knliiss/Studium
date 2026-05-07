@@ -14,13 +14,18 @@ import dev.knalis.assignment.client.education.EducationServiceClient;
 import dev.knalis.assignment.entity.Assignment;
 import dev.knalis.assignment.entity.AssignmentGroupAvailability;
 import dev.knalis.assignment.entity.AssignmentStatus;
+import dev.knalis.assignment.exception.AssignmentAlreadyArchivedException;
 import dev.knalis.assignment.exception.AssignmentAccessDeniedException;
-import dev.knalis.assignment.exception.AssignmentInvalidStateException;
+import dev.knalis.assignment.exception.AssignmentHasDependenciesException;
+import dev.knalis.assignment.exception.AssignmentHasSubmissionsException;
+import dev.knalis.assignment.exception.AssignmentNotArchivedException;
+import dev.knalis.assignment.exception.AssignmentNotEditableException;
 import dev.knalis.assignment.exception.AssignmentNotFoundException;
 import dev.knalis.assignment.exception.AssignmentStateTransitionException;
 import dev.knalis.assignment.factory.assignment.AssignmentFactory;
 import dev.knalis.assignment.mapper.AssignmentMapper;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
+import dev.knalis.assignment.repository.AssignmentAttachmentRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
@@ -56,9 +61,14 @@ public class AssignmentService {
             "title",
             "orderIndex"
     );
+    private static final Set<AssignmentStatus> STUDENT_VISIBLE_STATUSES = Set.of(
+            AssignmentStatus.PUBLISHED,
+            AssignmentStatus.CLOSED
+    );
     
     private final AssignmentRepository assignmentRepository;
     private final AssignmentGroupAvailabilityRepository assignmentGroupAvailabilityRepository;
+    private final AssignmentAttachmentRepository assignmentAttachmentRepository;
     private final SubmissionRepository submissionRepository;
     private final AssignmentFactory assignmentFactory;
     private final AssignmentMapper assignmentMapper;
@@ -99,6 +109,9 @@ public class AssignmentService {
         Assignment assignment = assignmentRepository.findById(assignmentId)
                 .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
         assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        if (assignment.getStatus() == AssignmentStatus.ARCHIVED) {
+            throw new AssignmentNotEditableException(assignmentId, assignment.getStatus());
+        }
         AssignmentResponse oldValue = assignmentMapper.toResponse(assignment);
         
         AssignmentImportantChangeTypeV1 importantChangeType = resolveImportantChangeType(
@@ -163,7 +176,7 @@ public class AssignmentService {
                     : assignmentRepository.findVisibleByTopicIdForTeacher(
                             topicId,
                             currentUserId,
-                            AssignmentStatus.PUBLISHED,
+                            STUDENT_VISIBLE_STATUSES,
                             pageRequest
                     );
         } else {
@@ -172,7 +185,7 @@ public class AssignmentService {
                     ? Page.empty(pageRequest)
                     : assignmentRepository.findAvailableByTopicIdForGroups(
                             topicId,
-                            AssignmentStatus.PUBLISHED,
+                            STUDENT_VISIBLE_STATUSES,
                             groupIds,
                             Instant.now(),
                             pageRequest
@@ -352,17 +365,62 @@ public class AssignmentService {
     }
 
     @Transactional
+    public AssignmentResponse closeAssignment(UUID currentUserId, boolean privilegedAccess, UUID assignmentId) {
+        Assignment assignment = assignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
+        assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        AssignmentResponse oldValue = assignmentMapper.toResponse(assignment);
+        if (assignment.getStatus() != AssignmentStatus.PUBLISHED) {
+            throw new AssignmentStateTransitionException(assignmentId, assignment.getStatus(), AssignmentStatus.CLOSED);
+        }
+        assignment.setStatus(AssignmentStatus.CLOSED);
+        AssignmentResponse response = assignmentMapper.toResponse(assignmentRepository.save(assignment));
+        assignmentAuditService.record(currentUserId, "ASSIGNMENT_CLOSED", "ASSIGNMENT", response.id(), oldValue, response);
+        return response;
+    }
+
+    @Transactional
+    public AssignmentResponse reopenAssignment(UUID currentUserId, boolean privilegedAccess, UUID assignmentId) {
+        Assignment assignment = assignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
+        assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        AssignmentResponse oldValue = assignmentMapper.toResponse(assignment);
+        if (assignment.getStatus() != AssignmentStatus.CLOSED) {
+            throw new AssignmentStateTransitionException(assignmentId, assignment.getStatus(), AssignmentStatus.PUBLISHED);
+        }
+        assignment.setStatus(AssignmentStatus.PUBLISHED);
+        AssignmentResponse response = assignmentMapper.toResponse(assignmentRepository.save(assignment));
+        assignmentAuditService.record(currentUserId, "ASSIGNMENT_REOPENED", "ASSIGNMENT", response.id(), oldValue, response);
+        return response;
+    }
+
+    @Transactional
     public AssignmentResponse archiveAssignment(UUID currentUserId, boolean privilegedAccess, UUID assignmentId) {
         Assignment assignment = assignmentRepository.findById(assignmentId)
                 .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
         assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
         AssignmentResponse oldValue = assignmentMapper.toResponse(assignment);
         if (assignment.getStatus() == AssignmentStatus.ARCHIVED) {
-            throw new AssignmentStateTransitionException(assignmentId, assignment.getStatus(), AssignmentStatus.ARCHIVED);
+            throw new AssignmentAlreadyArchivedException(assignmentId);
         }
         assignment.setStatus(AssignmentStatus.ARCHIVED);
         AssignmentResponse response = assignmentMapper.toResponse(assignmentRepository.save(assignment));
         assignmentAuditService.record(currentUserId, "ASSIGNMENT_ARCHIVED", "ASSIGNMENT", response.id(), oldValue, response);
+        return response;
+    }
+
+    @Transactional
+    public AssignmentResponse restoreAssignment(UUID currentUserId, boolean privilegedAccess, UUID assignmentId) {
+        Assignment assignment = assignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
+        assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        AssignmentResponse oldValue = assignmentMapper.toResponse(assignment);
+        if (assignment.getStatus() != AssignmentStatus.ARCHIVED) {
+            throw new AssignmentNotArchivedException(assignmentId);
+        }
+        assignment.setStatus(AssignmentStatus.DRAFT);
+        AssignmentResponse response = assignmentMapper.toResponse(assignmentRepository.save(assignment));
+        assignmentAuditService.record(currentUserId, "ASSIGNMENT_RESTORED", "ASSIGNMENT", response.id(), oldValue, response);
         return response;
     }
 
@@ -389,11 +447,15 @@ public class AssignmentService {
         Assignment assignment = assignmentRepository.findById(assignmentId)
                 .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
         assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
-        if (assignment.getStatus() != AssignmentStatus.DRAFT) {
-            throw new AssignmentInvalidStateException(assignment.getId(), assignment.getStatus(), "Only draft assignments can be deleted");
+        if (assignment.getStatus() != AssignmentStatus.ARCHIVED) {
+            throw new AssignmentHasDependenciesException(assignment.getId(), "ARCHIVE_REQUIRED");
         }
-        if (submissionRepository.countByAssignmentId(assignmentId) > 0) {
-            throw new AssignmentInvalidStateException(assignment.getId(), assignment.getStatus(), "Assignments with submissions cannot be deleted");
+        long submissionsCount = submissionRepository.countByAssignmentId(assignmentId);
+        if (submissionsCount > 0) {
+            throw new AssignmentHasSubmissionsException(assignmentId, submissionsCount);
+        }
+        if (assignmentAttachmentRepository.existsByAssignmentId(assignmentId)) {
+            throw new AssignmentHasDependenciesException(assignmentId, "ATTACHMENTS_PRESENT");
         }
         assignmentGroupAvailabilityRepository.deleteAll(assignmentGroupAvailabilityRepository.findAllByAssignmentIdOrderByCreatedAtAsc(assignmentId));
         assignmentRepository.delete(assignment);
@@ -429,7 +491,7 @@ public class AssignmentService {
             boolean privilegedAccess,
             boolean teacherAccess
     ) {
-        if (assignment.getStatus() == AssignmentStatus.PUBLISHED
+        if (STUDENT_VISIBLE_STATUSES.contains(assignment.getStatus())
                 && isAvailableForStudent(assignment.getId(), currentUserId, Instant.now())) {
             return;
         }

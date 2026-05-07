@@ -544,7 +544,7 @@ function ScheduleTeachersPage() {
   }
 
   const localTeachers = (teacherLookupQuery.data ?? []).filter((teacher) => {
-    const label = `${teacher.username} ${teacher.email}`.toLowerCase()
+    const label = `${teacher.username} ${teacher.email ?? ''}`.toLowerCase()
     return !debouncedSearch || label.includes(debouncedSearch.toLowerCase())
   })
   const visibleTeachers = isAdmin
@@ -592,7 +592,9 @@ function ScheduleTeachersPage() {
                   <div className="min-w-0">
                     <p className="truncate text-lg font-semibold text-text-primary">{getTeacherDisplayName(teacher)}</p>
                     <p className="truncate text-sm text-text-muted">@{teacher.username}</p>
-                    <p className="truncate text-sm text-text-secondary">{teacher.email}</p>
+                    {teacher.email ? (
+                      <p className="truncate text-sm text-text-secondary">{teacher.email}</p>
+                    ) : null}
                   </div>
                 </div>
                 <span className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-surface-muted px-3 text-sm font-medium text-text-primary transition group-hover:border-border-strong">
@@ -2734,7 +2736,9 @@ function LessonDrawer({
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-text-primary">{getTeacherDisplayName(teacher)}</span>
                       <span className="block truncate text-xs text-text-muted">@{teacher.username}</span>
-                      <span className="block truncate text-xs text-text-secondary">{teacher.email}</span>
+                      {teacher.email ? (
+                        <span className="block truncate text-xs text-text-secondary">{teacher.email}</span>
+                      ) : null}
                     </span>
                   </button>
                 ))}

@@ -54,7 +54,7 @@ public class AssignmentDashboardService {
                 ? List.of()
                 : assignmentRepository.findAvailableByTopicIdInForGroups(
                 topicSubjectIds.keySet(),
-                AssignmentStatus.PUBLISHED,
+                List.of(AssignmentStatus.PUBLISHED),
                 groupIds,
                 Instant.now()
         );
@@ -101,7 +101,7 @@ public class AssignmentDashboardService {
     public TeacherAssignmentDashboardResponse getTeacherDashboard(UUID teacherId) {
         List<Assignment> assignments = assignmentRepository.findAllByCreatedByUserIdAndStatusInOrderByDeadlineAscUpdatedAtDesc(
                 teacherId,
-                List.of(AssignmentStatus.DRAFT, AssignmentStatus.PUBLISHED)
+                List.of(AssignmentStatus.DRAFT, AssignmentStatus.PUBLISHED, AssignmentStatus.CLOSED)
         );
         if (assignments.isEmpty()) {
             return TeacherAssignmentDashboardResponse.empty();

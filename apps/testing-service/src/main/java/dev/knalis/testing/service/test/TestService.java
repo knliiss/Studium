@@ -20,8 +20,10 @@ import dev.knalis.testing.entity.TestStatus;
 import dev.knalis.testing.entity.Test;
 import dev.knalis.testing.exception.MaxAttemptsExceededException;
 import dev.knalis.testing.exception.TestAccessDeniedException;
+import dev.knalis.testing.exception.TestHasAttemptsException;
 import dev.knalis.testing.exception.TestInvalidStateException;
 import dev.knalis.testing.exception.TestNotAvailableException;
+import dev.knalis.testing.exception.TestNotArchivedException;
 import dev.knalis.testing.exception.TestNotFoundException;
 import dev.knalis.testing.exception.TestStateTransitionException;
 import dev.knalis.testing.factory.attempt.TestAttemptFactory;
@@ -64,6 +66,10 @@ public class TestService {
             "availableUntil",
             "availableFrom",
             "orderIndex"
+    );
+    private static final Set<TestStatus> STUDENT_VISIBLE_STATUSES = Set.of(
+            TestStatus.PUBLISHED,
+            TestStatus.CLOSED
     );
     
     private final TestRepository testRepository;
@@ -151,7 +157,7 @@ public class TestService {
                     : testRepository.findVisibleByTopicIdForTeacher(
                             topicId,
                             currentUserId,
-                            TestStatus.PUBLISHED,
+                            STUDENT_VISIBLE_STATUSES,
                             pageRequest
                     );
         } else {
@@ -160,7 +166,7 @@ public class TestService {
                     ? Page.empty(pageRequest)
                     : testRepository.findAvailableByTopicIdForGroups(
                             topicId,
-                            TestStatus.PUBLISHED,
+                            STUDENT_VISIBLE_STATUSES,
                             groupIds,
                             Instant.now(),
                             pageRequest
@@ -345,6 +351,20 @@ public class TestService {
     }
 
     @Transactional
+    public TestResponse reopenTest(UUID currentUserId, boolean privilegedAccess, UUID testId) {
+        Test test = requireTest(testId);
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+        TestResponse oldValue = testMapper.toResponse(test);
+        if (test.getStatus() != TestStatus.CLOSED) {
+            throw new TestStateTransitionException(testId, test.getStatus(), TestStatus.PUBLISHED);
+        }
+        test.setStatus(TestStatus.PUBLISHED);
+        TestResponse response = testMapper.toResponse(testRepository.save(test));
+        testingAuditService.record(currentUserId, "TEST_REOPENED", "TEST", response.id(), oldValue, response);
+        return response;
+    }
+
+    @Transactional
     public TestResponse archiveTest(UUID currentUserId, boolean privilegedAccess, UUID testId) {
         Test test = requireTest(testId);
         assertTeacherOwnership(test, currentUserId, privilegedAccess);
@@ -355,6 +375,20 @@ public class TestService {
         test.setStatus(TestStatus.ARCHIVED);
         TestResponse response = testMapper.toResponse(testRepository.save(test));
         testingAuditService.record(currentUserId, "TEST_ARCHIVED", "TEST", response.id(), oldValue, response);
+        return response;
+    }
+
+    @Transactional
+    public TestResponse restoreTest(UUID currentUserId, boolean privilegedAccess, UUID testId) {
+        Test test = requireTest(testId);
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+        TestResponse oldValue = testMapper.toResponse(test);
+        if (test.getStatus() != TestStatus.ARCHIVED) {
+            throw new TestNotArchivedException(testId);
+        }
+        test.setStatus(TestStatus.DRAFT);
+        TestResponse response = testMapper.toResponse(testRepository.save(test));
+        testingAuditService.record(currentUserId, "TEST_RESTORED", "TEST", response.id(), oldValue, response);
         return response;
     }
 
@@ -379,11 +413,13 @@ public class TestService {
     public void deleteTest(UUID currentUserId, boolean privilegedAccess, UUID testId) {
         Test test = requireTest(testId);
         assertTeacherOwnership(test, currentUserId, privilegedAccess);
-        if (test.getStatus() != TestStatus.DRAFT) {
-            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Only draft tests can be deleted");
+        if (test.getStatus() != TestStatus.ARCHIVED) {
+            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Only archived tests can be permanently deleted");
         }
-        if (testAttemptRepository.countByTestId(testId) > 0 || testResultRepository.countByTestId(testId) > 0) {
-            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Tests with attempts or results cannot be deleted");
+        long attemptsCount = testAttemptRepository.countByTestId(testId);
+        long resultsCount = testResultRepository.countByTestId(testId);
+        if (attemptsCount > 0 || resultsCount > 0) {
+            throw new TestHasAttemptsException(testId, attemptsCount, resultsCount);
         }
 
         List<Question> questions = questionRepository.findAllByTestId(testId);

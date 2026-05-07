@@ -1,18 +1,22 @@
 package dev.knalis.assignment.controller;
 
 import dev.knalis.assignment.dto.request.BulkUpsertAssignmentGroupAvailabilityRequest;
+import dev.knalis.assignment.dto.request.CreateAssignmentAttachmentRequest;
 import dev.knalis.assignment.dto.request.CreateAssignmentRequest;
 import dev.knalis.assignment.dto.request.MoveAssignmentRequest;
 import dev.knalis.assignment.dto.request.UpdateAssignmentRequest;
 import dev.knalis.assignment.dto.request.UpsertAssignmentGroupAvailabilityRequest;
+import dev.knalis.assignment.dto.response.AssignmentAttachmentResponse;
 import dev.knalis.assignment.dto.response.AssignmentGroupAvailabilityResponse;
 import dev.knalis.assignment.dto.response.AssignmentPageResponse;
 import dev.knalis.assignment.dto.response.AssignmentResponse;
 import dev.knalis.assignment.dto.response.SearchPageResponse;
+import dev.knalis.assignment.service.attachment.AssignmentAttachmentService;
 import dev.knalis.assignment.service.assignment.AssignmentService;
 import dev.knalis.shared.security.user.CurrentUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.GrantedAuthority;
@@ -36,6 +40,7 @@ import java.util.UUID;
 public class AssignmentController {
     
     private final AssignmentService assignmentService;
+    private final AssignmentAttachmentService assignmentAttachmentService;
     private final CurrentUserService currentUserService;
     
     @PostMapping
@@ -163,10 +168,40 @@ public class AssignmentController {
         );
     }
 
+    @PostMapping("/{id}/close")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public AssignmentResponse closeAssignment(Authentication authentication, @PathVariable("id") UUID assignmentId) {
+        return assignmentService.closeAssignment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId
+        );
+    }
+
+    @PostMapping("/{id}/reopen")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public AssignmentResponse reopenAssignment(Authentication authentication, @PathVariable("id") UUID assignmentId) {
+        return assignmentService.reopenAssignment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId
+        );
+    }
+
     @PostMapping("/{id}/archive")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public AssignmentResponse archiveAssignment(Authentication authentication, @PathVariable("id") UUID assignmentId) {
         return assignmentService.archiveAssignment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId
+        );
+    }
+
+    @PostMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public AssignmentResponse restoreAssignment(Authentication authentication, @PathVariable("id") UUID assignmentId) {
+        return assignmentService.restoreAssignment(
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),
                 assignmentId
@@ -195,6 +230,82 @@ public class AssignmentController {
                 hasManagementBypass(authentication),
                 assignmentId,
                 request
+        );
+    }
+
+    @GetMapping("/{id}/attachments")
+    public List<AssignmentAttachmentResponse> listAttachments(
+            Authentication authentication,
+            @PathVariable("id") UUID assignmentId
+    ) {
+        return assignmentAttachmentService.listAttachments(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                isTeacher(authentication),
+                assignmentId
+        );
+    }
+
+    @PostMapping("/{id}/attachments")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public AssignmentAttachmentResponse addAttachment(
+            Authentication authentication,
+            @PathVariable("id") UUID assignmentId,
+            @Valid @RequestBody CreateAssignmentAttachmentRequest request
+    ) {
+        return assignmentAttachmentService.addAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId,
+                currentUserService.getCurrentTokenValue(authentication),
+                request
+        );
+    }
+
+    @DeleteMapping("/{id}/attachments/{attachmentId}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public void removeAttachment(
+            Authentication authentication,
+            @PathVariable("id") UUID assignmentId,
+            @PathVariable UUID attachmentId
+    ) {
+        assignmentAttachmentService.removeAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                assignmentId,
+                attachmentId
+        );
+    }
+
+    @GetMapping("/{id}/attachments/{attachmentId}/download")
+    public ResponseEntity<byte[]> downloadAttachment(
+            Authentication authentication,
+            @PathVariable("id") UUID assignmentId,
+            @PathVariable UUID attachmentId
+    ) {
+        return assignmentAttachmentService.downloadAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                isTeacher(authentication),
+                assignmentId,
+                attachmentId,
+                false
+        );
+    }
+
+    @GetMapping("/{id}/attachments/{attachmentId}/preview")
+    public ResponseEntity<byte[]> previewAttachment(
+            Authentication authentication,
+            @PathVariable("id") UUID assignmentId,
+            @PathVariable UUID attachmentId
+    ) {
+        return assignmentAttachmentService.downloadAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                isTeacher(authentication),
+                assignmentId,
+                attachmentId,
+                true
         );
     }
 

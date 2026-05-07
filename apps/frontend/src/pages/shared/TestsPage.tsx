@@ -608,8 +608,20 @@ function TestDetailPage({ testId }: { testId: string }) {
       await queryClient.invalidateQueries({ queryKey: ['tests'] })
     },
   })
+  const reopenMutation = useMutation({
+    mutationFn: () => testingService.reopenTest(testId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['tests'] })
+    },
+  })
   const archiveMutation = useMutation({
     mutationFn: () => testingService.archiveTest(testId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['tests'] })
+    },
+  })
+  const restoreMutation = useMutation({
+    mutationFn: () => testingService.restoreTest(testId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['tests'] })
     },
@@ -884,10 +896,32 @@ function TestDetailPage({ testId }: { testId: string }) {
               <Button disabled={test.status !== 'PUBLISHED'} variant="secondary" onClick={() => closeMutation.mutate()}>
                 {t('testing.closeTest')}
               </Button>
-              <Button onClick={() => archiveMutation.mutate()}>{t('assignments.archive')}</Button>
-              <Button disabled={deleteTestMutation.isPending || test.status !== 'DRAFT'} variant="ghost" onClick={() => deleteTestMutation.mutate()}>
-                {t('common.actions.delete')}
-              </Button>
+              {test.status === 'CLOSED' ? (
+                <Button disabled={reopenMutation.isPending} variant="secondary" onClick={() => reopenMutation.mutate()}>
+                  {t('testing.reopenTest')}
+                </Button>
+              ) : null}
+              {test.status !== 'ARCHIVED' ? (
+                <Button disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate()}>{t('assignments.archive')}</Button>
+              ) : null}
+              {test.status === 'ARCHIVED' ? (
+                <>
+                  <Button disabled={restoreMutation.isPending} variant="secondary" onClick={() => restoreMutation.mutate()}>
+                    {t('testing.restoreTest')}
+                  </Button>
+                  <Button
+                    disabled={deleteTestMutation.isPending}
+                    variant="ghost"
+                    onClick={() => {
+                      if (window.confirm(t('testing.deletePermanentConfirm'))) {
+                        deleteTestMutation.mutate()
+                      }
+                    }}
+                  >
+                    {t('testing.deletePermanently')}
+                  </Button>
+                </>
+              ) : null}
             </div>
             {publishDisabledReason ? (
               <div className="rounded-[14px] border border-danger/30 bg-danger/5 px-4 py-3">

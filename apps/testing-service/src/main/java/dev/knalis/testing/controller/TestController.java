@@ -182,10 +182,30 @@ public class TestController {
         );
     }
 
+    @PostMapping("/{id}/reopen")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestResponse reopenTest(Authentication authentication, @PathVariable("id") UUID testId) {
+        return testService.reopenTest(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                testId
+        );
+    }
+
     @PostMapping("/{id}/archive")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public TestResponse archiveTest(Authentication authentication, @PathVariable("id") UUID testId) {
         return testService.archiveTest(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                testId
+        );
+    }
+
+    @PostMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestResponse restoreTest(Authentication authentication, @PathVariable("id") UUID testId) {
+        return testService.restoreTest(
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),
                 testId

@@ -7,6 +7,8 @@ import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
+
 @Configuration
 public class EducationRestClientConfig {
 
@@ -17,15 +19,27 @@ public class EducationRestClientConfig {
     ) {
         return RestClient.builder()
                 .baseUrl(properties.getBaseUrl())
-                .requestFactory(clientHttpRequestFactory(properties))
+                .requestFactory(clientHttpRequestFactory(properties.getConnectTimeout(), properties.getReadTimeout()))
                 .requestInterceptor(restClientRequestIdInterceptor)
                 .build();
     }
 
-    private ClientHttpRequestFactory clientHttpRequestFactory(EducationAuditServiceProperties properties) {
+    @Bean
+    public RestClient fileServiceRestClient(
+            EducationFileServiceProperties properties,
+            ClientHttpRequestInterceptor restClientRequestIdInterceptor
+    ) {
+        return RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(clientHttpRequestFactory(properties.getConnectTimeout(), properties.getReadTimeout()))
+                .requestInterceptor(restClientRequestIdInterceptor)
+                .build();
+    }
+
+    private ClientHttpRequestFactory clientHttpRequestFactory(Duration connectTimeout, Duration readTimeout) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(properties.getConnectTimeout());
-        factory.setReadTimeout(properties.getReadTimeout());
+        factory.setConnectTimeout(connectTimeout);
+        factory.setReadTimeout(readTimeout);
         return factory;
     }
 }

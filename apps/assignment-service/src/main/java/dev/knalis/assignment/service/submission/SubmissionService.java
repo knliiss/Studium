@@ -13,6 +13,7 @@ import dev.knalis.assignment.dto.response.SubmissionResponse;
 import dev.knalis.assignment.entity.Grade;
 import dev.knalis.assignment.entity.Submission;
 import dev.knalis.assignment.exception.AssignmentAccessDeniedException;
+import dev.knalis.assignment.exception.AssignmentClosedException;
 import dev.knalis.assignment.exception.AssignmentNotFoundException;
 import dev.knalis.assignment.exception.AssignmentInvalidStateException;
 import dev.knalis.assignment.exception.DeadlineExpiredException;
@@ -26,6 +27,7 @@ import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.GradeRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
+import dev.knalis.assignment.service.attachment.SubmissionAttachmentService;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
 import dev.knalis.contracts.event.AssignmentSubmittedEventV1;
@@ -63,6 +65,7 @@ public class SubmissionService {
     private final AssignmentAuditService assignmentAuditService;
     private final AssignmentEventPublisher assignmentEventPublisher;
     private final EducationServiceClient educationServiceClient;
+    private final SubmissionAttachmentService submissionAttachmentService;
     
     @Transactional
     public SubmissionResponse createSubmission(UUID userId, String bearerToken, CreateSubmissionRequest request) {
@@ -78,6 +81,7 @@ public class SubmissionService {
                 request.fileId()
         );
         Submission savedSubmission = submissionRepository.save(submission);
+        submissionAttachmentService.createInitialAttachment(savedSubmission.getId(), userId, request.fileId());
         UUID subjectId = educationServiceClient.getTopic(assignment.getTopicId()).subjectId();
         boolean wasLate = savedSubmission.getSubmittedAt().isAfter(availability.getDeadline());
         assignmentEventPublisher.publishAssignmentSubmitted(new AssignmentSubmittedEventV1(
@@ -179,6 +183,9 @@ public class SubmissionService {
     }
     
     private AssignmentGroupAvailability validateSubmissionAllowed(Assignment assignment, UUID userId) {
+        if (assignment.getStatus() == AssignmentStatus.CLOSED) {
+            throw new AssignmentClosedException(assignment.getId());
+        }
         if (assignment.getStatus() != AssignmentStatus.PUBLISHED) {
             throw new AssignmentInvalidStateException(
                     assignment.getId(),

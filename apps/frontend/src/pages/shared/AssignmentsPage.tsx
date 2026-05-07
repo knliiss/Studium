@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { convertToHtml } from 'mammoth/mammoth.browser'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { convertToHtml } from 'mammoth/mammoth.browser'
 
 import { useAuth } from '@/features/auth/useAuth'
 import { AssignmentAccessPanel } from '@/features/assignments/access/AssignmentAccessPanel'
 import { assignmentService, dashboardService, educationService, fileService, userDirectoryService } from '@/shared/api/services'
 import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
+import { downloadBlob } from '@/shared/lib/download'
 import { formatDateTime } from '@/shared/lib/format'
 import { toGroupOption, toSubjectOption, toTopicOption } from '@/shared/lib/picker-options'
 import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
@@ -350,6 +351,11 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     queryKey: ['assignment', assignmentId],
     queryFn: () => assignmentService.getAssignment(assignmentId),
   })
+  const assignmentAttachmentsQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'attachments'],
+    queryFn: () => assignmentService.listAssignmentAttachments(assignmentId),
+    enabled: Boolean(assignmentId),
+  })
   const availabilityQuery = useQuery({
     queryKey: ['assignment', assignmentId, 'availability'],
     queryFn: () => assignmentService.getAssignmentAvailability(assignmentId),
@@ -366,6 +372,11 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     enabled: isStudent,
   })
   const [upload, setUpload] = useState<File | null>(null)
+  const [assignmentAttachmentUpload, setAssignmentAttachmentUpload] = useState<File | null>(null)
+  const [assignmentAttachmentName, setAssignmentAttachmentName] = useState('')
+  const [submissionAttachmentUpload, setSubmissionAttachmentUpload] = useState<File | null>(null)
+  const [submissionAttachmentName, setSubmissionAttachmentName] = useState('')
+  const [selectedSubmissionAttachmentId, setSelectedSubmissionAttachmentId] = useState('')
   const [gradeDraftBySubmissionId, setGradeDraftBySubmissionId] = useState<Record<string, { score: number; feedback: string }>>({})
   const [availabilityGroupSearch, setAvailabilityGroupSearch] = useState('')
   const debouncedAvailabilityGroupSearch = useDebouncedValue(availabilityGroupSearch.trim(), 350)
@@ -449,6 +460,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     ),
     enabled: !isStudent && Boolean(connectedGroupsQuery.data?.length),
   })
+  const latestStudentSubmissionId = mySubmissionsQuery.data?.[0]?.id ?? ''
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!upload) {
@@ -460,6 +472,63 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
+      setUpload(null)
+    },
+  })
+  const addAssignmentAttachmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!assignmentAttachmentUpload) {
+        return null
+      }
+      const storedFile = await fileService.uploadFile(assignmentAttachmentUpload, 'ATTACHMENT')
+      return assignmentService.addAssignmentAttachment(assignmentId, {
+        fileId: storedFile.id,
+        displayName: assignmentAttachmentName.trim() || undefined,
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
+      setAssignmentAttachmentUpload(null)
+      setAssignmentAttachmentName('')
+    },
+  })
+  const removeAssignmentAttachmentMutation = useMutation({
+    mutationFn: (attachmentId: string) => assignmentService.removeAssignmentAttachment(assignmentId, attachmentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
+    },
+  })
+  const addSubmissionAttachmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!latestStudentSubmissionId || !submissionAttachmentUpload) {
+        return null
+      }
+      const storedFile = await fileService.uploadFile(submissionAttachmentUpload, 'ATTACHMENT')
+      return assignmentService.addSubmissionAttachment(latestStudentSubmissionId, {
+        fileId: storedFile.id,
+        displayName: submissionAttachmentName.trim() || undefined,
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission-attachments', latestStudentSubmissionId] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', latestStudentSubmissionId] })
+      setSubmissionAttachmentUpload(null)
+      setSubmissionAttachmentName('')
+    },
+  })
+  const removeSubmissionAttachmentMutation = useMutation({
+    mutationFn: (attachmentId: string) => {
+      if (!latestStudentSubmissionId) {
+        return Promise.resolve()
+      }
+      return assignmentService.removeSubmissionAttachment(latestStudentSubmissionId, attachmentId)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission-attachments', latestStudentSubmissionId] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', latestStudentSubmissionId] })
     },
   })
 
@@ -469,10 +538,39 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId] })
     },
   })
+  const closeMutation = useMutation({
+    mutationFn: () => assignmentService.closeAssignment(assignmentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+  const reopenMutation = useMutation({
+    mutationFn: () => assignmentService.reopenAssignment(assignmentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
   const archiveMutation = useMutation({
     mutationFn: () => assignmentService.archiveAssignment(assignmentId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+  const restoreMutation = useMutation({
+    mutationFn: () => assignmentService.restoreAssignment(assignmentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+  const deleteMutation = useMutation({
+    mutationFn: () => assignmentService.deleteAssignment(assignmentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      window.location.assign('/assignments')
     },
   })
   const gradeMutation = useMutation({
@@ -502,6 +600,11 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   })
 
   const assignment = assignmentQuery.data
+  const assignmentAttachments = assignmentAttachmentsQuery.data ?? []
+  const canSubmitAssignment = assignment?.status === 'PUBLISHED'
+  const canManageAssignmentFiles = !isStudent
+  const canEditAssignmentFiles = canManageAssignmentFiles && assignment?.status !== 'ARCHIVED'
+  const shouldWarnAssignmentAttachmentRemoval = assignment?.status === 'PUBLISHED' || assignment?.status === 'CLOSED'
   const availabilityRows = availabilityQuery.data ?? []
   const availabilityByGroupId = new Map(availabilityRows.map((availability) => [availability.groupId, availability]))
   const submissionStudentById = new Map((submissionStudentsQuery.data ?? []).map((student) => [student.id, student]))
@@ -556,44 +659,67 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     queryFn: () => assignmentService.getSubmission(activeSubmissionId),
     enabled: Boolean(activeSubmissionId),
   })
-  const selectedSubmissionFileQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission-file', selectedSubmissionQuery.data?.fileId],
-    queryFn: () => fileService.getMetadata(selectedSubmissionQuery.data!.fileId),
-    enabled: Boolean(selectedSubmissionQuery.data?.fileId),
+  const studentSubmissionAttachmentsQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'submission-attachments', latestStudentSubmissionId],
+    queryFn: () => assignmentService.listSubmissionAttachments(latestStudentSubmissionId),
+    enabled: Boolean(isStudent && latestStudentSubmissionId),
   })
+  const selectedSubmissionAttachmentsQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'submission-attachments', activeSubmissionId],
+    queryFn: () => assignmentService.listSubmissionAttachments(activeSubmissionId),
+    enabled: Boolean(!isStudent && activeSubmissionId),
+  })
+  const studentSubmissionAttachments = studentSubmissionAttachmentsQuery.data ?? []
+  const selectedSubmissionAttachments = useMemo(
+    () => selectedSubmissionAttachmentsQuery.data ?? [],
+    [selectedSubmissionAttachmentsQuery.data],
+  )
+  const effectiveSelectedSubmissionAttachmentId = selectedSubmissionAttachments.some(
+    (attachment) => attachment.id === selectedSubmissionAttachmentId,
+  )
+    ? selectedSubmissionAttachmentId
+    : selectedSubmissionAttachments[0]?.id ?? ''
+  const selectedSubmissionAttachment = selectedSubmissionAttachments.find(
+    (attachment) => attachment.id === effectiveSelectedSubmissionAttachmentId,
+  ) ?? null
   const submissionPreviewQuery = useQuery({
     queryKey: [
       'assignment',
       assignmentId,
       'submission-preview',
-      selectedSubmissionQuery.data?.fileId,
-      selectedSubmissionFileQuery.data?.contentType,
-      selectedSubmissionFileQuery.data?.originalFileName,
+      activeSubmissionId,
+      selectedSubmissionAttachment?.id,
+      selectedSubmissionAttachment?.contentType,
+      selectedSubmissionAttachment?.originalFileName,
     ],
     queryFn: async () => {
-      const submission = selectedSubmissionQuery.data
-      const metadata = selectedSubmissionFileQuery.data
-      if (!submission || !metadata) {
+      if (!activeSubmissionId || !selectedSubmissionAttachment) {
         return { type: 'empty' as const }
       }
-      const fileBlob = await fileService.downloadFile(submission.fileId)
-      const contentType = (metadata.contentType ?? '').toLowerCase()
+      const contentType = (selectedSubmissionAttachment.contentType ?? '').toLowerCase()
 
       if (contentType.includes('pdf')) {
+        const fileBlob = await assignmentService.previewSubmissionAttachment(activeSubmissionId, selectedSubmissionAttachment.id)
         return { type: 'pdf' as const, url: URL.createObjectURL(fileBlob) }
+      }
+
+      if (contentType.startsWith('image/')) {
+        const fileBlob = await assignmentService.previewSubmissionAttachment(activeSubmissionId, selectedSubmissionAttachment.id)
+        return { type: 'image' as const, url: URL.createObjectURL(fileBlob) }
       }
 
       if (
         contentType.includes('wordprocessingml.document')
-        || metadata.originalFileName.toLowerCase().endsWith('.docx')
+        || selectedSubmissionAttachment.originalFileName.toLowerCase().endsWith('.docx')
       ) {
+        const fileBlob = await assignmentService.downloadSubmissionAttachment(activeSubmissionId, selectedSubmissionAttachment.id)
         const result = await convertToHtml({ arrayBuffer: await fileBlob.arrayBuffer() })
         return { type: 'docx' as const, html: result.value }
       }
 
       return { type: 'unsupported' as const }
     },
-    enabled: Boolean(selectedSubmissionQuery.data && selectedSubmissionFileQuery.data),
+    enabled: Boolean(!isStudent && activeSubmissionId && selectedSubmissionAttachment),
   })
   const activeGradeDraft = activeSubmissionId ? gradeDraftBySubmissionId[activeSubmissionId] : undefined
   const gradeForm = {
@@ -618,7 +744,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
   useEffect(() => {
     const preview = submissionPreviewQuery.data
-    if (!preview || preview.type !== 'pdf') {
+    if (!preview || (preview.type !== 'pdf' && preview.type !== 'image')) {
       return undefined
     }
     return () => {
@@ -628,7 +754,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
   if (
     assignmentQuery.isLoading
+    || assignmentAttachmentsQuery.isLoading
     || (isStudent && mySubmissionsQuery.isLoading)
+    || (isStudent && studentSubmissionAttachmentsQuery.isLoading)
     || (!isStudent && (
       submissionsQuery.isLoading
       || availabilityQuery.isLoading
@@ -638,7 +766,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       || submissionStudentsQuery.isLoading
       || groupStudentsQuery.isLoading
       || selectedSubmissionQuery.isLoading
-      || selectedSubmissionFileQuery.isLoading
+      || selectedSubmissionAttachmentsQuery.isLoading
     ))
   ) {
     return <LoadingState />
@@ -646,8 +774,10 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
   if (
     assignmentQuery.isError
+    || assignmentAttachmentsQuery.isError
     || !assignment
     || (isStudent && mySubmissionsQuery.isError)
+    || (isStudent && studentSubmissionAttachmentsQuery.isError)
     || (!isStudent && (
       submissionsQuery.isError
       || availabilityQuery.isError
@@ -657,7 +787,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       || submissionStudentsQuery.isError
       || groupStudentsQuery.isError
       || selectedSubmissionQuery.isError
-      || selectedSubmissionFileQuery.isError
+      || selectedSubmissionAttachmentsQuery.isError
     ))
   ) {
     const assignmentError = normalizeApiError(assignmentQuery.error)
@@ -688,7 +818,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
             ?? mySubmissionsQuery.error
             ?? groupStudentsQuery.error
             ?? selectedSubmissionQuery.error
-            ?? selectedSubmissionFileQuery.error,
+            ?? selectedSubmissionAttachmentsQuery.error
+            ?? studentSubmissionAttachmentsQuery.error
+            ?? assignmentAttachmentsQuery.error,
           t,
         )}
         onRetry={() => {
@@ -722,29 +854,31 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
         <p className="text-sm text-text-secondary">{t('assignments.acceptedFileTypes')}: {(assignment.acceptedFileTypes ?? []).join(', ')}</p>
         {isStudent ? (
           <div className="space-y-4">
+            {canSubmitAssignment ? null : (
+              <div className="rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
+                <p className="text-sm font-semibold text-warning">{t('assignments.submissionClosed')}</p>
+              </div>
+            )}
             <FormField label={t('assignments.uploadSubmission')}>
               <Input type="file" onChange={(event) => setUpload(event.target.files?.[0] ?? null)} />
             </FormField>
-            <Button disabled={!upload || submitMutation.isPending} onClick={() => submitMutation.mutate()}>
+            <Button disabled={!upload || submitMutation.isPending || !canSubmitAssignment} onClick={() => submitMutation.mutate()}>
               {t('assignments.submitAssignment')}
             </Button>
             {(mySubmissionsQuery.data ?? []).length > 0 ? (
-              <div className="space-y-3 rounded-[16px] border border-border bg-surface-muted p-4">
+              <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
                 <PageHeader title={t('assignments.mySubmissions')} />
                 {(mySubmissionsQuery.data ?? []).map((submission) => (
                   <div key={submission.id} className="rounded-[14px] border border-border bg-surface p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="font-semibold text-text-primary">{submission.file?.originalFileName ?? t('assignments.submission')}</p>
+                        <p className="font-semibold text-text-primary">{t('assignments.submission')}</p>
                         <p className="mt-1 text-sm text-text-secondary">{formatDateTime(submission.submittedAt)}</p>
                       </div>
                       <span className={submission.reviewed ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
                         {submission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
                       </span>
                     </div>
-                    <p className="mt-3 text-sm text-text-secondary">
-                      {t('assignments.fileStatus')}: {submission.file?.status ?? t('common.states.unknown')}
-                    </p>
                     {submission.score !== null ? (
                       <p className="mt-2 text-sm font-semibold text-text-primary">
                         {t('common.labels.score')}: {submission.score}/{assignment.maxPoints}
@@ -753,17 +887,209 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                     {submission.feedback ? <p className="mt-2 text-sm text-text-secondary">{submission.feedback}</p> : null}
                   </div>
                 ))}
+                <div className="space-y-3 rounded-[14px] border border-border bg-surface p-4">
+                  <PageHeader title={t('assignments.submissionFiles')} />
+                  {studentSubmissionAttachments.length === 0 ? (
+                    <p className="text-sm text-text-secondary">{t('assignments.noFilesAttached')}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {studentSubmissionAttachments.map((attachment) => (
+                        <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-muted px-3 py-2">
+                          <div>
+                            <p className="text-sm font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
+                            <p className="text-xs text-text-muted">{formatFileSize(attachment.sizeBytes)}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {attachment.previewAvailable ? (
+                              <Button
+                                variant="ghost"
+                                onClick={async () => {
+                                  if (!latestStudentSubmissionId) {
+                                    return
+                                  }
+                                  const blob = await assignmentService.previewSubmissionAttachment(latestStudentSubmissionId, attachment.id)
+                                  openBlobPreview(blob)
+                                }}
+                              >
+                                {t('assignments.previewFile')}
+                              </Button>
+                            ) : null}
+                            <Button
+                              variant="secondary"
+                              onClick={async () => {
+                                if (!latestStudentSubmissionId) {
+                                  return
+                                }
+                                const blob = await assignmentService.downloadSubmissionAttachment(latestStudentSubmissionId, attachment.id)
+                                downloadBlob(blob, attachment.originalFileName)
+                              }}
+                            >
+                              {t('assignments.downloadFile')}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              disabled={!canSubmitAssignment || removeSubmissionAttachmentMutation.isPending}
+                              onClick={() => {
+                                if (window.confirm(t('assignments.removeSubmissionFileWarning'))) {
+                                  removeSubmissionAttachmentMutation.mutate(attachment.id)
+                                }
+                              }}
+                            >
+                              {t('assignments.removeFile')}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <FormField label={t('assignments.fileName')}>
+                    <Input value={submissionAttachmentName} onChange={(event) => setSubmissionAttachmentName(event.target.value)} />
+                  </FormField>
+                  <FormField label={t('assignments.attachFile')}>
+                    <Input
+                      disabled={!canSubmitAssignment}
+                      type="file"
+                      onChange={(event) => setSubmissionAttachmentUpload(event.target.files?.[0] ?? null)}
+                    />
+                  </FormField>
+                  <Button
+                    disabled={!canSubmitAssignment || !latestStudentSubmissionId || !submissionAttachmentUpload || addSubmissionAttachmentMutation.isPending}
+                    onClick={() => addSubmissionAttachmentMutation.mutate()}
+                  >
+                    {t('assignments.attachFile')}
+                  </Button>
+                </div>
               </div>
             ) : null}
           </div>
         ) : (
           <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" onClick={() => publishMutation.mutate()}>
-              {t('common.actions.publish')}
-            </Button>
-            <Button onClick={() => archiveMutation.mutate()}>{t('assignments.archive')}</Button>
+            {assignment.status === 'DRAFT' ? (
+              <Button disabled={publishMutation.isPending} variant="secondary" onClick={() => publishMutation.mutate()}>
+                {t('common.actions.publish')}
+              </Button>
+            ) : null}
+            {assignment.status === 'PUBLISHED' ? (
+              <Button disabled={closeMutation.isPending} variant="secondary" onClick={() => closeMutation.mutate()}>
+                {t('assignments.close')}
+              </Button>
+            ) : null}
+            {assignment.status === 'CLOSED' ? (
+              <Button disabled={reopenMutation.isPending} variant="secondary" onClick={() => reopenMutation.mutate()}>
+                {t('assignments.reopen')}
+              </Button>
+            ) : null}
+            {assignment.status !== 'ARCHIVED' ? (
+              <Button disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate()}>
+                {t('assignments.archive')}
+              </Button>
+            ) : null}
+            {assignment.status === 'ARCHIVED' ? (
+              <>
+                <Button disabled={restoreMutation.isPending} variant="secondary" onClick={() => restoreMutation.mutate()}>
+                  {t('assignments.restore')}
+                </Button>
+                <Button
+                  disabled={deleteMutation.isPending}
+                  variant="ghost"
+                  onClick={() => {
+                    if (window.confirm(t('assignments.deletePermanentConfirm'))) {
+                      deleteMutation.mutate()
+                    }
+                  }}
+                >
+                  {t('assignments.deletePermanently')}
+                </Button>
+              </>
+            ) : null}
           </div>
         )}
+      </Card>
+
+      <Card className="space-y-4">
+        <PageHeader title={t('assignments.taskFiles')} />
+        {assignmentAttachments.length === 0 ? (
+          <EmptyState title={t('assignments.taskFiles')} description={t('assignments.noFilesAttached')} />
+        ) : (
+          <div className="space-y-3">
+            {assignmentAttachments.map((attachment) => (
+              <div key={attachment.id} className="rounded-[14px] border border-border bg-surface-muted px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
+                    <p className="mt-1 text-sm text-text-secondary">{attachment.originalFileName}</p>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {attachment.previewAvailable ? (
+                      <Button
+                        variant="ghost"
+                        onClick={async () => {
+                          const blob = await assignmentService.previewAssignmentAttachment(assignmentId, attachment.id)
+                          openBlobPreview(blob)
+                        }}
+                      >
+                        {t('assignments.previewFile')}
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        const blob = await assignmentService.downloadAssignmentAttachment(assignmentId, attachment.id)
+                        downloadBlob(blob, attachment.originalFileName)
+                      }}
+                    >
+                      {t('assignments.downloadFile')}
+                    </Button>
+                    {canManageAssignmentFiles ? (
+                      <Button
+                        variant="ghost"
+                        disabled={!canEditAssignmentFiles || removeAssignmentAttachmentMutation.isPending}
+                        onClick={() => {
+                          if (
+                            shouldWarnAssignmentAttachmentRemoval
+                            && !window.confirm(t('assignments.removeAssignmentFileWarning'))
+                          ) {
+                            return
+                          }
+                          removeAssignmentAttachmentMutation.mutate(attachment.id)
+                        }}
+                      >
+                        {t('assignments.removeFile')}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {canManageAssignmentFiles ? (
+          <div className="space-y-3 rounded-[14px] border border-border bg-surface-muted p-4">
+            <FormField label={t('assignments.fileName')}>
+              <Input
+                disabled={!canEditAssignmentFiles}
+                value={assignmentAttachmentName}
+                onChange={(event) => setAssignmentAttachmentName(event.target.value)}
+              />
+            </FormField>
+            <FormField label={t('assignments.attachFile')}>
+              <Input
+                disabled={!canEditAssignmentFiles}
+                type="file"
+                onChange={(event) => setAssignmentAttachmentUpload(event.target.files?.[0] ?? null)}
+              />
+            </FormField>
+            <Button
+              disabled={!canEditAssignmentFiles || !assignmentAttachmentUpload || addAssignmentAttachmentMutation.isPending}
+              onClick={() => addAssignmentAttachmentMutation.mutate()}
+            >
+              {t('assignments.attachFile')}
+            </Button>
+          </div>
+        ) : null}
       </Card>
 
       {!isStudent ? (
@@ -824,7 +1150,30 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                     <div className="space-y-2 text-sm text-text-secondary">
                       <p>{t('testing.student')}: {submissionStudentById.get(selectedSubmissionQuery.data.userId)?.username ?? t('education.unknownStudent')}</p>
                       <p>{t('assignments.submittedAt')}: {formatDateTime(selectedSubmissionQuery.data.submittedAt)}</p>
-                      <p>{t('assignments.fileStatus')}: {selectedSubmissionFileQuery.data?.status ?? t('common.states.unknown')}</p>
+                    </div>
+                    <div className="space-y-2 rounded-[14px] border border-border bg-surface p-3">
+                      <p className="text-sm font-semibold text-text-primary">{t('assignments.submissionFiles')}</p>
+                      {selectedSubmissionAttachments.length === 0 ? (
+                        <p className="text-sm text-text-secondary">{t('assignments.noFilesAttached')}</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {selectedSubmissionAttachments.map((attachment) => (
+                            <button
+                              key={attachment.id}
+                              className={`w-full rounded-[12px] border px-3 py-2 text-left ${
+                                selectedSubmissionAttachment?.id === attachment.id
+                                  ? 'border-accent bg-accent/5'
+                                  : 'border-border bg-surface-muted'
+                              }`}
+                              type="button"
+                              onClick={() => setSelectedSubmissionAttachmentId(attachment.id)}
+                            >
+                              <p className="text-sm font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
+                              <p className="text-xs text-text-muted">{formatFileSize(attachment.sizeBytes)}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2 rounded-[14px] border border-border bg-surface p-3">
                       <p className="text-sm font-semibold text-text-primary">{t('assignments.filePreview')}</p>
@@ -832,13 +1181,19 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                       {submissionPreviewQuery.data?.type === 'pdf' ? (
                         <iframe className="h-[480px] w-full rounded-[10px] border border-border" src={submissionPreviewQuery.data.url} title={t('assignments.filePreview')} />
                       ) : null}
+                      {submissionPreviewQuery.data?.type === 'image' ? (
+                        <img className="max-h-[520px] w-full rounded-[10px] border border-border object-contain" src={submissionPreviewQuery.data.url} alt={t('assignments.filePreview')} />
+                      ) : null}
                       {submissionPreviewQuery.data?.type === 'docx' ? (
                         <div
                           className="prose max-w-none rounded-[10px] border border-border bg-surface-muted p-4 text-sm text-text-primary"
                           dangerouslySetInnerHTML={{ __html: submissionPreviewQuery.data.html }}
                         />
                       ) : null}
-                      {!submissionPreviewQuery.isLoading && submissionPreviewQuery.data?.type !== 'pdf' && submissionPreviewQuery.data?.type !== 'docx' ? (
+                      {!submissionPreviewQuery.isLoading
+                      && submissionPreviewQuery.data?.type !== 'pdf'
+                      && submissionPreviewQuery.data?.type !== 'docx'
+                      && submissionPreviewQuery.data?.type !== 'image' ? (
                         <p className="text-sm text-text-secondary">
                           {submissionPreviewQuery.isError ? t('common.states.error') : t('assignments.previewUnavailable')}
                         </p>
@@ -846,15 +1201,17 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                     </div>
                     <div className="flex flex-wrap gap-3">
                       <Button
+                        disabled={!selectedSubmissionAttachment}
                         variant="secondary"
                         onClick={async () => {
-                          const fileBlob = await fileService.downloadFile(selectedSubmissionQuery.data.fileId)
-                          const downloadUrl = URL.createObjectURL(fileBlob)
-                          const link = document.createElement('a')
-                          link.href = downloadUrl
-                          link.download = selectedSubmissionFileQuery.data?.originalFileName ?? 'submission'
-                          link.click()
-                          URL.revokeObjectURL(downloadUrl)
+                          if (!selectedSubmissionAttachment) {
+                            return
+                          }
+                          const fileBlob = await assignmentService.downloadSubmissionAttachment(
+                            selectedSubmissionQuery.data.id,
+                            selectedSubmissionAttachment.id,
+                          )
+                          downloadBlob(fileBlob, selectedSubmissionAttachment.originalFileName)
                         }}
                       >
                         {t('assignments.downloadFile')}
@@ -913,4 +1270,25 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       ) : null}
     </div>
   )
+}
+
+function openBlobPreview(blob: Blob) {
+  const previewUrl = URL.createObjectURL(blob)
+  window.open(previewUrl, '_blank', 'noopener,noreferrer')
+  window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000)
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return '0 B'
+  }
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = sizeBytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  const precision = unitIndex === 0 ? 0 : value >= 10 ? 1 : 2
+  return `${value.toFixed(precision)} ${units[unitIndex]}`
 }

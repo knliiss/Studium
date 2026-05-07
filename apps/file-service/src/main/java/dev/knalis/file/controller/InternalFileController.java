@@ -8,6 +8,11 @@ import dev.knalis.file.service.InternalRequestGuard;
 import dev.knalis.file.service.StoredFileService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @RestController
@@ -57,5 +63,66 @@ public class InternalFileController {
         internalRequestGuard.verify(sharedSecret);
         fileCleanupService.cleanupNow();
         return ResponseEntity.accepted().build();
+    }
+
+    @GetMapping("/{fileId}/metadata")
+    public StoredFileResponse getMetadata(
+            @PathVariable UUID fileId,
+            @RequestHeader(INTERNAL_SECRET_HEADER) String sharedSecret
+    ) {
+        internalRequestGuard.verify(sharedSecret);
+        return storedFileService.getMetadataInternal(fileId);
+    }
+
+    @GetMapping("/{fileId}/download")
+    public ResponseEntity<InputStreamResource> download(
+            @PathVariable UUID fileId,
+            @RequestHeader(INTERNAL_SECRET_HEADER) String sharedSecret
+    ) {
+        internalRequestGuard.verify(sharedSecret);
+        StoredFileService.FileDownload fileDownload = storedFileService.downloadInternal(fileId);
+        MediaType mediaType = MediaType.parseMediaType(
+                fileDownload.metadata().getContentType() != null
+                        ? fileDownload.metadata().getContentType()
+                        : MediaType.APPLICATION_OCTET_STREAM_VALUE
+        );
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(mediaType)
+                .contentLength(fileDownload.storageObject().sizeBytes())
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename(fileDownload.metadata().getOriginalFileName(), StandardCharsets.UTF_8)
+                                .build()
+                                .toString()
+                )
+                .body(new InputStreamResource(fileDownload.storageObject().stream()));
+    }
+
+    @GetMapping("/{fileId}/preview")
+    public ResponseEntity<InputStreamResource> preview(
+            @PathVariable UUID fileId,
+            @RequestHeader(INTERNAL_SECRET_HEADER) String sharedSecret
+    ) {
+        internalRequestGuard.verify(sharedSecret);
+        StoredFileService.FileDownload fileDownload = storedFileService.previewInternal(fileId);
+        MediaType mediaType = MediaType.parseMediaType(
+                fileDownload.metadata().getContentType() != null
+                        ? fileDownload.metadata().getContentType()
+                        : MediaType.APPLICATION_OCTET_STREAM_VALUE
+        );
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(mediaType)
+                .contentLength(fileDownload.storageObject().sizeBytes())
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline()
+                                .filename(fileDownload.metadata().getOriginalFileName(), StandardCharsets.UTF_8)
+                                .build()
+                                .toString()
+                )
+                .body(new InputStreamResource(fileDownload.storageObject().stream()));
     }
 }

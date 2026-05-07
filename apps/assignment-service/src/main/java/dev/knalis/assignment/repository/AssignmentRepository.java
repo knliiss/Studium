@@ -39,7 +39,7 @@ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
             select assignment
             from Assignment assignment
             where assignment.topicId = :topicId
-              and assignment.status = :status
+              and assignment.status in :statuses
               and exists (
                   select availability.id
                   from AssignmentGroupAvailability availability
@@ -51,7 +51,7 @@ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
             """)
     Page<Assignment> findAvailableByTopicIdForGroups(
             UUID topicId,
-            AssignmentStatus status,
+            Collection<AssignmentStatus> statuses,
             Collection<UUID> groupIds,
             Instant now,
             Pageable pageable
@@ -61,7 +61,7 @@ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
             select distinct assignment
             from Assignment assignment
             where assignment.topicId in :topicIds
-              and assignment.status = :status
+              and assignment.status in :statuses
               and exists (
                   select availability.id
                   from AssignmentGroupAvailability availability
@@ -73,7 +73,7 @@ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
             """)
     List<Assignment> findAvailableByTopicIdInForGroups(
             Collection<UUID> topicIds,
-            AssignmentStatus status,
+            Collection<AssignmentStatus> statuses,
             Collection<UUID> groupIds,
             Instant now
     );
@@ -82,13 +82,13 @@ public interface AssignmentRepository extends JpaRepository<Assignment, UUID> {
             select assignment
             from Assignment assignment
             where assignment.topicId = :topicId
-              and (assignment.status = :publishedStatus
+              and (assignment.status in :visibleStatuses
                    or assignment.createdByUserId = :teacherId)
             """)
     Page<Assignment> findVisibleByTopicIdForTeacher(
             UUID topicId,
             UUID teacherId,
-            @Param("publishedStatus") AssignmentStatus publishedStatus,
+            @Param("visibleStatuses") Collection<AssignmentStatus> visibleStatuses,
             Pageable pageable
     );
 

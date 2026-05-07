@@ -39,6 +39,7 @@ import type {
   AssignmentResponse,
   DashboardAssignmentItemResponse,
   DashboardTestItemResponse,
+  LectureResponse,
   TestResponse,
   TopicResponse,
   UserSummaryResponse,
@@ -60,6 +61,7 @@ import { StatusBadge } from '@/widgets/common/StatusBadge'
 type BuilderState =
   | { mode: 'topic' }
   | { mode: 'assignment'; topicId: string }
+  | { mode: 'lecture'; topicId: string }
   | { mode: 'test'; topicId: string }
 
 type CourseItem =
@@ -77,7 +79,7 @@ type CourseItem =
     }
   | {
       id: string
-      kind: 'assignment' | 'test'
+      kind: 'assignment' | 'lecture' | 'test'
       title: string
       description: string | null
       label: string
@@ -121,6 +123,10 @@ export function SubjectDetailPage() {
     allowResubmit: true,
     acceptedFileTypes: 'application/pdf,image/png,image/jpeg',
     maxFileSizeMb: 10,
+  })
+  const [lectureForm, setLectureForm] = useState({
+    title: '',
+    content: '',
   })
   const [testForm, setTestForm] = useState({
     title: '',
@@ -181,6 +187,23 @@ export function SubjectDetailPage() {
       const topics = topicsQuery.data?.items ?? []
       const pages = await Promise.all(
         topics.map((topic) => testingService.getTestsByTopic(topic.id, {
+          page: 0,
+          size: 50,
+          sortBy: 'orderIndex',
+          direction: 'asc',
+        })),
+      )
+
+      return pages.flatMap((page) => page.items)
+    },
+    enabled: Boolean(topicsQuery.data),
+  })
+  const lecturesQuery = useQuery({
+    queryKey: ['education', 'subject-lectures', subjectId],
+    queryFn: async () => {
+      const topics = topicsQuery.data?.items ?? []
+      const pages = await Promise.all(
+        topics.map((topic) => educationService.getLecturesByTopic(topic.id, {
           page: 0,
           size: 50,
           sortBy: 'orderIndex',
@@ -310,7 +333,12 @@ export function SubjectDetailPage() {
         topicId: builder.topicId,
         deadline: new Date(assignmentForm.deadline).toISOString(),
         acceptedFileTypes: assignmentForm.acceptedFileTypes.split(',').map((value) => value.trim()).filter(Boolean),
-        orderIndex: nextCourseItemOrderIndex(builder.topicId, assignmentsQuery.data ?? [], testsQuery.data ?? []),
+        orderIndex: nextCourseItemOrderIndex(
+          builder.topicId,
+          assignmentsQuery.data ?? [],
+          testsQuery.data ?? [],
+          lecturesQuery.data ?? [],
+        ),
       })
     },
     onSuccess: async () => {
@@ -326,6 +354,31 @@ export function SubjectDetailPage() {
       setOpenAddMenu(null)
     },
   })
+  const createLectureMutation = useMutation({
+    mutationFn: () => {
+      if (!builder || builder.mode !== 'lecture') {
+        throw new Error('missing-builder-context')
+      }
+
+      return educationService.createLecture(subjectId, builder.topicId, {
+        title: lectureForm.title.trim(),
+        content: lectureForm.content.trim() || undefined,
+        orderIndex: nextCourseItemOrderIndex(
+          builder.topicId,
+          assignmentsQuery.data ?? [],
+          testsQuery.data ?? [],
+          lecturesQuery.data ?? [],
+        ),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['education', 'subject-lectures', subjectId] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setLectureForm({ title: '', content: '' })
+      setBuilder(null)
+      setOpenAddMenu(null)
+    },
+  })
   const createTestMutation = useMutation({
     mutationFn: () => {
       if (!builder || builder.mode !== 'test') {
@@ -337,7 +390,12 @@ export function SubjectDetailPage() {
         topicId: builder.topicId,
         availableFrom: testForm.availableFrom ? new Date(testForm.availableFrom).toISOString() : null,
         availableUntil: testForm.availableUntil ? new Date(testForm.availableUntil).toISOString() : null,
-        orderIndex: nextCourseItemOrderIndex(builder.topicId, assignmentsQuery.data ?? [], testsQuery.data ?? []),
+        orderIndex: nextCourseItemOrderIndex(
+          builder.topicId,
+          assignmentsQuery.data ?? [],
+          testsQuery.data ?? [],
+          lecturesQuery.data ?? [],
+        ),
       })
     },
     onSuccess: async () => {
@@ -364,12 +422,18 @@ export function SubjectDetailPage() {
     },
   })
   const updateSubjectMutation = useMutation({
-    mutationFn: () => educationService.updateSubject(subjectId, {
-      name: settingsForm.name.trim(),
-      description: settingsForm.description.trim(),
-      groupIds: settingsForm.selectedGroupIds,
-      teacherIds: settingsForm.selectedTeacherIds,
-    }),
+    mutationFn: async () => {
+      await educationService.updateSubject(subjectId, {
+        name: settingsForm.name.trim(),
+        description: settingsForm.description.trim(),
+      })
+      await educationService.updateSubjectGroups(subjectId, {
+        groupIds: settingsForm.selectedGroupIds,
+      })
+      await educationService.updateSubjectTeachers(subjectId, {
+        teacherIds: settingsForm.selectedTeacherIds,
+      })
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['education', 'subject', subjectId] }),
@@ -384,6 +448,7 @@ export function SubjectDetailPage() {
     || topicsQuery.isLoading
     || assignmentsQuery.isLoading
     || testsQuery.isLoading
+    || lecturesQuery.isLoading
     || groupsQuery.isLoading
   ) {
     return <LoadingState />
@@ -394,6 +459,7 @@ export function SubjectDetailPage() {
     || topicsQuery.isError
     || assignmentsQuery.isError
     || testsQuery.isError
+    || lecturesQuery.isError
     || groupsQuery.isError
   ) {
     if (
@@ -401,6 +467,7 @@ export function SubjectDetailPage() {
       || isAccessDeniedApiError(topicsQuery.error)
       || isAccessDeniedApiError(assignmentsQuery.error)
       || isAccessDeniedApiError(testsQuery.error)
+      || isAccessDeniedApiError(lecturesQuery.error)
     ) {
       return <AccessDeniedPage />
     }
@@ -416,6 +483,7 @@ export function SubjectDetailPage() {
 
   const topics = (topicsQuery.data?.items ?? []).slice().sort((left, right) => left.orderIndex - right.orderIndex)
   const assignments = assignmentsQuery.data ?? []
+  const lectures = lecturesQuery.data ?? []
   const tests = testsQuery.data ?? []
   const isAssignedTeacher = primaryRole === 'TEACHER' && currentSubject.teacherIds.includes(currentUserId)
   const canManageContent = isAdmin || isAssignedTeacher
@@ -458,6 +526,7 @@ export function SubjectDetailPage() {
   for (const topic of topics) {
     orderedItemsByTopicId.set(topic.id, buildTopicItems({
       assignments,
+      lectures,
       pendingReviewByAssignmentId: teacherPendingReviewByAssignmentId,
       studentAvailableTests,
       studentPendingAssignments,
@@ -492,7 +561,7 @@ export function SubjectDetailPage() {
   const settingsTeacherItems: CardPickerItem[] = (teacherOptionsQuery.data?.content ?? []).map((teacher) => ({
     id: teacher.id,
     title: teacher.displayName?.trim() || teacher.username,
-    description: teacher.email,
+    description: teacher.email ?? undefined,
     meta: t('education.teacherLabel'),
     leading: <GraduationCap className="h-5 w-5 text-accent" />,
   }))
@@ -504,6 +573,11 @@ export function SubjectDetailPage() {
 
   function openAssignmentBuilder(topicId: string) {
     setBuilder({ mode: 'assignment', topicId })
+    setOpenAddMenu(topicId)
+  }
+
+  function openLectureBuilder(topicId: string) {
+    setBuilder({ mode: 'lecture', topicId })
     setOpenAddMenu(topicId)
   }
 
@@ -532,6 +606,8 @@ export function SubjectDetailPage() {
 
     if (item.kind === 'assignment') {
       await assignmentService.moveAssignment(item.id, { topicId, orderIndex })
+    } else if (item.kind === 'lecture') {
+      await educationService.moveLecture(item.id, { topicId, orderIndex })
     } else {
       await testingService.moveTest(item.id, { topicId, orderIndex })
     }
@@ -552,6 +628,7 @@ export function SubjectDetailPage() {
     ])
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-assignments', subjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['education', 'subject-lectures', subjectId] }),
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-tests', subjectId] }),
     ])
   }
@@ -561,9 +638,10 @@ export function SubjectDetailPage() {
       return
     }
 
-    await moveCourseItem(item, topicId, nextCourseItemOrderIndex(topicId, assignments, tests))
+    await moveCourseItem(item, topicId, nextCourseItemOrderIndex(topicId, assignments, tests, lectures))
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-assignments', subjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['education', 'subject-lectures', subjectId] }),
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-tests', subjectId] }),
     ])
   }
@@ -722,6 +800,7 @@ export function SubjectDetailPage() {
                     )}
                     description={t('education.topicWorkloadSummary', {
                       assignments: assignments.filter((assignment) => assignment.topicId === topic.id).length,
+                      lectures: lectures.filter((lecture) => lecture.topicId === topic.id).length,
                       tests: tests.filter((test) => test.topicId === topic.id).length,
                     })}
                     emptyLabel={canManageContent ? t('education.emptyTopicTeacher') : t('education.noContentAvailable')}
@@ -733,6 +812,7 @@ export function SubjectDetailPage() {
                       <AddContentPanel
                         title={t('education.addContent')}
                         onAddAssignment={() => openAssignmentBuilder(topic.id)}
+                        onAddLecture={() => openLectureBuilder(topic.id)}
                         onAddTest={() => openTestBuilder(topic.id)}
                       />
                     ) : null}
@@ -774,6 +854,40 @@ export function SubjectDetailPage() {
                         </div>
                         {!assignmentForm.title.trim() || !assignmentForm.deadline ? (
                           <p className="text-sm text-text-secondary">{t('courseBuilder.assignmentRequired')}</p>
+                        ) : null}
+                      </BuilderPanel>
+                    ) : null}
+
+                    {builder?.mode === 'lecture' && builder.topicId === topic.id ? (
+                      <BuilderPanel
+                        title={t('education.createLecture')}
+                        onCancel={() => setBuilder(null)}
+                      >
+                        <FormField label={t('common.labels.title')}>
+                          <Input
+                            value={lectureForm.title}
+                            onChange={(event) => setLectureForm((current) => ({ ...current, title: event.target.value }))}
+                          />
+                        </FormField>
+                        <FormField label={t('common.labels.description')}>
+                          <Textarea
+                            value={lectureForm.content}
+                            onChange={(event) => setLectureForm((current) => ({ ...current, content: event.target.value }))}
+                          />
+                        </FormField>
+                        <div className="flex flex-wrap gap-3">
+                          <Button
+                            disabled={!lectureForm.title.trim() || createLectureMutation.isPending}
+                            onClick={() => createLectureMutation.mutate()}
+                          >
+                            {t('common.actions.create')}
+                          </Button>
+                          <Button variant="secondary" onClick={() => setBuilder(null)}>
+                            {t('common.actions.cancel')}
+                          </Button>
+                        </div>
+                        {!lectureForm.title.trim() ? (
+                          <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
                         ) : null}
                       </BuilderPanel>
                     ) : null}
@@ -1149,7 +1263,9 @@ function CourseItemCard({
     ? ClipboardCheck
     : item.kind === 'test'
       ? TestTube2
-      : BookText
+      : item.kind === 'lecture'
+        ? FileText
+        : BookText
 
   return (
     <div className="rounded-[16px] border border-border bg-surface-muted p-4">
@@ -1219,12 +1335,14 @@ function BuilderPanel({
 function AddContentPanel({
   allowSection,
   onAddAssignment,
+  onAddLecture,
   onAddSection,
   onAddTest,
   title,
 }: {
   allowSection?: boolean
   onAddAssignment?: () => void
+  onAddLecture?: () => void
   onAddSection?: () => void
   onAddTest?: () => void
   title: string
@@ -1260,8 +1378,15 @@ function AddContentPanel({
         ) : (
           <DisabledContentAction icon={<TestTube2 className="h-4 w-4" />} label={t('education.contentType.test')} />
         )}
+        {onAddLecture ? (
+          <Button variant="secondary" onClick={onAddLecture}>
+            <FileText className="mr-2 h-4 w-4" />
+            {t('education.contentType.lecture')}
+          </Button>
+        ) : (
+          <DisabledContentAction icon={<FileText className="h-4 w-4" />} label={t('education.contentType.lecture')} />
+        )}
         <DisabledContentAction icon={<BookText className="h-4 w-4" />} label={t('education.contentType.textBlock')} />
-        <DisabledContentAction icon={<FileText className="h-4 w-4" />} label={t('education.contentType.lecture')} />
         <DisabledContentAction icon={<FileText className="h-4 w-4" />} label={t('education.contentType.material')} />
         <DisabledContentAction icon={<Link2 className="h-4 w-4" />} label={t('education.contentType.link')} />
       </div>
@@ -1302,6 +1427,7 @@ function SidebarLine({
 
 function buildTopicItems({
   assignments,
+  lectures,
   pendingReviewByAssignmentId,
   studentAvailableTests,
   studentPendingAssignments,
@@ -1310,6 +1436,7 @@ function buildTopicItems({
   topicId,
 }: {
   assignments: AssignmentResponse[]
+  lectures: LectureResponse[]
   pendingReviewByAssignmentId: Map<string, number>
   studentAvailableTests: Map<string, DashboardTestItemResponse>
   studentPendingAssignments: Map<string, DashboardAssignmentItemResponse>
@@ -1363,12 +1490,36 @@ function buildTopicItems({
         topicId,
       }
     })
+  const lectureItems: CourseItem[] = lectures
+    .filter((lecture) => lecture.topicId === topicId)
+    .map((lecture) => {
+      return {
+        id: lecture.id,
+        kind: 'lecture',
+        title: lecture.title,
+        description: lecture.content ?? null,
+        label: t('education.contentType.lecture'),
+        meta: [
+          `${t('education.updatedLabel')}: ${formatDateTime(lecture.updatedAt)}`,
+        ],
+        orderIndex: lecture.orderIndex,
+        status: lecture.status,
+        to: `/lectures/${lecture.id}`,
+        topicId,
+      }
+    })
 
-  return [...assignmentItems, ...testItems].sort((left, right) => left.orderIndex - right.orderIndex)
+  return [...assignmentItems, ...lectureItems, ...testItems].sort((left, right) => left.orderIndex - right.orderIndex)
 }
 
-function nextCourseItemOrderIndex(topicId: string, assignments: AssignmentResponse[], tests: TestResponse[]) {
+function nextCourseItemOrderIndex(
+  topicId: string,
+  assignments: AssignmentResponse[],
+  tests: TestResponse[],
+  lectures: LectureResponse[],
+) {
   return assignments.filter((assignment) => assignment.topicId === topicId).length
+    + lectures.filter((lecture) => lecture.topicId === topicId).length
     + tests.filter((test) => test.topicId === topicId).length
 }
 

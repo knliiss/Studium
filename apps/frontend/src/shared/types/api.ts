@@ -140,6 +140,32 @@ export interface TopicResponse {
   updatedAt: string
 }
 
+export interface LectureResponse {
+  id: string
+  subjectId: string
+  topicId: string
+  title: string
+  content: string | null
+  status: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED'
+  orderIndex: number
+  createdByUserId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LectureAttachmentResponse {
+  id: string
+  lectureId: string
+  fileId: string
+  displayName: string | null
+  originalFileName: string
+  contentType: string | null
+  sizeBytes: number
+  previewAvailable: boolean
+  uploadedByUserId: string | null
+  createdAt: string
+}
+
 export interface AcademicSemesterResponse {
   id: string
   name: string
@@ -264,7 +290,7 @@ export interface AssignmentResponse {
   description: string | null
   deadline: string
   orderIndex: number
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+  status: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED'
   allowLateSubmissions: boolean
   maxSubmissions: number
   allowResubmit: boolean
@@ -289,12 +315,38 @@ export interface AssignmentGroupAvailabilityResponse {
   updatedAt: string
 }
 
+export interface AssignmentAttachmentResponse {
+  id: string
+  assignmentId: string
+  fileId: string
+  displayName: string | null
+  originalFileName: string
+  contentType: string | null
+  sizeBytes: number
+  previewAvailable: boolean
+  uploadedByUserId: string
+  createdAt: string
+}
+
 export interface SubmissionFileResponse {
   id: string
   originalFileName: string
   contentType: string | null
   sizeBytes: number
   status: string
+}
+
+export interface SubmissionAttachmentResponse {
+  id: string
+  submissionId: string
+  fileId: string
+  displayName: string | null
+  originalFileName: string
+  contentType: string | null
+  sizeBytes: number
+  previewAvailable: boolean
+  uploadedByUserId: string
+  createdAt: string
 }
 
 export interface SubmissionResponse {
@@ -748,7 +800,7 @@ export interface AdminUserResponse {
 export interface UserSummaryResponse {
   id: string
   username: string
-  email: string
+  email: string | null
   roles: Role[]
 }
 

@@ -11,6 +11,8 @@ public interface SubjectGroupRepository extends JpaRepository<SubjectGroup, UUID
 
     boolean existsBySubjectIdAndGroupId(UUID subjectId, UUID groupId);
 
+    List<SubjectGroup> findAllBySubjectId(UUID subjectId);
+
     List<SubjectGroup> findAllBySubjectIdOrderByCreatedAtAsc(UUID subjectId);
 
     List<SubjectGroup> findAllByGroupIdOrderByCreatedAtAsc(UUID groupId);

@@ -1,15 +1,19 @@
 package dev.knalis.assignment.controller;
 
 import dev.knalis.assignment.dto.request.CreateSubmissionRequest;
+import dev.knalis.assignment.dto.request.CreateSubmissionAttachmentRequest;
 import dev.knalis.assignment.dto.request.UpsertSubmissionCommentRequest;
+import dev.knalis.assignment.dto.response.SubmissionAttachmentResponse;
 import dev.knalis.assignment.dto.response.SubmissionCommentResponse;
 import dev.knalis.assignment.dto.response.SubmissionPageResponse;
 import dev.knalis.assignment.dto.response.SubmissionResponse;
+import dev.knalis.assignment.service.attachment.SubmissionAttachmentService;
 import dev.knalis.assignment.service.comment.SubmissionCommentService;
 import dev.knalis.assignment.service.submission.SubmissionService;
 import dev.knalis.shared.security.user.CurrentUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -32,6 +36,7 @@ import java.util.UUID;
 public class SubmissionController {
     
     private final SubmissionService submissionService;
+    private final SubmissionAttachmentService submissionAttachmentService;
     private final SubmissionCommentService submissionCommentService;
     private final CurrentUserService currentUserService;
     
@@ -158,6 +163,87 @@ public class SubmissionController {
                 isTeacher(authentication),
                 submissionId,
                 commentId
+        );
+    }
+
+    @GetMapping("/{submissionId}/attachments")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public List<SubmissionAttachmentResponse> listAttachments(
+            Authentication authentication,
+            @PathVariable UUID submissionId
+    ) {
+        return submissionAttachmentService.listAttachments(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId
+        );
+    }
+
+    @PostMapping("/{submissionId}/attachments")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public SubmissionAttachmentResponse addAttachment(
+            Authentication authentication,
+            @PathVariable UUID submissionId,
+            @Valid @RequestBody CreateSubmissionAttachmentRequest request
+    ) {
+        return submissionAttachmentService.addAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                currentUserService.getCurrentTokenValue(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId,
+                request
+        );
+    }
+
+    @DeleteMapping("/{submissionId}/attachments/{attachmentId}")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public void removeAttachment(
+            Authentication authentication,
+            @PathVariable UUID submissionId,
+            @PathVariable UUID attachmentId
+    ) {
+        submissionAttachmentService.removeAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId,
+                attachmentId
+        );
+    }
+
+    @GetMapping("/{submissionId}/attachments/{attachmentId}/download")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public ResponseEntity<byte[]> downloadAttachment(
+            Authentication authentication,
+            @PathVariable UUID submissionId,
+            @PathVariable UUID attachmentId
+    ) {
+        return submissionAttachmentService.downloadAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId,
+                attachmentId,
+                false
+        );
+    }
+
+    @GetMapping("/{submissionId}/attachments/{attachmentId}/preview")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public ResponseEntity<byte[]> previewAttachment(
+            Authentication authentication,
+            @PathVariable UUID submissionId,
+            @PathVariable UUID attachmentId
+    ) {
+        return submissionAttachmentService.downloadAttachment(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId,
+                attachmentId,
+                true
         );
     }
 

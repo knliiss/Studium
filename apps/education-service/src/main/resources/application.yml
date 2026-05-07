@@ -85,3 +85,8 @@ app:
       connect-timeout: ${EDUCATION_AUDIT_SERVICE_CONNECT_TIMEOUT:2s}
       read-timeout: ${EDUCATION_AUDIT_SERVICE_READ_TIMEOUT:5s}
       shared-secret: ${AUDIT_INTERNAL_SHARED_SECRET}
+    file-service:
+      base-url: ${EDUCATION_FILE_SERVICE_BASE_URL:http://localhost:8083}
+      connect-timeout: ${EDUCATION_FILE_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${EDUCATION_FILE_SERVICE_READ_TIMEOUT:10s}
+      shared-secret: ${FILE_INTERNAL_SHARED_SECRET}

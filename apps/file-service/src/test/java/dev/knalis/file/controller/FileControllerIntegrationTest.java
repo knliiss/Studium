@@ -133,19 +133,33 @@ class FileControllerIntegrationTest {
     }
     
     @Test
-    void privateFileIsHiddenFromAnotherUser() throws Exception {
+    void privateAttachmentFileIsHiddenFromAnotherUserAndCannotBypassLectureSecurityViaRawFileId() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID anotherUserId = UUID.randomUUID();
-        uploadAvatar(ownerId, "secret.png");
+        String requestId = "lecture-raw-file-denied";
+        uploadAttachment(ownerId, "lecture-secret.txt");
         StoredFile storedFile = latestStoredFile();
-        
-        mockMvc.perform(get("/api/files/{fileId}", storedFile.getId())
-                        .with(jwtFor(anotherUserId, "intruder")))
-                .andExpect(status().isNotFound());
-        
-        mockMvc.perform(get("/api/files/{fileId}/download", storedFile.getId())
-                        .with(jwtFor(anotherUserId, "intruder")))
-                .andExpect(status().isNotFound());
+        assertRawFileAccessDenied(storedFile.getId(), anotherUserId, requestId);
+    }
+
+    @Test
+    void privateAttachmentFileIsHiddenFromAnotherUserAndCannotBypassAssignmentSecurityViaRawFileId() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+        String requestId = "assignment-raw-file-denied";
+        uploadAttachment(ownerId, "assignment-secret.txt");
+        StoredFile storedFile = latestStoredFile();
+        assertRawFileAccessDenied(storedFile.getId(), anotherUserId, requestId);
+    }
+
+    @Test
+    void privateAttachmentFileIsHiddenFromAnotherUserAndCannotBypassSubmissionSecurityViaRawFileId() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID anotherUserId = UUID.randomUUID();
+        String requestId = "submission-raw-file-denied";
+        uploadAttachment(ownerId, "submission-secret.txt");
+        StoredFile storedFile = latestStoredFile();
+        assertRawFileAccessDenied(storedFile.getId(), anotherUserId, requestId);
     }
     
     @Test
@@ -214,6 +228,43 @@ class FileControllerIntegrationTest {
                         .param("fileKind", "AVATAR")
                         .with(jwtFor(ownerId, "owner")))
                 .andExpect(status().isOk());
+    }
+
+    private void uploadAttachment(UUID ownerId, String filename) throws Exception {
+        mockMvc.perform(multipart("/api/files")
+                        .file(new MockMultipartFile(
+                                "file",
+                                filename,
+                                MediaType.TEXT_PLAIN_VALUE,
+                                "attachment".getBytes()
+                        ))
+                        .param("fileKind", "ATTACHMENT")
+                        .with(jwtFor(ownerId, "owner")))
+                .andExpect(status().isOk());
+    }
+
+    private void assertRawFileAccessDenied(UUID fileId, UUID userId, String requestId) throws Exception {
+        mockMvc.perform(get("/api/files/{fileId}", fileId)
+                        .header("X-Request-Id", requestId)
+                        .with(jwtFor(userId, "intruder")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("FILE_NOT_FOUND"))
+                .andExpect(jsonPath("$.requestId").value(requestId))
+                .andExpect(jsonPath("$.details.ownerId").doesNotExist());
+
+        mockMvc.perform(get("/api/files/{fileId}/download", fileId)
+                        .header("X-Request-Id", requestId)
+                        .with(jwtFor(userId, "intruder")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("FILE_NOT_FOUND"))
+                .andExpect(jsonPath("$.requestId").value(requestId));
+
+        mockMvc.perform(get("/api/files/{fileId}/preview", fileId)
+                        .header("X-Request-Id", requestId)
+                        .with(jwtFor(userId, "intruder")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("FILE_NOT_FOUND"))
+                .andExpect(jsonPath("$.requestId").value(requestId));
     }
     
     private StoredFile latestStoredFile() {

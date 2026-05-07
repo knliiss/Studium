@@ -33,13 +33,13 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
             select test
             from Test test
             where test.topicId = :topicId
-              and (test.status = :publishedStatus
+              and (test.status in :visibleStatuses
                    or test.createdByUserId = :teacherId)
             """)
     Page<Test> findVisibleByTopicIdForTeacher(
             @Param("topicId") UUID topicId,
             @Param("teacherId") UUID teacherId,
-            @Param("publishedStatus") TestStatus publishedStatus,
+            @Param("visibleStatuses") Collection<TestStatus> visibleStatuses,
             Pageable pageable
     );
 
@@ -49,7 +49,7 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
             select test
             from Test test
             where test.topicId = :topicId
-              and test.status = :status
+              and test.status in :statuses
               and exists (
                   select availability.id
                   from TestGroupAvailability availability
@@ -57,12 +57,11 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
                     and availability.groupId in :groupIds
                     and availability.visible = true
                     and (availability.availableFrom is null or availability.availableFrom <= :now)
-                    and (availability.availableUntil is null or availability.availableUntil >= :now)
               )
             """)
     Page<Test> findAvailableByTopicIdForGroups(
             @Param("topicId") UUID topicId,
-            @Param("status") TestStatus status,
+            @Param("statuses") Collection<TestStatus> statuses,
             @Param("groupIds") Collection<UUID> groupIds,
             @Param("now") Instant now,
             Pageable pageable
@@ -72,7 +71,7 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
             select distinct test
             from Test test
             where test.topicId in :topicIds
-              and test.status = :status
+              and test.status in :statuses
               and exists (
                   select availability.id
                   from TestGroupAvailability availability
@@ -80,12 +79,11 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
                     and availability.groupId in :groupIds
                     and availability.visible = true
                     and (availability.availableFrom is null or availability.availableFrom <= :now)
-                    and (availability.availableUntil is null or availability.availableUntil >= :now)
               )
             """)
     List<Test> findAvailableByTopicIdInForGroups(
             @Param("topicIds") Collection<UUID> topicIds,
-            @Param("status") TestStatus status,
+            @Param("statuses") Collection<TestStatus> statuses,
             @Param("groupIds") Collection<UUID> groupIds,
             @Param("now") Instant now
     );

@@ -277,9 +277,43 @@ public class StoredFileService {
         meterRegistry.counter("app.file.cleanup.deleted", "status", storedFile.getStatus().name()).increment();
     }
     
-    private StoredFile requireAccessibleFile(UUID requesterId, UUID fileId) {
-        StoredFile storedFile = storedFileRepository.findByIdAndDeletedFalse(fileId)
+    @Transactional(readOnly = true)
+    public StoredFileResponse getMetadataInternal(UUID fileId) {
+        return storedFileMapper.toResponse(requireExistingFile(fileId));
+    }
+
+    @Transactional
+    public FileDownload downloadInternal(UUID fileId) {
+        StoredFile storedFile = requireExistingFile(fileId);
+        assertDownloadAllowed(storedFile);
+        storedFile.setLastAccessedAt(Instant.now());
+        StoredFile saved = storedFileRepository.save(storedFile);
+        FileStorageObject storageObject = fileStorageService.download(saved.getBucketName(), saved.getObjectKey());
+        meterRegistry.counter("app.file.download.completed", "kind", saved.getFileKind().name()).increment();
+        return new FileDownload(saved, storageObject);
+    }
+
+    @Transactional
+    public FileDownload previewInternal(UUID fileId) {
+        StoredFile storedFile = requireExistingFile(fileId);
+        assertDownloadAllowed(storedFile);
+        if (!isPreviewAvailable(storedFile.getContentType())) {
+            throw new FilePreviewNotAvailableException(fileId);
+        }
+        storedFile.setLastAccessedAt(Instant.now());
+        StoredFile saved = storedFileRepository.save(storedFile);
+        FileStorageObject storageObject = fileStorageService.download(saved.getBucketName(), saved.getObjectKey());
+        meterRegistry.counter("app.file.preview.completed", "kind", saved.getFileKind().name()).increment();
+        return new FileDownload(saved, storageObject);
+    }
+    
+    private StoredFile requireExistingFile(UUID fileId) {
+        return storedFileRepository.findByIdAndDeletedFalse(fileId)
                 .orElseThrow(() -> new FileNotFoundException(fileId));
+    }
+
+    private StoredFile requireAccessibleFile(UUID requesterId, UUID fileId) {
+        StoredFile storedFile = requireExistingFile(fileId);
         
         if (storedFile.getAccess() == StoredFileAccess.PUBLIC || storedFile.getOwnerId().equals(requesterId)) {
             return storedFile;

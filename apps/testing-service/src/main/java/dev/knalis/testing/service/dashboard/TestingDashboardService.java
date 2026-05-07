@@ -50,7 +50,7 @@ public class TestingDashboardService {
                 ? List.of()
                 : testRepository.findAvailableByTopicIdInForGroups(
                         topicSubjectIds.keySet(),
-                        TestStatus.PUBLISHED,
+                        List.of(TestStatus.PUBLISHED),
                         groupIds,
                         now
                 );

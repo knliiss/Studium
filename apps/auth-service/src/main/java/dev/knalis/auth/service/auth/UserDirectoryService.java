@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -19,7 +20,7 @@ public class UserDirectoryService {
     private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
-    public List<UserSummaryResponse> lookupUsers(List<UUID> userIds) {
+    public List<UserSummaryResponse> lookupUsers(List<UUID> userIds, boolean includePrivateFields) {
         List<UUID> normalizedIds = userIds == null ? List.of() : userIds.stream()
                 .filter(userId -> userId != null)
                 .distinct()
@@ -36,16 +37,16 @@ public class UserDirectoryService {
         return normalizedIds.stream()
                 .map(usersById::get)
                 .filter(user -> user != null)
-                .map(this::toSummary)
+                .map(user -> toSummary(user, includePrivateFields))
                 .toList();
     }
 
-    private UserSummaryResponse toSummary(User user) {
+    private UserSummaryResponse toSummary(User user, boolean includePrivateFields) {
         return new UserSummaryResponse(
                 user.getId(),
                 user.getUsername(),
-                user.getEmail(),
-                user.getRoles()
+                includePrivateFields ? user.getEmail() : null,
+                includePrivateFields ? user.getRoles() : Set.of()
         );
     }
 }

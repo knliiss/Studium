@@ -64,6 +64,17 @@ Common domain codes already in use include:
 - `TEST_NOT_AVAILABLE`
 - `TEST_TIME_EXPIRED`
 - `FILE_PREVIEW_NOT_AVAILABLE`
+- `LECTURE_NOT_FOUND`
+- `LECTURE_NOT_ACCESSIBLE`
+- `LECTURE_ATTACHMENT_NOT_FOUND`
+- `ASSIGNMENT_ATTACHMENT_NOT_FOUND`
+- `SUBMISSION_ATTACHMENT_NOT_FOUND`
+- `ASSIGNMENT_FILE_ACCESS_DENIED`
+- `SUBMISSION_FILE_ACCESS_DENIED`
+- `ASSIGNMENT_NOT_ACCESSIBLE`
+- `SUBMISSION_NOT_ACCESSIBLE`
+- `FILE_ACCESS_DENIED`
+- `FILE_ATTACHMENT_NOT_ALLOWED`
 - `INVALID_DATE_RANGE`
 - `AUDIT_EVENT_NOT_FOUND`
 
@@ -277,6 +288,68 @@ Common domain codes already in use include:
   Role access: authenticated
   Query: `page`, `size`, `sortBy`, `direction`
   Response DTO: `TopicPageResponse`
+- `POST /api/v1/education/subjects/{subjectId}/topics/{topicId}/lectures`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Request DTO: `CreateLectureRequest`
+  Response DTO: `LectureResponse`
+  Notes: lectures are created in `DRAFT` status
+- `GET /api/v1/education/lectures/{lectureId}`
+  Role access: authenticated
+  Response DTO: `LectureResponse`
+  Notes: students can read only `PUBLISHED`/`CLOSED` lectures in subjects available to their groups
+- `GET /api/v1/education/topics/{topicId}/lectures`
+  Role access: authenticated
+  Query: `page`, `size`, `sortBy`, `direction`
+  Response DTO: `LecturePageResponse`
+  Notes: student responses exclude `DRAFT` and `ARCHIVED`
+- `PUT /api/v1/education/lectures/{lectureId}`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Request DTO: `UpdateLectureRequest`
+  Response DTO: `LectureResponse`
+  Notes: archived lectures must be restored before editing
+- `PATCH /api/v1/education/lectures/{lectureId}/position`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Request DTO: `MoveLectureRequest`
+  Response DTO: `LectureResponse`
+- `POST /api/v1/education/lectures/{lectureId}/publish`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: `LectureResponse`
+- `POST /api/v1/education/lectures/{lectureId}/close`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: `LectureResponse`
+- `POST /api/v1/education/lectures/{lectureId}/reopen`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: `LectureResponse`
+- `POST /api/v1/education/lectures/{lectureId}/archive`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: `LectureResponse`
+- `POST /api/v1/education/lectures/{lectureId}/restore`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: `LectureResponse`
+  Notes: restore transition is `ARCHIVED -> DRAFT`
+- `DELETE /api/v1/education/lectures/{lectureId}`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: empty body
+  Notes: hard delete is allowed only for archived lectures without attachments
+- `GET /api/v1/education/lectures/{lectureId}/attachments`
+  Role access: authenticated
+  Response DTO: `LectureAttachmentResponse[]`
+  Notes: same lecture read access rules apply as for lecture details (`PUBLISHED`/`CLOSED` for students, assigned teacher or admin/owner for management roles)
+- `POST /api/v1/education/lectures/{lectureId}/attachments`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Request DTO: `CreateLectureAttachmentRequest`
+  Response DTO: `LectureAttachmentResponse`
+- `DELETE /api/v1/education/lectures/{lectureId}/attachments/{attachmentId}`
+  Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
+  Response DTO: empty body
+- `GET /api/v1/education/lectures/{lectureId}/attachments/{attachmentId}/download`
+  Role access: authenticated
+  Response DTO: binary stream
+  Notes: server verifies lecture access before file download; `attachmentId` must belong to `lectureId`; student access is limited to accessible subjects and lecture statuses `PUBLISHED`/`CLOSED`
+- `GET /api/v1/education/lectures/{lectureId}/attachments/{attachmentId}/preview`
+  Role access: authenticated
+  Response DTO: binary stream
+  Notes: same authorization and ownership checks as download
 - `GET /api/v1/education/dashboard/admin/overview`
   Role access: `OWNER`, `ADMIN`
   Response DTO: `EducationAdminOverviewResponse`
@@ -440,7 +513,16 @@ Foundation behavior:
 - `POST /api/v1/assignments/{id}/publish`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: `AssignmentResponse`
+- `POST /api/v1/assignments/{id}/close`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Response DTO: `AssignmentResponse`
+- `POST /api/v1/assignments/{id}/reopen`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Response DTO: `AssignmentResponse`
 - `POST /api/v1/assignments/{id}/archive`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Response DTO: `AssignmentResponse`
+- `POST /api/v1/assignments/{id}/restore`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: `AssignmentResponse`
 - `PATCH /api/v1/assignments/{id}/position`
@@ -456,6 +538,27 @@ Foundation behavior:
 - `GET /api/v1/assignments/{id}`
   Role access: authenticated
   Response DTO: `AssignmentResponse`
+- `GET /api/v1/assignments/{id}/attachments`
+  Role access: authenticated
+  Response DTO: `AssignmentAttachmentResponse[]`
+  Notes: students can read only when assignment is accessible and in `PUBLISHED` or `CLOSED`; `DRAFT` and `ARCHIVED` are hidden from students; teachers can read managed assignments; `OWNER` and `ADMIN` can read all
+- `POST /api/v1/assignments/{id}/attachments`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Request DTO: `CreateAssignmentAttachmentRequest`
+  Response DTO: `AssignmentAttachmentResponse`
+  Notes: teacher is restricted to managed assignment scope; archived assignments cannot be edited
+- `DELETE /api/v1/assignments/{id}/attachments/{attachmentId}`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Response DTO: empty body
+  Notes: `attachmentId` must belong to `assignmentId`
+- `GET /api/v1/assignments/{id}/attachments/{attachmentId}/download`
+  Role access: authenticated
+  Response DTO: streamed file
+  Notes: assignment-service validates assignment visibility and ownership binding before delegating to file-service internal API
+- `GET /api/v1/assignments/{id}/attachments/{attachmentId}/preview`
+  Role access: authenticated
+  Response DTO: streamed file
+  Notes: same authorization and ownership checks as download
 - `GET /api/v1/assignments/{id}/availability`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: `AssignmentGroupAvailabilityResponse[]`
@@ -484,6 +587,27 @@ Foundation behavior:
   Request DTO: `CreateGradeRequest`
   Response DTO: `GradeResponse`
   Notes: teachers are restricted to submissions belonging to assignments they created
+- `GET /api/v1/submissions/{submissionId}/attachments`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: `SubmissionAttachmentResponse[]`
+  Notes: visible only to submission owner, assigned teacher for assignment scope, and `OWNER`/`ADMIN`
+- `POST /api/v1/submissions/{submissionId}/attachments`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Request DTO: `CreateSubmissionAttachmentRequest`
+  Response DTO: `SubmissionAttachmentResponse`
+  Notes: only submission owner can attach; assignment policy and lifecycle checks apply
+- `DELETE /api/v1/submissions/{submissionId}/attachments/{attachmentId}`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: empty body
+  Notes: `attachmentId` must belong to `submissionId`; removal follows submission-owner policy checks
+- `GET /api/v1/submissions/{submissionId}/attachments/{attachmentId}/download`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: streamed file
+  Notes: assignment-service validates submission scope before delegating to file-service internal API
+- `GET /api/v1/submissions/{submissionId}/attachments/{attachmentId}/preview`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: streamed file
+  Notes: same authorization and ownership checks as download
 - `POST /api/v1/submissions/{submissionId}/comments`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Request DTO: `UpsertSubmissionCommentRequest`
@@ -563,7 +687,13 @@ Foundation behavior:
 - `POST /api/v1/testing/tests/{id}/close`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: `TestResponse`
+- `POST /api/v1/testing/tests/{id}/reopen`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Response DTO: `TestResponse`
 - `POST /api/v1/testing/tests/{id}/archive`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`
+  Response DTO: `TestResponse`
+- `POST /api/v1/testing/tests/{id}/restore`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Response DTO: `TestResponse`
 - `PATCH /api/v1/testing/tests/{id}/position`
@@ -614,6 +744,7 @@ Foundation behavior:
 - `GET /api/files/{fileId}/download`
   Role access: same as metadata read
   Response DTO: streamed file
+  Notes: raw `fileId` endpoints do not replace domain authorization flows such as lecture or assignment/submission attachment download/preview endpoints
 - `GET /api/files/{fileId}/preview`
   Role access: same as metadata read
   Response DTO: streamed file (`application/pdf` and `image/*`)

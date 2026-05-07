@@ -143,6 +143,17 @@ public class ScheduleTemplateService {
     public ScheduleTemplateResponse updateTemplate(UUID currentUserId, UUID templateId, UpdateScheduleTemplateRequest request) {
         ScheduleTemplate scheduleTemplate = scheduleTemplateRepository.findById(templateId)
                 .orElseThrow(() -> new ScheduleTemplateNotFoundException(templateId));
+        if (scheduleTemplate.getStatus() == ScheduleTemplateStatus.ARCHIVED) {
+            throw new ScheduleConflictException(
+                    "INVALID_STATE_TRANSITION",
+                    "Schedule template state transition is not allowed",
+                    Map.of(
+                            "templateId", templateId,
+                            "fromStatus", scheduleTemplate.getStatus().name(),
+                            "targetStatus", request.active() ? ScheduleTemplateStatus.ACTIVE.name() : ScheduleTemplateStatus.DRAFT.name()
+                    )
+            );
+        }
         ScheduleTemplateResponse oldValue = scheduleTemplateMapper.toResponse(scheduleTemplate);
 
         AcademicSemester semester = requireSemester(request.semesterId());
@@ -189,7 +200,7 @@ public class ScheduleTemplateService {
     @Transactional(readOnly = true)
     public List<ScheduleTemplateResponse> getTemplatesBySemester(UUID semesterId) {
         requireSemester(semesterId);
-        List<ScheduleTemplate> templates = scheduleTemplateRepository.findAllBySemesterIdOrderByCreatedAtAsc(semesterId);
+        List<ScheduleTemplate> templates = scheduleTemplateRepository.findAllBySemesterIdAndActiveTrueOrderByCreatedAtAsc(semesterId);
         Map<UUID, Integer> slotNumbers = slotNumbers(templates.stream().map(ScheduleTemplate::getSlotId).toList());
 
         return templates.stream()
@@ -200,13 +211,37 @@ public class ScheduleTemplateService {
 
     @Transactional(readOnly = true)
     public List<ScheduleTemplateResponse> getTemplatesByGroup(UUID groupId) {
-        List<ScheduleTemplate> templates = scheduleTemplateRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId);
+        List<ScheduleTemplate> templates = scheduleTemplateRepository.findAllByGroupIdAndActiveTrueOrderByCreatedAtDesc(groupId);
         Map<UUID, Integer> slotNumbers = slotNumbers(templates.stream().map(ScheduleTemplate::getSlotId).toList());
 
         return templates.stream()
                 .sorted(templateComparator(slotNumbers))
                 .map(scheduleTemplateMapper::toResponse)
                 .toList();
+    }
+
+    @Transactional
+    public ScheduleTemplateResponse restoreTemplate(UUID currentUserId, UUID templateId) {
+        ScheduleTemplate scheduleTemplate = scheduleTemplateRepository.findById(templateId)
+                .orElseThrow(() -> new ScheduleTemplateNotFoundException(templateId));
+        if (scheduleTemplate.getStatus() != ScheduleTemplateStatus.ARCHIVED || scheduleTemplate.isActive()) {
+            throw new ScheduleConflictException(
+                    "INVALID_STATE_TRANSITION",
+                    "Schedule template state transition is not allowed",
+                    Map.of(
+                            "templateId", templateId,
+                            "fromStatus", scheduleTemplate.getStatus().name(),
+                            "targetStatus", ScheduleTemplateStatus.ACTIVE.name()
+                    )
+            );
+        }
+        ScheduleTemplateResponse oldValue = scheduleTemplateMapper.toResponse(scheduleTemplate);
+        scheduleTemplate.setStatus(ScheduleTemplateStatus.ACTIVE);
+        scheduleTemplate.setActive(true);
+        scheduleConflictService.assertNoTemplateConflicts(scheduleTemplate, templateId, List.of());
+        ScheduleTemplateResponse response = scheduleTemplateMapper.toResponse(scheduleTemplateRepository.save(scheduleTemplate));
+        scheduleAuditService.record(currentUserId, "SCHEDULE_TEMPLATE_RESTORED", "SCHEDULE_TEMPLATE", response.id(), oldValue, response);
+        return response;
     }
 
     private ScheduleTemplate buildTemplate(CreateScheduleTemplateRequest request) {

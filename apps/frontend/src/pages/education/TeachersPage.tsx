@@ -105,7 +105,7 @@ function TeacherListPage() {
     ? adminTeachers
     : (directoryQuery.data ?? [])
         .filter((teacher) => {
-          const label = `${teacher.username} ${teacher.email}`.toLowerCase()
+          const label = `${teacher.username} ${teacher.email ?? ''}`.toLowerCase()
           return !normalizedSearch || label.includes(normalizedSearch.toLowerCase())
         })
         .slice(page * pageSize, (page + 1) * pageSize)
@@ -188,7 +188,9 @@ function TeacherCard({ stats, teacher }: { stats?: TeacherDirectoryStats; teache
               {showUsername ? (
                 <p className="truncate text-sm text-text-muted">@{teacher.username}</p>
               ) : null}
-              <p className="truncate text-sm text-text-secondary">{teacher.email}</p>
+              {teacher.email ? (
+                <p className="truncate text-sm text-text-secondary">{teacher.email}</p>
+              ) : null}
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
@@ -314,7 +316,9 @@ function TeacherDetailPage({ teacherId }: { teacherId: string }) {
               {showUsername ? (
                 <p className="text-sm font-medium text-text-muted">@{teacher.username}</p>
               ) : null}
-              <p className="text-sm text-text-secondary">{teacher.email}</p>
+              {teacher.email ? (
+                <p className="text-sm text-text-secondary">{teacher.email}</p>
+              ) : null}
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

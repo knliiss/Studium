@@ -28,6 +28,8 @@ public interface RawAcademicEventRepository extends JpaRepository<RawAcademicEve
     
     Optional<RawAcademicEvent> findTopByTestIdAndEventTypeOrderByOccurredAtDesc(UUID testId, String eventType);
 
+    boolean existsByTeacherIdAndGroupIdIn(UUID teacherId, Collection<UUID> groupIds);
+
     @Query("""
             select distinct event.groupId
             from RawAcademicEvent event
