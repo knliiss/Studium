@@ -8,6 +8,7 @@ import dev.knalis.education.entity.Subject;
 import dev.knalis.education.entity.SubjectGroup;
 import dev.knalis.education.entity.SubjectTeacher;
 import dev.knalis.education.exception.GroupNotFoundException;
+import dev.knalis.education.exception.SubjectBindingRequiredException;
 import dev.knalis.education.exception.SubjectNotFoundException;
 import dev.knalis.education.factory.subject.SubjectFactory;
 import dev.knalis.education.repository.GroupRepository;
@@ -168,6 +169,9 @@ public class SubjectService {
         }
         if (groupIds != null) {
             normalizedIds.addAll(groupIds.stream().filter(id -> id != null).toList());
+        }
+        if (normalizedIds.isEmpty()) {
+            throw new SubjectBindingRequiredException();
         }
         normalizedIds.forEach(this::ensureGroupExists);
         return List.copyOf(normalizedIds);

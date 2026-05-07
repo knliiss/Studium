@@ -40,6 +40,17 @@ import {
   scheduleService,
   userDirectoryService,
 } from '@/shared/api/services'
+import { getConflictStatusClasses } from '@/features/schedule/lib/conflictStatusUi'
+import {
+  resolveDragMoveTargetState,
+  type DragMoveBlockReason,
+  type DragMoveTargetState,
+} from '@/features/schedule/lib/moveTarget'
+import {
+  getScheduleDraftValidationReasonKey,
+  getScheduleSaveDisabledReasonKey,
+} from '@/features/schedule/lib/scheduleDisabledReasons'
+import { moveScheduleDraft } from '@/features/schedule/lib/scheduleMoveDraft'
 import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { cn } from '@/shared/lib/cn'
 import { getDayOfWeekLabel, getLessonFormatLabel, getLessonTypeLabel } from '@/shared/lib/enum-labels'
@@ -80,7 +91,7 @@ type ScheduleLessonType = ScheduleTemplateResponse['lessonType']
 type ScheduleLessonFormat = ScheduleTemplateResponse['lessonFormat']
 type DayOfWeekValue = ScheduleTemplateResponse['dayOfWeek']
 type ScheduleViewMode = 'VIEW' | 'EDIT'
-type ConflictStatus = 'idle' | 'pending' | 'clear' | 'conflict' | 'error'
+type ConflictStatus = 'idle' | 'checking' | 'clear' | 'conflict' | 'error'
 type SemesterOptionKey = 'CURRENT' | 'FUTURE'
 type ChangeReason =
   | 'CREATE_TEMPLATE'
@@ -713,6 +724,7 @@ function ScheduleDetailPage({
   const [cancelLesson, setCancelLesson] = useState<ResolvedLessonResponse | null>(null)
   const [copiedLessonId, setCopiedLessonId] = useState<string | null>(null)
   const [movingLessonId, setMovingLessonId] = useState<string | null>(null)
+  const [hoverDropTargetKey, setHoverDropTargetKey] = useState<string | null>(null)
   const [copiedDay, setCopiedDay] = useState<{ dayOfWeek: DayOfWeekValue; drafts: ScheduleTemplateDraft[] } | null>(null)
   const [initializedDraftSignature, setInitializedDraftSignature] = useState('')
   const studentMembershipsQuery = useQuery({
@@ -983,14 +995,24 @@ function ScheduleDetailPage({
     () => drafts.filter((draft) => draft.changeReason !== null && !draft.deleted),
     [drafts],
   )
-  const draftValidationReasons = useMemo(
+  const draftValidationReasonKeys = useMemo(
     () => unresolvedDrafts
-      .map((draft) => getDraftValidationReason(draft, canonicalSlotByPairNumber, t))
-      .filter((reason): reason is string => Boolean(reason)),
-    [canonicalSlotByPairNumber, t, unresolvedDrafts],
+      .map((draft) => getDraftValidationReasonKey(draft, canonicalSlotByPairNumber))
+      .filter((reason) => reason !== ''),
+    [canonicalSlotByPairNumber, unresolvedDrafts],
+  )
+  const draftsNeedingConflictCheck = useMemo(
+    () => unresolvedDrafts.filter((draft) => {
+      if (getDraftValidationReasonKey(draft, canonicalSlotByPairNumber)) {
+        return false
+      }
+      const hash = buildDraftConflictHash(draft)
+      return draft.conflict.lastCheckedHash !== hash || draft.conflict.status === 'idle'
+    }),
+    [canonicalSlotByPairNumber, unresolvedDrafts],
   )
   const pendingConflictCount = useMemo(
-    () => unresolvedDrafts.filter((draft) => draft.conflict.status === 'pending').length,
+    () => unresolvedDrafts.filter((draft) => draft.conflict.status === 'checking').length,
     [unresolvedDrafts],
   )
   const failedConflictCount = useMemo(
@@ -999,20 +1021,15 @@ function ScheduleDetailPage({
   )
 
   const saveDisabledReason = useMemo(() => {
-    if (dirtyDraftCount === 0) {
-      return t('schedule.disabledReasons.noChanges')
-    }
-    if (draftValidationReasons.length > 0) {
-      return draftValidationReasons[0]
-    }
-    if (pendingConflictCount > 0) {
-      return t('schedule.disabledReasons.conflictPending')
-    }
-    if (failedConflictCount > 0) {
-      return t('schedule.disabledReasons.conflictExists')
-    }
-    return ''
-  }, [dirtyDraftCount, draftValidationReasons, failedConflictCount, pendingConflictCount, t])
+    const reasonKey = getScheduleSaveDisabledReasonKey({
+      dirtyDraftCount,
+      draftValidationReasonKey: draftValidationReasonKeys[0] ?? '',
+      draftsNeedingConflictCheckCount: draftsNeedingConflictCheck.length,
+      pendingConflictCount,
+      failedConflictCount,
+    })
+    return reasonKey ? t(reasonKey) : ''
+  }, [dirtyDraftCount, draftValidationReasonKeys, draftsNeedingConflictCheck.length, failedConflictCount, pendingConflictCount, t])
 
   const updateDraft = useCallback((localId: string, updater: (draft: ScheduleTemplateDraft) => ScheduleTemplateDraft | null) => {
     setDrafts((current) => current.flatMap((draft) => {
@@ -1054,9 +1071,9 @@ function ScheduleDetailPage({
       return
     }
 
-    const validationReason = getDraftValidationReason(draft, canonicalSlotByPairNumber, t)
-    if (validationReason) {
-      applyConflictResult(draft.localId, buildDraftConflictHash(draft), 'error', [], [validationReason])
+    const validationReasonKey = getDraftValidationReasonKey(draft, canonicalSlotByPairNumber)
+    if (validationReasonKey) {
+      applyConflictResult(draft.localId, buildDraftConflictHash(draft), 'idle', [], [t('schedule.conflictsNotChecked')])
       return
     }
 
@@ -1065,7 +1082,7 @@ function ScheduleDetailPage({
       return
     }
 
-    applyConflictResult(draft.localId, hash, 'pending', [], [t('schedule.conflictChecking')])
+    applyConflictResult(draft.localId, hash, 'checking', [], [t('schedule.conflictChecking')])
 
     try {
       const result = await scheduleService.checkConflicts(buildDraftConflictPayload(draft))
@@ -1080,27 +1097,22 @@ function ScheduleDetailPage({
         messages,
       )
     } catch (error) {
+      const normalizedError = normalizeApiError(error)
+      const errorMessages = [getLocalizedRequestErrorMessage(error, t)]
+      if (normalizedError?.requestId) {
+        errorMessages.push(t('schedule.conflictRequestId', { id: normalizedError.requestId }))
+      }
       applyConflictResult(
         draft.localId,
         hash,
         'error',
         [],
-        [getLocalizedRequestErrorMessage(error, t)],
+        errorMessages,
       )
     }
   }, [applyConflictResult, canonicalSlotByPairNumber, t])
 
-  const draftsToAutoCheck = useMemo(
-    () => unresolvedDrafts.filter((draft) => {
-      const validationReason = getDraftValidationReason(draft, canonicalSlotByPairNumber, t)
-      if (validationReason) {
-        return false
-      }
-      const hash = buildDraftConflictHash(draft)
-      return draft.conflict.lastCheckedHash !== hash || draft.conflict.status === 'idle'
-    }),
-    [canonicalSlotByPairNumber, t, unresolvedDrafts],
-  )
+  const draftsToAutoCheck = draftsNeedingConflictCheck
 
   useEffect(() => {
     if (viewMode !== 'EDIT' || draftsToAutoCheck.length === 0) {
@@ -1157,6 +1169,7 @@ function ScheduleDetailPage({
       setCopiedDay(null)
       setCopiedLessonId(null)
       setMovingLessonId(null)
+      setHoverDropTargetKey(null)
       setFeedback({ tone: 'success', message: t('schedule.saveChangesSuccess') })
     },
     onError: (error) => {
@@ -1191,16 +1204,6 @@ function ScheduleDetailPage({
     onError: (error) => {
       setFeedback({ tone: 'error', message: getLocalizedRequestErrorMessage(error, t) })
     },
-  })
-
-  const editorTeacherIds = useMemo(
-    () => uniqueIds((subjectsForGroupQuery.data?.items ?? []).flatMap((subject) => subject.teacherIds)),
-    [subjectsForGroupQuery.data?.items],
-  )
-  const editorTeachersQuery = useQuery({
-    queryKey: ['schedule', 'editor-teachers', editorTeacherIds.join(',')],
-    queryFn: () => userDirectoryService.lookup(editorTeacherIds),
-    enabled: drawer !== null && editorTeacherIds.length > 0,
   })
 
   const filteredLessons = useMemo(
@@ -1266,6 +1269,81 @@ function ScheduleDetailPage({
 
     return map
   }, [slotById, viewSubgroup, visibleDrafts])
+
+  const resolveMoveTargetState = useCallback((
+    targetDay: DayOfWeekValue,
+    pairNumber: number,
+    sourceDraftId?: string | null,
+  ): DragMoveTargetState => {
+    const resolvedSourceDraftId = sourceDraftId ?? movingLessonId
+    const sourceDraft = drafts.find((draft) => draft.localId === resolvedSourceDraftId) ?? null
+    const slotId = canonicalSlotByPairNumber.get(pairNumber)?.id ?? null
+    return resolveDragMoveTargetState({
+      canEditTemplates,
+      hasActiveSemester: Boolean(activeSemesterQuery.data),
+      sourceDraft: sourceDraft ? {
+        dayOfWeek: sourceDraft.dayOfWeek,
+        deleted: sourceDraft.deleted,
+        localId: sourceDraft.localId,
+        slotId: sourceDraft.slotId,
+      } : null,
+      targetDay,
+      targetSlotId: slotId,
+    })
+  }, [activeSemesterQuery.data, canEditTemplates, canonicalSlotByPairNumber, drafts, movingLessonId])
+
+  const applyMoveTarget = useCallback((
+    targetDay: DayOfWeekValue,
+    pairNumber: number,
+    source: 'action' | 'drag',
+    sourceDraftId?: string | null,
+  ) => {
+    const targetState = resolveMoveTargetState(targetDay, pairNumber, sourceDraftId)
+    if (!targetState.canDrop || !targetState.sourceDraftId) {
+      setHoverDropTargetKey(null)
+      setMovingLessonId(null)
+      if (targetState.reason && targetState.reason !== 'NO_SOURCE') {
+        setFeedback({ tone: 'error', message: getDragMoveBlockedMessage(targetState.reason, t) })
+      } else if (source === 'drag') {
+        setFeedback({ tone: 'error', message: t('schedule.moveCancelled') })
+      }
+      return false
+    }
+
+    const slot = canonicalSlotByPairNumber.get(pairNumber)
+    if (!slot) {
+      setHoverDropTargetKey(null)
+      setMovingLessonId(null)
+      setFeedback({ tone: 'error', message: t('schedule.cannotMoveSlotUnavailable') })
+      return false
+    }
+
+    updateDraft(targetState.sourceDraftId, (draft) => moveScheduleDraft({
+      createIdleConflict: createIdleDraftConflict,
+      draft,
+      targetDay,
+      targetSlotId: slot.id,
+    }))
+    setMovingLessonId(null)
+    setHoverDropTargetKey(null)
+    setFeedback({
+      tone: 'success',
+      message: `${t('schedule.lessonMoved')} ${t('schedule.movementNeedsConflictCheck')}`,
+    })
+    return true
+  }, [canonicalSlotByPairNumber, resolveMoveTargetState, t, updateDraft])
+
+  const handleDraftDragStart = useCallback((localId: string) => {
+    setMovingLessonId(localId)
+    setHoverDropTargetKey(null)
+  }, [])
+
+  const handleDraftDragEnd = useCallback((localId: string) => {
+    setHoverDropTargetKey(null)
+    if (movingLessonId === localId) {
+      setMovingLessonId(null)
+    }
+  }, [movingLessonId])
 
   const detailHeader = useMemo(() => {
     if (scope === 'group' && groupQuery.data) {
@@ -1575,8 +1653,10 @@ function ScheduleDetailPage({
                   dayOfWeek={dayOfWeek}
                   date={date}
                   drafts={draftGroupsByDayAndPair}
+                  hoverDropTargetKey={hoverDropTargetKey}
                   movingLessonId={movingLessonId}
                   roomById={roomById}
+                  resolveMoveTargetState={resolveMoveTargetState}
                   subjectNameById={subjectNameById}
                   teacherById={teacherById}
                   onAddLesson={(pairNumber) => {
@@ -1610,6 +1690,8 @@ function ScheduleDetailPage({
                     setCopiedDay({ dayOfWeek, drafts: sourceDrafts })
                   }}
                   onDeleteLesson={(localId) => setDeleteTargetId(localId)}
+                  onDragEndLesson={handleDraftDragEnd}
+                  onDragStartLesson={handleDraftDragStart}
                   onEditLesson={(localId) => {
                     const target = drafts.find((draft) => draft.localId === localId)
                     if (!target) {
@@ -1674,21 +1756,9 @@ function ScheduleDetailPage({
                   }}
                   onSetCopiedLesson={setCopiedLessonId}
                   onSetMovingLesson={setMovingLessonId}
-                  onUseMoveTarget={(targetDay, pairNumber) => {
-                    const slot = canonicalSlotByPairNumber.get(pairNumber)
-                    const source = drafts.find((draft) => draft.localId === movingLessonId)
-                    if (!slot || !source) {
-                      return
-                    }
-
-                    updateDraft(source.localId, (draft) => ({
-                      ...draft,
-                      changeReason: draft.templateId ? 'MOVE_TEMPLATE' : draft.changeReason ?? 'CREATE_TEMPLATE',
-                      conflict: createIdleDraftConflict(),
-                      dayOfWeek: targetDay,
-                      slotId: slot.id,
-                    }))
-                    setMovingLessonId(null)
+                  onDragHoverTarget={setHoverDropTargetKey}
+                  onUseMoveTarget={(targetDay, pairNumber, source, sourceDraftId) => {
+                    applyMoveTarget(targetDay, pairNumber, source, sourceDraftId)
                   }}
                 />
               ) : (
@@ -1743,6 +1813,7 @@ function ScheduleDetailPage({
                   setCopiedDay(null)
                   setCopiedLessonId(null)
                   setMovingLessonId(null)
+                  setHoverDropTargetKey(null)
                 }}
               >
                 <RotateCcw className="mr-2 h-4 w-4" />
@@ -1760,10 +1831,10 @@ function ScheduleDetailPage({
       {drawer ? (
         <LessonDrawer
           key={getDrawerKey(drawer)}
+          allowManagementActions={canManageTemplates}
           drawer={drawer}
           rooms={roomsQuery.data ?? []}
           subjects={subjectsForGroupQuery.data?.items ?? []}
-          teachers={editorTeachersQuery.data ?? []}
           onClose={() => setDrawer(null)}
           onSave={(state) => {
             const subject = (subjectsForGroupQuery.data?.items ?? []).find((item) => item.id === state.subjectId)
@@ -2026,13 +2097,18 @@ function EditDayCard({
   dayOfWeek,
   date,
   drafts,
+  hoverDropTargetKey,
   movingLessonId,
   onAddLesson,
   onCopyDay,
+  onDragHoverTarget,
+  onDragEndLesson,
+  onDragStartLesson,
   onDeleteLesson,
   onEditLesson,
   onPasteDay,
   onPasteLesson,
+  resolveMoveTargetState,
   onRestoreLesson,
   onSetCopiedLesson,
   onSetMovingLesson,
@@ -2047,17 +2123,22 @@ function EditDayCard({
   dayOfWeek: DayOfWeekValue
   date: string
   drafts: Map<string, ScheduleTemplateDraft[]>
+  hoverDropTargetKey: string | null
   movingLessonId: string | null
   onAddLesson: (pairNumber: number) => void
   onCopyDay: () => void
+  onDragHoverTarget: (key: string | null) => void
+  onDragEndLesson: (localId: string) => void
+  onDragStartLesson: (localId: string) => void
   onDeleteLesson: (localId: string) => void
   onEditLesson: (localId: string) => void
   onPasteDay: (dayOfWeek: DayOfWeekValue) => void
   onPasteLesson: (dayOfWeek: DayOfWeekValue, pairNumber: number) => void
+  resolveMoveTargetState: (targetDay: DayOfWeekValue, pairNumber: number, sourceDraftId?: string | null) => DragMoveTargetState
   onRestoreLesson: (localId: string) => void
   onSetCopiedLesson: (localId: string | null) => void
   onSetMovingLesson: (localId: string | null) => void
-  onUseMoveTarget: (dayOfWeek: DayOfWeekValue, pairNumber: number) => void
+  onUseMoveTarget: (dayOfWeek: DayOfWeekValue, pairNumber: number, source: 'action' | 'drag', sourceDraftId?: string | null) => void
   roomById: Map<string, RoomResponse>
   subjectNameById: Map<string, string>
   teacherById: Map<string, TeacherUser>
@@ -2089,28 +2170,39 @@ function EditDayCard({
         {canonicalPairs.map((pair) => {
           const slot = canonicalSlotByPairNumber.get(pair.pairNumber)
           const pairDrafts = drafts.get(`${dayOfWeek}:${pair.pairNumber}`) ?? []
+          const dropKey = `${dayOfWeek}:${pair.pairNumber}`
           const dropActive = Boolean(movingLessonId)
-          const validDropTarget = Boolean(slot)
+          const moveTargetState = resolveMoveTargetState(dayOfWeek, pair.pairNumber)
+          const validDropTarget = moveTargetState.canDrop
+          const invalidDropTarget = dropActive && !validDropTarget && moveTargetState.reason !== 'NO_SOURCE'
+          const isHoverDropTarget = hoverDropTargetKey === dropKey
 
           return (
             <div
               key={`${dayOfWeek}-${pair.pairNumber}`}
               className={cn(
                 'rounded-[18px] border bg-surface p-4 transition',
-                dropActive && validDropTarget ? 'border-accent/60 bg-accent-muted/20' : 'border-border',
-                dropActive && !validDropTarget ? 'border-danger/40 bg-danger/5 opacity-70' : '',
+                dropActive && validDropTarget ? 'border-accent/60 bg-accent-muted/15' : 'border-border',
+                dropActive && validDropTarget && isHoverDropTarget ? 'border-success/50 bg-success/10 ring-2 ring-success/25' : '',
+                invalidDropTarget ? 'border-border-strong bg-surface-muted opacity-75' : '',
               )}
               onDragOver={(event) => {
-                if (!validDropTarget || !movingLessonId) {
+                if (!slot) {
+                  onDragHoverTarget(null)
                   return
                 }
                 event.preventDefault()
+                event.dataTransfer.dropEffect = validDropTarget ? 'move' : 'none'
+                if (!movingLessonId || !validDropTarget) {
+                  onDragHoverTarget(null)
+                  return
+                }
+                onDragHoverTarget(dropKey)
               }}
               onDrop={(event) => {
                 event.preventDefault()
-                if (validDropTarget && movingLessonId) {
-                  onUseMoveTarget(dayOfWeek, pair.pairNumber)
-                }
+                const sourceDraftId = event.dataTransfer.getData('text/plain') || movingLessonId
+                onUseMoveTarget(dayOfWeek, pair.pairNumber, 'drag', sourceDraftId)
               }}
             >
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
@@ -2124,6 +2216,19 @@ function EditDayCard({
                   </p>
                   {!slot ? (
                     <p className="text-sm text-danger">{t('schedule.slotSetupError')}</p>
+                  ) : null}
+                  {dropActive && validDropTarget ? (
+                    <p className={cn(
+                      'text-xs font-medium',
+                      isHoverDropTarget ? 'text-success' : 'text-accent',
+                    )}>
+                      {t('schedule.dropHere')}
+                    </p>
+                  ) : null}
+                  {invalidDropTarget ? (
+                    <p className="text-xs font-medium text-text-muted">
+                      {t('schedule.invalidDropTarget')}
+                    </p>
                   ) : null}
                 </div>
                 {slot ? (
@@ -2139,7 +2244,12 @@ function EditDayCard({
                       </Button>
                     ) : null}
                     {movingLessonId ? (
-                      <Button variant="ghost" onClick={() => onUseMoveTarget(dayOfWeek, pair.pairNumber)}>
+                      <Button
+                        disabled={!validDropTarget}
+                        title={!validDropTarget && moveTargetState.reason ? getDragMoveBlockedMessage(moveTargetState.reason, t) : undefined}
+                        variant="ghost"
+                        onClick={() => onUseMoveTarget(dayOfWeek, pair.pairNumber, 'action')}
+                      >
                         <ArrowRight className="mr-2 h-4 w-4" />
                         {t('schedule.moveHere')}
                       </Button>
@@ -2163,12 +2273,18 @@ function EditDayCard({
                       teacherById={teacherById}
                       onCopy={() => onSetCopiedLesson(draft.localId)}
                       onDelete={() => onDeleteLesson(draft.localId)}
+                      onDragEnd={() => onDragEndLesson(draft.localId)}
+                      onDragStart={() => onDragStartLesson(draft.localId)}
                       onEdit={() => onEditLesson(draft.localId)}
-                      onMove={() => onSetMovingLesson(draft.localId)}
-                      onDragStart={() => onSetMovingLesson(draft.localId)}
-                      onDragEnd={() => onSetMovingLesson(null)}
+                      onMove={() => {
+                        onDragHoverTarget(null)
+                        onSetMovingLesson(draft.localId)
+                      }}
                       onRestore={() => onRestoreLesson(draft.localId)}
-                      onStopMove={() => onSetMovingLesson(null)}
+                      onStopMove={() => {
+                        onDragHoverTarget(null)
+                        onSetMovingLesson(null)
+                      }}
                       copied={copiedLessonId === draft.localId}
                       moving={movingLessonId === draft.localId}
                     />
@@ -2218,6 +2334,16 @@ function DraftLessonCard({
   const room = draft.roomId ? roomById.get(draft.roomId) : null
   const teacher = teacherById.get(draft.teacherId)
   const localChangeLabel = draft.changeReason ? t(`schedule.localChangeType.${draft.changeReason}`) : null
+  const conflictMessages = draft.conflict.messages.length > 0
+    ? draft.conflict.messages
+    : draft.conflict.status === 'idle'
+      ? [t('schedule.conflictsNotChecked')]
+      : []
+  const showConflictPanel = !draft.deleted && (
+    draft.changeReason !== null
+    || draft.conflict.status !== 'idle'
+    || conflictMessages.length > 0
+  )
 
   return (
     <div
@@ -2225,25 +2351,31 @@ function DraftLessonCard({
         'rounded-[16px] border p-4 transition',
         draft.deleted
           ? 'border-danger/30 bg-danger/5'
-          : draft.conflict.status === 'conflict' || draft.conflict.status === 'error'
-            ? 'border-danger/30 bg-danger/5'
-            : draft.changeReason
-              ? 'border-accent/30 bg-accent/5'
-              : 'border-border bg-surface',
+          : draft.conflict.status === 'clear'
+            ? 'border-success/30 bg-success/5'
+            : draft.conflict.status === 'conflict'
+              ? 'border-danger/30 bg-danger/5'
+              : draft.conflict.status === 'error'
+                ? 'border-warning/30 bg-warning/5'
+                : 'border-border bg-surface',
         moving && 'ring-4 ring-accent/15',
       )}
-      draggable={!draft.deleted}
-      onDragEnd={onDragEnd}
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', draft.localId)
-        onDragStart()
-      }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           {!draft.deleted ? (
-            <span className="mt-1 inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-[10px] border border-border bg-surface-muted text-text-muted" title={t('schedule.dragLesson')}>
+            <span
+              aria-label={t('schedule.dragLesson')}
+              className="mt-1 inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-[10px] border border-border bg-surface-muted text-text-muted active:cursor-grabbing"
+              draggable
+              title={t('schedule.dragLesson')}
+              onDragEnd={onDragEnd}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('text/plain', draft.localId)
+                onDragStart()
+              }}
+            >
               <GripVertical className="h-4 w-4" />
             </span>
           ) : null}
@@ -2293,7 +2425,7 @@ function DraftLessonCard({
         </div>
         {draft.notes ? <p className="text-sm text-text-secondary">{draft.notes}</p> : null}
       </div>
-      {draft.conflict.status !== 'idle' || draft.conflict.messages.length > 0 ? (
+      {showConflictPanel ? (
         <div className={cn(
           'mt-3 space-y-2 rounded-[14px] border px-3 py-3',
           getConflictStateClasses(draft.conflict.status),
@@ -2301,10 +2433,16 @@ function DraftLessonCard({
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
             {t(`schedule.conflictStatus.${draft.conflict.status}`)}
           </p>
-          {draft.conflict.messages.map((message) => (
+          {conflictMessages.map((message) => (
             <div key={message} className={cn(
               'flex items-start gap-2 text-sm',
-              draft.conflict.status === 'clear' ? 'text-success' : draft.conflict.status === 'pending' ? 'text-text-secondary' : 'text-danger',
+              draft.conflict.status === 'clear'
+                ? 'text-success'
+                : draft.conflict.status === 'idle' || draft.conflict.status === 'checking'
+                  ? 'text-text-secondary'
+                  : draft.conflict.status === 'error'
+                    ? 'text-warning'
+                    : 'text-danger',
             )}>
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{message}</span>
@@ -2354,25 +2492,50 @@ function DraftLessonCard({
 }
 
 function LessonDrawer({
+  allowManagementActions,
   drawer,
   onClose,
   onSave,
   rooms,
   subjects,
-  teachers,
 }: {
+  allowManagementActions: boolean
   drawer: DraftEditorState
   onClose: () => void
   onSave: (state: DraftEditorState) => void
   rooms: RoomResponse[]
   subjects: SubjectResponse[]
-  teachers: TeacherUser[]
 }) {
   const { t } = useTranslation()
   const [state, setState] = useState(drawer)
 
   const subject = subjects.find((item) => item.id === state.subjectId)
-  const teacherChoices = teachers.filter((teacher) => !subject || subject.teacherIds.includes(teacher.id))
+  const subjectTeacherIds = subject?.teacherIds ?? []
+  const teachersQuery = useQuery({
+    queryKey: ['schedule', 'drawer-teachers', state.subjectId, subjectTeacherIds.join(',')],
+    queryFn: async () => {
+      let failedLookups = 0
+      const teacherRows = await Promise.all(subjectTeacherIds.map(async (teacherId) => {
+        try {
+          const [teacher] = await userDirectoryService.lookup([teacherId])
+          return teacher ?? null
+        } catch {
+          failedLookups += 1
+          return null
+        }
+      }))
+      const resolvedTeachers = teacherRows.filter((teacher): teacher is TeacherUser => Boolean(teacher))
+      if (resolvedTeachers.length === 0 && subjectTeacherIds.length > 0 && failedLookups === subjectTeacherIds.length) {
+        throw new Error('TEACHER_LOOKUP_FAILED')
+      }
+      return resolvedTeachers
+    },
+    enabled: Boolean(state.subjectId) && subjectTeacherIds.length > 0,
+    staleTime: 60_000,
+  })
+  const teacherChoices = teachersQuery.data ?? []
+  const teachersLookupError = teachersQuery.isError
+  const teachersLookupLoading = teachersQuery.isLoading
   const saveBlockedReason = getDrawerValidationReason(state, t)
 
   return (
@@ -2397,6 +2560,16 @@ function LessonDrawer({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
+            {subjects.length === 0 ? (
+              <div className="md:col-span-2 rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
+                <p className="text-sm font-semibold text-text-primary">{t('schedule.emptySubjectsForGroup')}</p>
+                {allowManagementActions ? (
+                  <Link className="mt-2 inline-flex text-sm font-medium text-accent" to="/subjects">
+                    {t('schedule.actions.manageSubjects')}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
             <FormField label={t('education.subject')}>
               <Select
                 value={state.subjectId}
@@ -2421,7 +2594,7 @@ function LessonDrawer({
 
             <FormField label={t('schedule.teacherLabel')}>
               <Select
-                disabled={!state.subjectId || teacherChoices.length === 0}
+                disabled={!state.subjectId || teacherChoices.length === 0 || teachersLookupLoading || teachersLookupError}
                 value={state.teacherId}
                 onChange={(event) => {
                   setState((current) => ({ ...current, teacherId: event.target.value }))
@@ -2436,12 +2609,63 @@ function LessonDrawer({
               </Select>
             </FormField>
 
-            {state.subjectId && teacherChoices.length === 0 ? (
+            {state.subjectId && teachersLookupLoading ? (
+              <div className="md:col-span-2 rounded-[14px] border border-border bg-surface-muted px-4 py-3">
+                <p className="text-sm font-semibold text-text-primary">{t('schedule.checkingTeachers')}</p>
+              </div>
+            ) : null}
+
+            {state.subjectId && teachersLookupError ? (
+              <Card className="md:col-span-2 border-danger/30 bg-danger/5 px-4 py-3">
+                <p className="text-sm font-semibold text-text-primary">{t('schedule.teacherLookupFailed')}</p>
+                <div className="mt-2">
+                  <Button variant="secondary" onClick={() => void teachersQuery.refetch()}>
+                    {t('common.actions.retry')}
+                  </Button>
+                </div>
+              </Card>
+            ) : null}
+
+            {state.subjectId && !teachersLookupLoading && !teachersLookupError && teacherChoices.length === 0 ? (
               <div className="md:col-span-2 rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
                 <p className="text-sm font-semibold text-text-primary">{t('schedule.emptyTeachersForSubject')}</p>
-                <Link className="mt-2 inline-flex text-sm font-medium text-accent" to={`/subjects/${state.subjectId}`}>
-                  {t('schedule.actions.manageSubjectTeachers')}
-                </Link>
+                {allowManagementActions ? (
+                  <Link className="mt-2 inline-flex text-sm font-medium text-accent" to={`/subjects/${state.subjectId}`}>
+                    {t('schedule.actions.manageSubjectTeachers')}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+
+            {state.subjectId && teacherChoices.length > 0 ? (
+              <div className="md:col-span-2 grid gap-2 sm:grid-cols-2">
+                {teacherChoices.map((teacher) => (
+                  <button
+                    key={teacher.id}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-[12px] border px-3 py-2 text-left transition',
+                      state.teacherId === teacher.id
+                        ? 'border-success/40 bg-success/5'
+                        : 'border-border bg-surface hover:border-border-strong',
+                    )}
+                    type="button"
+                    onClick={() => {
+                      setState((current) => ({ ...current, teacherId: teacher.id }))
+                    }}
+                  >
+                    <UserAvatar
+                      displayName={getTeacherDisplayName(teacher)}
+                      email={teacher.email}
+                      size="sm"
+                      username={teacher.username}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-text-primary">{getTeacherDisplayName(teacher)}</span>
+                      <span className="block truncate text-xs text-text-muted">@{teacher.username}</span>
+                      <span className="block truncate text-xs text-text-secondary">{teacher.email}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
             ) : null}
 
@@ -2583,35 +2807,28 @@ function getDrawerValidationReason(
     return t('schedule.disabledReasons.chooseTeacher')
   }
   if (!drawer.slotId) {
-    return t('schedule.disabledReasons.invalidPairMapping')
+    return t('schedule.disabledReasons.slotNotResolved')
   }
   if (drawer.lessonFormat === 'OFFLINE' && !drawer.roomId) {
-    return t('schedule.disabledReasons.chooseRoom')
+    return t('schedule.disabledReasons.chooseRoomOffline')
   }
 
   return ''
 }
 
-function getDraftValidationReason(
+function getDraftValidationReasonKey(
   draft: ScheduleTemplateDraft,
   canonicalSlotByPairNumber: Map<number, LessonSlotResponse>,
-  t: (key: string) => string,
 ) {
   const pairNumber = canonicalPairs.find((pair) => pair.pairNumber === findPairNumberBySlotId(canonicalSlotByPairNumber, draft.slotId))?.pairNumber
-  if (!pairNumber) {
-    return t('schedule.disabledReasons.invalidPairMapping')
-  }
-  if (!draft.subjectId) {
-    return t('schedule.disabledReasons.chooseSubject')
-  }
-  if (!draft.teacherId) {
-    return t('schedule.disabledReasons.chooseTeacher')
-  }
-  if (draft.lessonFormat === 'OFFLINE' && !draft.roomId) {
-    return t('schedule.disabledReasons.chooseRoom')
-  }
-
-  return ''
+  return getScheduleDraftValidationReasonKey({
+    hasActiveSemester: Boolean(draft.semesterId),
+    hasLessonContext: Boolean(draft.groupId && draft.dayOfWeek && draft.weekType && draft.lessonType && draft.lessonFormat),
+    hasRoomForOffline: draft.lessonFormat !== 'OFFLINE' || Boolean(draft.roomId),
+    hasSlot: Boolean(pairNumber),
+    hasSubject: Boolean(draft.subjectId),
+    hasTeacher: Boolean(draft.teacherId),
+  })
 }
 
 function findPairNumberBySlotId(canonicalSlotByPairNumber: Map<number, LessonSlotResponse>, slotId: string) {
@@ -2852,16 +3069,27 @@ function getConflictHintKey(item: ScheduleConflictItemResponse) {
 }
 
 function getConflictStateClasses(status: ConflictStatus) {
-  if (status === 'clear') {
-    return 'border-success/30 bg-success/5'
+  return getConflictStatusClasses(status)
+}
+
+function getDragMoveBlockedMessage(
+  reason: DragMoveBlockReason,
+  t: (key: string) => string,
+) {
+  switch (reason) {
+    case 'SLOT_UNAVAILABLE':
+      return t('schedule.cannotMoveSlotUnavailable')
+    case 'NO_EDIT_PERMISSION':
+      return t('schedule.cannotMoveNoEditPermission')
+    case 'ACTIVE_SEMESTER_MISSING':
+      return t('schedule.cannotMoveActiveSemesterMissing')
+    case 'SAME_POSITION':
+      return t('schedule.cannotMoveSamePosition')
+    case 'NO_SOURCE':
+      return t('schedule.cannotMoveNoDragSource')
+    default:
+      return t('schedule.moveCancelled')
   }
-  if (status === 'conflict' || status === 'error') {
-    return 'border-danger/30 bg-danger/5'
-  }
-  if (status === 'pending') {
-    return 'border-border bg-surface-muted'
-  }
-  return 'border-border bg-surface-muted'
 }
 
 function buildConflictDetail(

@@ -5,8 +5,9 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
+import { AssignmentAccessPanel } from '@/features/assignments/access/AssignmentAccessPanel'
 import { assignmentService, dashboardService, educationService, fileService, userDirectoryService } from '@/shared/api/services'
-import { getLocalizedRequestErrorMessage } from '@/shared/lib/api-errors'
+import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { formatDateTime } from '@/shared/lib/format'
 import { toGroupOption, toSubjectOption, toTopicOption } from '@/shared/lib/picker-options'
 import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
@@ -17,13 +18,11 @@ import { EntityPicker } from '@/shared/ui/EntityPicker'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
-import { SegmentedControl } from '@/shared/ui/SegmentedControl'
 import { Textarea } from '@/shared/ui/Textarea'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { DeadlineBadge } from '@/widgets/common/DeadlineBadge'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
 import { loadAccessibleGroups, loadAccessibleSubjects, loadManagedSubjects } from '@/pages/education/helpers'
-import type { AssignmentGroupAvailabilityResponse } from '@/shared/types/api'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 
 interface AssignmentManagementRow {
@@ -346,10 +345,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   const [submissionSearch, setSubmissionSearch] = useState('')
   const debouncedSubmissionSearch = useDebouncedValue(submissionSearch.trim(), 250)
   const [selectedSubmissionId, setSelectedSubmissionId] = useState('')
-  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null)
-  const [previewDocxHtml, setPreviewDocxHtml] = useState<string>('')
-  const [previewError, setPreviewError] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  const requestedSubmissionId = searchParams.get('submissionId') ?? ''
   const assignmentQuery = useQuery({
     queryKey: ['assignment', assignmentId],
     queryFn: () => assignmentService.getAssignment(assignmentId),
@@ -370,25 +366,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     enabled: isStudent,
   })
   const [upload, setUpload] = useState<File | null>(null)
-  const [gradeForm, setGradeForm] = useState({ submissionId: '', score: 0, feedback: '' })
+  const [gradeDraftBySubmissionId, setGradeDraftBySubmissionId] = useState<Record<string, { score: number; feedback: string }>>({})
   const [availabilityGroupSearch, setAvailabilityGroupSearch] = useState('')
   const debouncedAvailabilityGroupSearch = useDebouncedValue(availabilityGroupSearch.trim(), 350)
-  const [availabilityForm, setAvailabilityForm] = useState({
-    groupId: '',
-    visible: false,
-    deadline: '',
-    allowLateSubmissions: false,
-    maxSubmissions: 1,
-    allowResubmit: false,
-  })
-  const [bulkAvailabilityForm, setBulkAvailabilityForm] = useState({
-    visible: true,
-    deadline: '',
-    allowLateSubmissions: false,
-    maxSubmissions: 1,
-    allowResubmit: false,
-    copyFromGroupId: '',
-  })
   const accessibleGroupsQuery = useQuery({
     queryKey: ['education', 'assignment-detail-groups', primaryRole, session?.user.id],
     queryFn: () => loadAccessibleGroups(primaryRole, session?.user.id ?? ''),
@@ -469,17 +449,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     ),
     enabled: !isStudent && Boolean(connectedGroupsQuery.data?.length),
   })
-  const selectedSubmissionQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission', selectedSubmissionId],
-    queryFn: () => assignmentService.getSubmission(selectedSubmissionId),
-    enabled: Boolean(selectedSubmissionId),
-  })
-  const selectedSubmissionFileQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission-file', selectedSubmissionQuery.data?.fileId],
-    queryFn: () => fileService.getMetadata(selectedSubmissionQuery.data!.fileId),
-    enabled: Boolean(selectedSubmissionQuery.data?.fileId),
-  })
-
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!upload) {
@@ -510,23 +479,16 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     mutationFn: () => assignmentService.createGrade(gradeForm),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submissions'] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', selectedSubmissionId] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', activeSubmissionId] })
     },
   })
   const availabilityMutation = useMutation({
-    mutationFn: () =>
-      assignmentService.upsertAssignmentAvailability(assignmentId, {
-        groupId: availabilityForm.groupId,
-        visible: availabilityForm.visible,
-        availableFrom: null,
-        deadline: new Date(availabilityForm.deadline).toISOString(),
-        allowLateSubmissions: availabilityForm.allowLateSubmissions,
-        maxSubmissions: availabilityForm.maxSubmissions,
-        allowResubmit: availabilityForm.allowResubmit,
-      }),
+    mutationFn: (payload: Record<string, unknown>) =>
+      assignmentService.upsertAssignmentAvailability(assignmentId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'availability'] })
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['assignments'] })
     },
   })
   const bulkAvailabilityMutation = useMutation({
@@ -535,68 +497,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'availability'] })
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['assignments'] })
     },
   })
-
-  if (
-    assignmentQuery.isLoading
-    || (isStudent && mySubmissionsQuery.isLoading)
-    || (!isStudent && (
-      submissionsQuery.isLoading
-      || availabilityQuery.isLoading
-      || subjectScopeQuery.isLoading
-      || assignmentSubjectQuery.isLoading
-      || connectedGroupsQuery.isLoading
-      || submissionStudentsQuery.isLoading
-      || groupStudentsQuery.isLoading
-      || selectedSubmissionQuery.isLoading
-      || selectedSubmissionFileQuery.isLoading
-    ))
-  ) {
-    return <LoadingState />
-  }
-
-  if (
-    assignmentQuery.isError
-    || !assignmentQuery.data
-    || (isStudent && mySubmissionsQuery.isError)
-    || (!isStudent && (
-      submissionsQuery.isError
-      || availabilityQuery.isError
-      || subjectScopeQuery.isError
-      || assignmentSubjectQuery.isError
-      || connectedGroupsQuery.isError
-      || submissionStudentsQuery.isError
-      || groupStudentsQuery.isError
-      || selectedSubmissionQuery.isError
-      || selectedSubmissionFileQuery.isError
-    ))
-  ) {
-    return (
-      <ErrorState
-        title={t('navigation.shared.assignments')}
-        description={getLocalizedRequestErrorMessage(
-          assignmentQuery.error
-            ?? submissionsQuery.error
-            ?? availabilityQuery.error
-            ?? subjectScopeQuery.error
-            ?? assignmentSubjectQuery.error
-            ?? connectedGroupsQuery.error
-            ?? submissionStudentsQuery.error
-            ?? mySubmissionsQuery.error
-            ?? groupStudentsQuery.error
-            ?? selectedSubmissionQuery.error
-            ?? selectedSubmissionFileQuery.error,
-          t,
-        )}
-        onRetry={() => {
-          void assignmentQuery.refetch()
-          void submissionsQuery.refetch()
-          void availabilityQuery.refetch()
-        }}
-      />
-    )
-  }
 
   const assignment = assignmentQuery.data
   const availabilityRows = availabilityQuery.data ?? []
@@ -612,48 +515,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     : (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
   const connectedGroups = connectedGroupsQuery.data ?? []
   const connectedGroupOptions = connectedGroups.map((group) => toGroupOption(group))
-  const availabilitySaveDisabledReason = !availabilityForm.groupId
-    ? t('availability.selectGroupReason')
-    : !availabilityForm.deadline
-      ? t('availability.selectDeadlineReason')
-      : ''
-  const bulkDeadlineRequired = !bulkAvailabilityForm.deadline
-  const buildBulkAvailabilityPayload = (groupId: string, visible = bulkAvailabilityForm.visible) => ({
-    groupId,
-    visible,
-    availableFrom: null,
-    deadline: new Date(bulkAvailabilityForm.deadline || assignment.deadline).toISOString(),
-    allowLateSubmissions: bulkAvailabilityForm.allowLateSubmissions,
-    maxSubmissions: bulkAvailabilityForm.maxSubmissions,
-    allowResubmit: bulkAvailabilityForm.allowResubmit,
-  })
-  const applyBulkAvailability = (visible = bulkAvailabilityForm.visible) => {
-    if (connectedGroups.length === 0 || bulkDeadlineRequired) {
-      return
-    }
-
-    bulkAvailabilityMutation.mutate(connectedGroups.map((group) => buildBulkAvailabilityPayload(group.id, visible)))
-  }
-  const copyAvailabilityToAllGroups = () => {
-    const source = availabilityRows.find((availability) => availability.groupId === bulkAvailabilityForm.copyFromGroupId)
-    if (!source || connectedGroups.length === 0) {
-      return
-    }
-
-    bulkAvailabilityMutation.mutate(
-      connectedGroups
-        .filter((group) => group.id !== source.groupId)
-        .map((group) => ({
-          groupId: group.id,
-          visible: source.visible,
-          availableFrom: null,
-          deadline: source.deadline,
-          allowLateSubmissions: source.allowLateSubmissions,
-          maxSubmissions: source.maxSubmissions,
-          allowResubmit: source.allowResubmit,
-        })),
-    )
-  }
 
   const submissionGroupsByUserId = new Map<string, string[]>()
   for (const groupEntry of groupStudentsQuery.data ?? []) {
@@ -685,97 +546,159 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       return accumulator
     }, new Map<string, typeof filteredSubmissions>()),
   )
+  const activeSubmissionId = filteredSubmissions.some((submission) => submission.id === selectedSubmissionId)
+    ? selectedSubmissionId
+    : filteredSubmissions.some((submission) => submission.id === requestedSubmissionId)
+      ? requestedSubmissionId
+      : filteredSubmissions[0]?.id ?? ''
+  const selectedSubmissionQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'submission', activeSubmissionId],
+    queryFn: () => assignmentService.getSubmission(activeSubmissionId),
+    enabled: Boolean(activeSubmissionId),
+  })
+  const selectedSubmissionFileQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'submission-file', selectedSubmissionQuery.data?.fileId],
+    queryFn: () => fileService.getMetadata(selectedSubmissionQuery.data!.fileId),
+    enabled: Boolean(selectedSubmissionQuery.data?.fileId),
+  })
+  const submissionPreviewQuery = useQuery({
+    queryKey: [
+      'assignment',
+      assignmentId,
+      'submission-preview',
+      selectedSubmissionQuery.data?.fileId,
+      selectedSubmissionFileQuery.data?.contentType,
+      selectedSubmissionFileQuery.data?.originalFileName,
+    ],
+    queryFn: async () => {
+      const submission = selectedSubmissionQuery.data
+      const metadata = selectedSubmissionFileQuery.data
+      if (!submission || !metadata) {
+        return { type: 'empty' as const }
+      }
+      const fileBlob = await fileService.downloadFile(submission.fileId)
+      const contentType = (metadata.contentType ?? '').toLowerCase()
+
+      if (contentType.includes('pdf')) {
+        return { type: 'pdf' as const, url: URL.createObjectURL(fileBlob) }
+      }
+
+      if (
+        contentType.includes('wordprocessingml.document')
+        || metadata.originalFileName.toLowerCase().endsWith('.docx')
+      ) {
+        const result = await convertToHtml({ arrayBuffer: await fileBlob.arrayBuffer() })
+        return { type: 'docx' as const, html: result.value }
+      }
+
+      return { type: 'unsupported' as const }
+    },
+    enabled: Boolean(selectedSubmissionQuery.data && selectedSubmissionFileQuery.data),
+  })
+  const activeGradeDraft = activeSubmissionId ? gradeDraftBySubmissionId[activeSubmissionId] : undefined
+  const gradeForm = {
+    submissionId: activeSubmissionId,
+    score: activeGradeDraft?.score ?? selectedSubmissionQuery.data?.score ?? 0,
+    feedback: activeGradeDraft?.feedback ?? selectedSubmissionQuery.data?.feedback ?? '',
+  }
 
   useEffect(() => {
-    if (isStudent) {
+    if (!activeSubmissionId) {
       return
     }
-    const requestedSubmissionId = searchParams.get('submissionId')
-    const nextSelectedSubmissionId = filteredSubmissions.find((submission) => submission.id === requestedSubmissionId)?.id
-      ?? filteredSubmissions[0]?.id
-      ?? ''
-    setSelectedSubmissionId((current) => (
-      current && filteredSubmissions.some((submission) => submission.id === current)
-        ? current
-        : nextSelectedSubmissionId
-    ))
-  }, [filteredSubmissions, isStudent, searchParams])
-
-  useEffect(() => {
-    if (!selectedSubmissionId) {
+    if (searchParams.get('submissionId') === activeSubmissionId) {
       return
     }
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
-      next.set('submissionId', selectedSubmissionId)
+      next.set('submissionId', activeSubmissionId)
       return next
     }, { replace: true })
-  }, [selectedSubmissionId, setSearchParams])
+  }, [activeSubmissionId, searchParams, setSearchParams])
 
   useEffect(() => {
-    if (!selectedSubmissionQuery.data) {
-      return
+    const preview = submissionPreviewQuery.data
+    if (!preview || preview.type !== 'pdf') {
+      return undefined
     }
-    setGradeForm({
-      submissionId: selectedSubmissionQuery.data.id,
-      score: selectedSubmissionQuery.data.score ?? 0,
-      feedback: selectedSubmissionQuery.data.feedback ?? '',
-    })
-  }, [selectedSubmissionQuery.data])
-
-  useEffect(() => {
-    let objectUrlToRevoke: string | null = null
-    setPreviewPdfUrl((current) => {
-      if (current) {
-        URL.revokeObjectURL(current)
-      }
-      return null
-    })
-    setPreviewDocxHtml('')
-    setPreviewError(null)
-
-    const submission = selectedSubmissionQuery.data
-    const metadata = selectedSubmissionFileQuery.data
-    if (!submission || !metadata) {
-      return () => undefined
-    }
-
-    const renderPreview = async () => {
-      setPreviewLoading(true)
-      try {
-        const fileBlob = await fileService.downloadFile(submission.fileId)
-        const contentType = (metadata.contentType ?? '').toLowerCase()
-
-        if (contentType.includes('pdf')) {
-          const pdfUrl = URL.createObjectURL(fileBlob)
-          objectUrlToRevoke = pdfUrl
-          setPreviewPdfUrl(pdfUrl)
-          return
-        }
-
-        if (contentType.includes('wordprocessingml.document')
-          || metadata.originalFileName.toLowerCase().endsWith('.docx')) {
-          const result = await convertToHtml({ arrayBuffer: await fileBlob.arrayBuffer() })
-          setPreviewDocxHtml(result.value)
-          return
-        }
-
-        setPreviewError(t('assignments.previewUnavailable'))
-      } catch {
-        setPreviewError(t('common.states.error'))
-      } finally {
-        setPreviewLoading(false)
-      }
-    }
-
-    void renderPreview()
-
     return () => {
-      if (objectUrlToRevoke) {
-        URL.revokeObjectURL(objectUrlToRevoke)
-      }
+      URL.revokeObjectURL(preview.url)
     }
-  }, [selectedSubmissionFileQuery.data, selectedSubmissionQuery.data, t])
+  }, [submissionPreviewQuery.data])
+
+  if (
+    assignmentQuery.isLoading
+    || (isStudent && mySubmissionsQuery.isLoading)
+    || (!isStudent && (
+      submissionsQuery.isLoading
+      || availabilityQuery.isLoading
+      || subjectScopeQuery.isLoading
+      || assignmentSubjectQuery.isLoading
+      || connectedGroupsQuery.isLoading
+      || submissionStudentsQuery.isLoading
+      || groupStudentsQuery.isLoading
+      || selectedSubmissionQuery.isLoading
+      || selectedSubmissionFileQuery.isLoading
+    ))
+  ) {
+    return <LoadingState />
+  }
+
+  if (
+    assignmentQuery.isError
+    || !assignment
+    || (isStudent && mySubmissionsQuery.isError)
+    || (!isStudent && (
+      submissionsQuery.isError
+      || availabilityQuery.isError
+      || subjectScopeQuery.isError
+      || assignmentSubjectQuery.isError
+      || connectedGroupsQuery.isError
+      || submissionStudentsQuery.isError
+      || groupStudentsQuery.isError
+      || selectedSubmissionQuery.isError
+      || selectedSubmissionFileQuery.isError
+    ))
+  ) {
+    const assignmentError = normalizeApiError(assignmentQuery.error)
+    if (isStudent && assignmentError && (assignmentError.status === 403 || assignmentError.status === 404)) {
+      const requestId = assignmentError.requestId
+      const message = requestId
+        ? `${t('assignments.notAvailableForGroup')} ${t('common.labels.requestId')}: ${requestId}`
+        : t('assignments.notAvailableForGroup')
+      return (
+        <ErrorState
+          title={t('navigation.shared.assignments')}
+          description={message}
+        />
+      )
+    }
+
+    return (
+      <ErrorState
+        title={t('navigation.shared.assignments')}
+        description={getLocalizedRequestErrorMessage(
+          assignmentQuery.error
+            ?? submissionsQuery.error
+            ?? availabilityQuery.error
+            ?? subjectScopeQuery.error
+            ?? assignmentSubjectQuery.error
+            ?? connectedGroupsQuery.error
+            ?? submissionStudentsQuery.error
+            ?? mySubmissionsQuery.error
+            ?? groupStudentsQuery.error
+            ?? selectedSubmissionQuery.error
+            ?? selectedSubmissionFileQuery.error,
+          t,
+        )}
+        onRetry={() => {
+          void assignmentQuery.refetch()
+          void submissionsQuery.refetch()
+          void availabilityQuery.refetch()
+        }}
+      />
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -845,153 +768,21 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
       {!isStudent ? (
         <Card className="space-y-4">
-          <PageHeader description={t('availability.assignmentDescription')} title={t('availability.title')} />
-          {availabilityGroupCards.length === 0 ? (
-            <EmptyState description={t('availability.assignmentEmpty')} title={t('availability.title')} />
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {availabilityGroupCards.map(({ availability, group }) => (
-                <button
-                  key={group.id}
-                  className="rounded-[14px] border border-border bg-surface-muted p-4 text-left transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/15"
-                  type="button"
-                  onClick={() => setAvailabilityForm({
-                    groupId: group.id,
-                    visible: availability?.visible ?? false,
-                    deadline: toDateTimeLocal(availability?.deadline ?? assignment.deadline),
-                    allowLateSubmissions: availability?.allowLateSubmissions ?? assignment.allowLateSubmissions,
-                    maxSubmissions: availability?.maxSubmissions ?? assignment.maxSubmissions,
-                    allowResubmit: availability?.allowResubmit ?? assignment.allowResubmit,
-                  })}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-text-primary">{group.name}</p>
-                      <p className="mt-1 text-sm text-text-secondary">{t('common.labels.deadline')}: {formatDateTime(availability?.deadline ?? assignment.deadline)}</p>
-                      <p className="text-sm text-text-secondary">{t('assignments.maxSubmissions')}: {availability?.maxSubmissions ?? assignment.maxSubmissions}</p>
-                    </div>
-                    <span className={availability?.visible ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
-                      {availability ? getAssignmentAvailabilityStatus(availability, t) : t('availability.hidden')}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-text-primary">{t('availability.bulkTitle')}</h3>
-                <p className="mt-1 text-sm leading-6 text-text-secondary">{t('availability.bulkDescription')}</p>
-              </div>
-              <span className="rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-text-secondary">
-                {t('availability.connectedGroupsCount', { count: connectedGroups.length })}
-              </span>
-            </div>
-            <div className="grid gap-4 xl:grid-cols-3">
-              <FormField label={t('common.labels.status')}>
-                <SegmentedControl
-                  ariaLabel={t('availability.title')}
-                  value={bulkAvailabilityForm.visible ? 'visible' : 'hidden'}
-                  options={[
-                    { value: 'hidden', label: t('availability.hidden') },
-                    { value: 'visible', label: t('availability.visible') },
-                  ]}
-                  onChange={(value) => setBulkAvailabilityForm((current) => ({ ...current, visible: value === 'visible' }))}
-                />
-              </FormField>
-              <FormField label={t('common.labels.deadline')}>
-                <Input type="datetime-local" value={bulkAvailabilityForm.deadline} onChange={(event) => setBulkAvailabilityForm((current) => ({ ...current, deadline: event.target.value }))} />
-              </FormField>
-              <FormField label={t('assignments.maxSubmissions')}>
-                <Input min={1} type="number" value={bulkAvailabilityForm.maxSubmissions} onChange={(event) => setBulkAvailabilityForm((current) => ({ ...current, maxSubmissions: Number(event.target.value) }))} />
-              </FormField>
-              <FormField label={t('assignments.allowLateSubmissions')}>
-                <Input type="checkbox" checked={bulkAvailabilityForm.allowLateSubmissions} onChange={(event) => setBulkAvailabilityForm((current) => ({ ...current, allowLateSubmissions: event.target.checked }))} />
-              </FormField>
-              <FormField label={t('assignments.allowResubmit')}>
-                <Input type="checkbox" checked={bulkAvailabilityForm.allowResubmit} onChange={(event) => setBulkAvailabilityForm((current) => ({ ...current, allowResubmit: event.target.checked }))} />
-              </FormField>
-            </div>
-            {bulkDeadlineRequired ? (
-              <p className="text-sm font-semibold text-text-secondary">{t('availability.bulkDeadlineRequired')}</p>
-            ) : null}
-            <div className="flex flex-wrap gap-3">
-              <Button disabled={connectedGroups.length === 0 || bulkDeadlineRequired || bulkAvailabilityMutation.isPending} variant="secondary" onClick={() => applyBulkAvailability(true)}>
-                {t('availability.publishAllGroups')}
-              </Button>
-              <Button disabled={connectedGroups.length === 0 || bulkDeadlineRequired || bulkAvailabilityMutation.isPending} variant="secondary" onClick={() => applyBulkAvailability(false)}>
-                {t('availability.hideAllGroups')}
-              </Button>
-              <Button disabled={connectedGroups.length === 0 || bulkDeadlineRequired || bulkAvailabilityMutation.isPending} onClick={() => applyBulkAvailability()}>
-                {t('availability.applySameToAll')}
-              </Button>
-            </div>
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
-              <EntityPicker
-                label={t('availability.copyFromGroup')}
-                value={bulkAvailabilityForm.copyFromGroupId}
-                options={connectedGroupOptions}
-                placeholder={t('availability.selectGroup')}
-                emptyLabel={t('availability.assignmentEmpty')}
-                onChange={(value) => setBulkAvailabilityForm((current) => ({ ...current, copyFromGroupId: value }))}
-              />
-              <div className="flex items-end">
-                <Button
-                  disabled={!bulkAvailabilityForm.copyFromGroupId || bulkAvailabilityMutation.isPending}
-                  variant="secondary"
-                  onClick={copyAvailabilityToAllGroups}
-                >
-                  {t('availability.copyAvailability')}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-4 xl:grid-cols-3">
-            <EntityPicker
-              label={t('navigation.shared.groups')}
-              value={availabilityForm.groupId}
-              options={groupOptions}
-              placeholder={t('availability.selectGroup')}
-              emptyLabel={t('education.noGroups')}
-              searchLabel={t('common.actions.search')}
-              searchPlaceholder={t('availability.groupSearchPlaceholder')}
-              searchValue={availabilityGroupSearch}
-              onChange={(value) => setAvailabilityForm((current) => ({ ...current, groupId: value }))}
-              onSearchChange={isTeacher ? undefined : setAvailabilityGroupSearch}
-            />
-              <FormField label={t('common.labels.status')}>
-                <SegmentedControl
-                  ariaLabel={t('availability.title')}
-                  value={availabilityForm.visible ? 'visible' : 'hidden'}
-                options={[
-                  { value: 'hidden', label: t('availability.hidden') },
-                  { value: 'visible', label: t('availability.visible') },
-                  ]}
-                  onChange={(value) => setAvailabilityForm((current) => ({ ...current, visible: value === 'visible' }))}
-                />
-              </FormField>
-            <FormField label={t('common.labels.deadline')}>
-              <Input type="datetime-local" value={availabilityForm.deadline} onChange={(event) => setAvailabilityForm((current) => ({ ...current, deadline: event.target.value }))} />
-            </FormField>
-            <FormField label={t('assignments.maxSubmissions')}>
-              <Input type="number" value={availabilityForm.maxSubmissions} onChange={(event) => setAvailabilityForm((current) => ({ ...current, maxSubmissions: Number(event.target.value) }))} />
-            </FormField>
-            <FormField label={t('assignments.allowLateSubmissions')}>
-              <Input type="checkbox" checked={availabilityForm.allowLateSubmissions} onChange={(event) => setAvailabilityForm((current) => ({ ...current, allowLateSubmissions: event.target.checked }))} />
-            </FormField>
-            <FormField label={t('assignments.allowResubmit')}>
-              <Input type="checkbox" checked={availabilityForm.allowResubmit} onChange={(event) => setAvailabilityForm((current) => ({ ...current, allowResubmit: event.target.checked }))} />
-            </FormField>
-          </div>
-          {availabilitySaveDisabledReason ? (
-            <p className="text-sm font-semibold text-text-secondary">{t('availability.saveUnavailable', { reason: availabilitySaveDisabledReason })}</p>
-          ) : null}
-          <Button disabled={Boolean(availabilitySaveDisabledReason) || availabilityMutation.isPending} onClick={() => availabilityMutation.mutate()}>
-            {t('common.actions.save')}
-          </Button>
+          <AssignmentAccessPanel
+            assignment={assignment}
+            availabilityGroupCards={availabilityGroupCards}
+            availabilityRows={availabilityRows}
+            connectedGroupOptions={connectedGroupOptions}
+            connectedGroups={connectedGroups}
+            groupOptions={groupOptions}
+            isBulkSaving={bulkAvailabilityMutation.isPending}
+            isSaving={availabilityMutation.isPending}
+            isTeacher={isTeacher}
+            searchValue={availabilityGroupSearch}
+            onBulkUpsertAvailability={(items) => bulkAvailabilityMutation.mutateAsync(items)}
+            onSearchChange={setAvailabilityGroupSearch}
+            onUpsertAvailability={(payload) => availabilityMutation.mutateAsync(payload)}
+          />
         </Card>
       ) : null}
 
@@ -1013,7 +804,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                       {submissions.map((submission) => (
                         <button
                           key={submission.id}
-                          className={`w-full rounded-[14px] border px-4 py-3 text-left ${selectedSubmissionId === submission.id ? 'border-accent bg-accent/5' : 'border-border bg-surface'}`}
+                          className={`w-full rounded-[14px] border px-4 py-3 text-left ${activeSubmissionId === submission.id ? 'border-accent bg-accent/5' : 'border-border bg-surface'}`}
                           type="button"
                           onClick={() => setSelectedSubmissionId(submission.id)}
                         >
@@ -1037,18 +828,20 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                     </div>
                     <div className="space-y-2 rounded-[14px] border border-border bg-surface p-3">
                       <p className="text-sm font-semibold text-text-primary">{t('assignments.filePreview')}</p>
-                      {previewLoading ? <p className="text-sm text-text-secondary">{t('common.states.loading')}</p> : null}
-                      {previewPdfUrl ? (
-                        <iframe className="h-[480px] w-full rounded-[10px] border border-border" src={previewPdfUrl} title={t('assignments.filePreview')} />
+                      {submissionPreviewQuery.isLoading ? <p className="text-sm text-text-secondary">{t('common.states.loading')}</p> : null}
+                      {submissionPreviewQuery.data?.type === 'pdf' ? (
+                        <iframe className="h-[480px] w-full rounded-[10px] border border-border" src={submissionPreviewQuery.data.url} title={t('assignments.filePreview')} />
                       ) : null}
-                      {!previewPdfUrl && previewDocxHtml ? (
+                      {submissionPreviewQuery.data?.type === 'docx' ? (
                         <div
                           className="prose max-w-none rounded-[10px] border border-border bg-surface-muted p-4 text-sm text-text-primary"
-                          dangerouslySetInnerHTML={{ __html: previewDocxHtml }}
+                          dangerouslySetInnerHTML={{ __html: submissionPreviewQuery.data.html }}
                         />
                       ) : null}
-                      {!previewLoading && !previewPdfUrl && !previewDocxHtml ? (
-                        <p className="text-sm text-text-secondary">{previewError ?? t('assignments.previewUnavailable')}</p>
+                      {!submissionPreviewQuery.isLoading && submissionPreviewQuery.data?.type !== 'pdf' && submissionPreviewQuery.data?.type !== 'docx' ? (
+                        <p className="text-sm text-text-secondary">
+                          {submissionPreviewQuery.isError ? t('common.states.error') : t('assignments.previewUnavailable')}
+                        </p>
                       ) : null}
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -1074,11 +867,36 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                           min={0}
                           type="number"
                           value={gradeForm.score}
-                          onChange={(event) => setGradeForm((current) => ({ ...current, score: Number(event.target.value) }))}
+                          onChange={(event) => {
+                            if (!gradeForm.submissionId) {
+                              return
+                            }
+                            setGradeDraftBySubmissionId((current) => ({
+                              ...current,
+                              [gradeForm.submissionId]: {
+                                score: Number(event.target.value),
+                                feedback: gradeForm.feedback,
+                              },
+                            }))
+                          }}
                         />
                       </FormField>
                       <FormField label={t('assignments.feedback')}>
-                        <Input value={gradeForm.feedback} onChange={(event) => setGradeForm((current) => ({ ...current, feedback: event.target.value }))} />
+                        <Input
+                          value={gradeForm.feedback}
+                          onChange={(event) => {
+                            if (!gradeForm.submissionId) {
+                              return
+                            }
+                            setGradeDraftBySubmissionId((current) => ({
+                              ...current,
+                              [gradeForm.submissionId]: {
+                                score: gradeForm.score,
+                                feedback: event.target.value,
+                              },
+                            }))
+                          }}
+                        />
                       </FormField>
                     </div>
                     <Button disabled={!gradeForm.submissionId || gradeForm.score > assignment.maxPoints} onClick={() => gradeMutation.mutate()}>
@@ -1095,25 +913,4 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       ) : null}
     </div>
   )
-}
-
-function toDateTimeLocal(value: string | null | undefined) {
-  return value ? value.slice(0, 16) : ''
-}
-
-function getAssignmentAvailabilityStatus(
-  availability: AssignmentGroupAvailabilityResponse,
-  t: (key: string) => string,
-) {
-  if (!availability.visible) {
-    return t('availability.hidden')
-  }
-
-  const now = Date.now()
-  const deadlineAt = new Date(availability.deadline).getTime()
-
-  if (deadlineAt < now) {
-    return t('availability.deadlinePassed')
-  }
-  return t('availability.open')
 }

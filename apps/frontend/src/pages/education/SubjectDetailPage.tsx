@@ -1078,7 +1078,7 @@ export function SubjectDetailPage() {
             />
           </div>
           <Button
-            disabled={!settingsForm.name.trim() || updateSubjectMutation.isPending}
+            disabled={!settingsForm.name.trim() || settingsForm.selectedGroupIds.length === 0 || updateSubjectMutation.isPending}
             onClick={() => updateSubjectMutation.mutate()}
           >
             {t('common.actions.save')}

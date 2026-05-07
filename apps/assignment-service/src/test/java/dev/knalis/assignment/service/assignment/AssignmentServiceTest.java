@@ -13,6 +13,7 @@ import dev.knalis.assignment.factory.assignment.AssignmentFactory;
 import dev.knalis.assignment.mapper.AssignmentMapper;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
+import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
 import dev.knalis.contracts.event.AssignmentImportantChangeTypeV1;
@@ -46,6 +47,9 @@ class AssignmentServiceTest {
 
     @Mock
     private AssignmentGroupAvailabilityRepository assignmentGroupAvailabilityRepository;
+
+    @Mock
+    private SubmissionRepository submissionRepository;
     
     @Mock
     private AssignmentMapper assignmentMapper;
@@ -66,6 +70,7 @@ class AssignmentServiceTest {
         assignmentService = new AssignmentService(
                 assignmentRepository,
                 assignmentGroupAvailabilityRepository,
+                submissionRepository,
                 new AssignmentFactory(),
                 assignmentMapper,
                 assignmentAuditService,
@@ -108,6 +113,7 @@ class AssignmentServiceTest {
                 false,
                 Set.of(),
                 null,
+                100,
                 now,
                 now
         );
@@ -118,7 +124,7 @@ class AssignmentServiceTest {
         AssignmentResponse result = assignmentService.createAssignment(
                 UUID.randomUUID(),
                 true,
-                new CreateAssignmentRequest(topicId, "  Lab 1  ", "  Intro task  ", deadline, null, null, null, null, null, null)
+                new CreateAssignmentRequest(topicId, "  Lab 1  ", "  Intro task  ", deadline, null, null, null, null, null, null, null)
         );
         
         ArgumentCaptor<Assignment> captor = ArgumentCaptor.forClass(Assignment.class);
@@ -163,6 +169,7 @@ class AssignmentServiceTest {
                 false,
                 Set.of(),
                 null,
+                100,
                 now,
                 now
         );
@@ -218,6 +225,7 @@ class AssignmentServiceTest {
                 false,
                 Set.of(),
                 null,
+                100,
                 now,
                 now
         );
@@ -295,6 +303,7 @@ class AssignmentServiceTest {
                 false,
                 Set.of(),
                 null,
+                100,
                 now,
                 now
         );
@@ -311,6 +320,7 @@ class AssignmentServiceTest {
                         "Lab 1",
                         "Intro task",
                         updatedDeadline,
+                        null,
                         null,
                         null,
                         null,
@@ -361,6 +371,7 @@ class AssignmentServiceTest {
                 false,
                 Set.of(),
                 null,
+                100,
                 now,
                 now
         );
@@ -411,6 +422,7 @@ class AssignmentServiceTest {
                 false,
                 Set.of(),
                 null,
+                100,
                 now,
                 now
         ));

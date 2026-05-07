@@ -19,6 +19,7 @@ import dev.knalis.testing.repository.TestGroupAvailabilityRepository;
 import dev.knalis.testing.repository.TestRepository;
 import dev.knalis.testing.repository.AnswerRepository;
 import dev.knalis.testing.repository.QuestionRepository;
+import dev.knalis.testing.repository.TestResultRepository;
 import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +59,9 @@ class TestServiceTest {
 
     @Mock
     private AnswerRepository answerRepository;
+
+    @Mock
+    private TestResultRepository testResultRepository;
     
     @Mock
     private TestMapper testMapper;
@@ -81,6 +85,7 @@ class TestServiceTest {
                 testGroupAvailabilityRepository,
                 questionRepository,
                 answerRepository,
+                testResultRepository,
                 new TestFactory(),
                 new TestAttemptFactory(),
                 testMapper,

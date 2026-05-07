@@ -5,20 +5,22 @@ import { useTranslation } from 'react-i18next'
 import { searchService } from '@/shared/api/services'
 import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { getSearchResultTypeLabel } from '@/shared/lib/enum-labels'
+import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
 import { Card } from '@/shared/ui/Card'
 import { DataTable } from '@/shared/ui/DataTable'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
-import { ErrorState, LoadingState } from '@/shared/ui/StateViews'
+import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 
 export function AdminSearchPage() {
   const { t } = useTranslation()
-  const [query, setQuery] = useState('demo')
+  const [query, setQuery] = useState('')
+  const debouncedQuery = useDebouncedValue(query.trim(), 350)
   const searchQuery = useQuery({
-    queryKey: ['admin-search', query],
-    queryFn: () => searchService.search({ q: query, page: 0, size: 20 }),
-    enabled: query.trim().length > 0,
+    queryKey: ['admin-search', debouncedQuery],
+    queryFn: () => searchService.search({ q: debouncedQuery, page: 0, size: 20 }),
+    enabled: debouncedQuery.length > 0,
   })
   const apiError = normalizeApiError(searchQuery.error)
 
@@ -41,6 +43,9 @@ export function AdminSearchPage() {
           ].filter(Boolean).join(' ')}
           onRetry={() => void searchQuery.refetch()}
         />
+      ) : null}
+      {!searchQuery.isLoading && !searchQuery.isError && debouncedQuery.length === 0 ? (
+        <EmptyState title={t('navigation.admin.search')} description={t('search.enterQuery')} />
       ) : null}
       {searchQuery.data ? (
         <DataTable

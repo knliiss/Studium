@@ -1,0 +1,14 @@
+package dev.knalis.content.config;
+
+import dev.knalis.shared.security.properties.JwtResourceServerProperties;
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
+
+@Getter
+@Setter
+@Validated
+@ConfigurationProperties(prefix = "app.content.jwt")
+public class ContentJwtProperties extends JwtResourceServerProperties {
+}

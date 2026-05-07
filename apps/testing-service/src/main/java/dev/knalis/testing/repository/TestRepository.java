@@ -37,8 +37,8 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
                    or test.createdByUserId = :teacherId)
             """)
     Page<Test> findVisibleByTopicIdForTeacher(
-            UUID topicId,
-            UUID teacherId,
+            @Param("topicId") UUID topicId,
+            @Param("teacherId") UUID teacherId,
             @Param("publishedStatus") TestStatus publishedStatus,
             Pageable pageable
     );
@@ -61,10 +61,10 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
               )
             """)
     Page<Test> findAvailableByTopicIdForGroups(
-            UUID topicId,
-            TestStatus status,
-            Collection<UUID> groupIds,
-            Instant now,
+            @Param("topicId") UUID topicId,
+            @Param("status") TestStatus status,
+            @Param("groupIds") Collection<UUID> groupIds,
+            @Param("now") Instant now,
             Pageable pageable
     );
 
@@ -84,10 +84,10 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
               )
             """)
     List<Test> findAvailableByTopicIdInForGroups(
-            Collection<UUID> topicIds,
-            TestStatus status,
-            Collection<UUID> groupIds,
-            Instant now
+            @Param("topicIds") Collection<UUID> topicIds,
+            @Param("status") TestStatus status,
+            @Param("groupIds") Collection<UUID> groupIds,
+            @Param("now") Instant now
     );
 
     List<Test> findAllByCreatedByUserIdAndStatusInOrderByAvailableUntilAscUpdatedAtDesc(

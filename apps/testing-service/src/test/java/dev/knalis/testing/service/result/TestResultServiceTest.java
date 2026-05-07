@@ -1,5 +1,6 @@
 package dev.knalis.testing.service.result;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.knalis.testing.client.education.EducationServiceClient;
 import dev.knalis.testing.client.education.dto.TopicResponse;
 import dev.knalis.testing.dto.request.CreateTestResultRequest;
@@ -12,6 +13,8 @@ import dev.knalis.testing.exception.TestNotFoundException;
 import dev.knalis.testing.factory.attempt.TestAttemptFactory;
 import dev.knalis.testing.factory.result.TestResultFactory;
 import dev.knalis.testing.mapper.TestResultMapper;
+import dev.knalis.testing.repository.AnswerRepository;
+import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.TestRepository;
 import dev.knalis.testing.repository.TestResultRepository;
@@ -55,6 +58,12 @@ class TestResultServiceTest {
     
     @Mock
     private EducationServiceClient educationServiceClient;
+
+    @Mock
+    private QuestionRepository questionRepository;
+
+    @Mock
+    private AnswerRepository answerRepository;
     
     private TestResultService testResultService;
     
@@ -68,7 +77,10 @@ class TestResultServiceTest {
                 testResultMapper,
                 testingEventPublisher,
                 educationServiceClient,
-                testingAuditService
+                testingAuditService,
+                questionRepository,
+                answerRepository,
+                new ObjectMapper()
         );
     }
     

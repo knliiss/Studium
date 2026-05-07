@@ -6,6 +6,7 @@ import dev.knalis.gateway.client.testing.TestingServiceClient;
 import dev.knalis.gateway.dto.SearchItemResponse;
 import dev.knalis.gateway.dto.SearchPageResponse;
 import dev.knalis.gateway.exception.GatewayClientException;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class GlobalSearchService {
 
@@ -48,45 +50,35 @@ public class GlobalSearchService {
 
         int requestedWindowSize = Math.min(Math.max((safePage + 1) * safeSize, 1), 100);
         return Mono.zip(
-                        educationServiceClient.search(bearerToken, requestId, normalizedQuery, 0, requestedWindowSize),
-                        assignmentServiceClient.search(bearerToken, requestId, normalizedQuery, 0, requestedWindowSize),
-                        testingServiceClient.search(bearerToken, requestId, normalizedQuery, 0, requestedWindowSize)
+                        searchEducation(bearerToken, requestId, normalizedQuery, requestedWindowSize),
+                        searchAssignments(bearerToken, requestId, normalizedQuery, requestedWindowSize),
+                        searchTesting(bearerToken, requestId, normalizedQuery, requestedWindowSize)
                 )
                 .map(tuple -> {
+                    boolean allFailed = tuple.getT1().failed() && tuple.getT2().failed() && tuple.getT3().failed();
+                    if (allFailed) {
+                        throw new GatewayClientException(
+                                HttpStatus.SERVICE_UNAVAILABLE,
+                                "DOWNSTREAM_UNAVAILABLE",
+                                "Search is temporarily unavailable"
+                        );
+                    }
+
                     List<SearchItemResponse> merged = Stream.concat(
                                     Stream.concat(
-                                            tuple.getT1().items().stream().map(item -> new SearchItemResponse(
-                                                    item.type(),
-                                                    item.id(),
-                                                    item.title(),
-                                                    item.subtitle(),
-                                                    "education-service",
-                                                    item.targetMetadata()
-                                            )),
-                                            tuple.getT2().items().stream().map(item -> new SearchItemResponse(
-                                                    item.type(),
-                                                    item.id(),
-                                                    item.title(),
-                                                    item.subtitle(),
-                                                    "assignment-service",
-                                                    item.targetMetadata()
-                                            ))
+                                            tuple.getT1().response().items().stream(),
+                                            tuple.getT2().response().items().stream()
                                     ),
-                                    tuple.getT3().items().stream().map(item -> new SearchItemResponse(
-                                            item.type(),
-                                            item.id(),
-                                            item.title(),
-                                            item.subtitle(),
-                                            "testing-service",
-                                            item.targetMetadata()
-                                    ))
+                                    tuple.getT3().response().items().stream()
                             )
                             .sorted(comparator(sortBy, direction))
                             .toList();
 
                     int fromIndex = Math.min(safePage * safeSize, merged.size());
                     int toIndex = Math.min(fromIndex + safeSize, merged.size());
-                    long totalElements = tuple.getT1().totalElements() + tuple.getT2().totalElements() + tuple.getT3().totalElements();
+                    long totalElements = tuple.getT1().response().totalElements()
+                            + tuple.getT2().response().totalElements()
+                            + tuple.getT3().response().totalElements();
                     int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / safeSize);
 
                     return new SearchPageResponse(
@@ -101,6 +93,104 @@ public class GlobalSearchService {
                 })
                 .onErrorMap(GatewayClientException.class, this::normalizeSearchException);
     }
+
+    private Mono<DownstreamSearchResult> searchEducation(
+            String bearerToken,
+            String requestId,
+            String query,
+            int size
+    ) {
+        return educationServiceClient.search(bearerToken, requestId, query, 0, size)
+                .map(response -> new DownstreamSearchResult(
+                        new SearchPageResponse(
+                                response.items().stream().map(item -> new SearchItemResponse(
+                                        item.type(),
+                                        item.id(),
+                                        item.title(),
+                                        item.subtitle(),
+                                        "education-service",
+                                        item.targetMetadata()
+                                )).toList(),
+                                response.page(),
+                                response.size(),
+                                response.totalElements(),
+                                response.totalPages(),
+                                response.first(),
+                                response.last()
+                        ),
+                        false
+                ))
+                .onErrorResume(exception -> {
+                    log.warn("Global search education downstream failed, requestId={}", requestId, exception);
+                    return Mono.just(new DownstreamSearchResult(emptyPage(0, size), true));
+                });
+    }
+
+    private Mono<DownstreamSearchResult> searchAssignments(
+            String bearerToken,
+            String requestId,
+            String query,
+            int size
+    ) {
+        return assignmentServiceClient.search(bearerToken, requestId, query, 0, size)
+                .map(response -> new DownstreamSearchResult(
+                        new SearchPageResponse(
+                                response.items().stream().map(item -> new SearchItemResponse(
+                                        item.type(),
+                                        item.id(),
+                                        item.title(),
+                                        item.subtitle(),
+                                        "assignment-service",
+                                        item.targetMetadata()
+                                )).toList(),
+                                response.page(),
+                                response.size(),
+                                response.totalElements(),
+                                response.totalPages(),
+                                response.first(),
+                                response.last()
+                        ),
+                        false
+                ))
+                .onErrorResume(exception -> {
+                    log.warn("Global search assignment downstream failed, requestId={}", requestId, exception);
+                    return Mono.just(new DownstreamSearchResult(emptyPage(0, size), true));
+                });
+    }
+
+    private Mono<DownstreamSearchResult> searchTesting(
+            String bearerToken,
+            String requestId,
+            String query,
+            int size
+    ) {
+        return testingServiceClient.search(bearerToken, requestId, query, 0, size)
+                .map(response -> new DownstreamSearchResult(
+                        new SearchPageResponse(
+                                response.items().stream().map(item -> new SearchItemResponse(
+                                        item.type(),
+                                        item.id(),
+                                        item.title(),
+                                        item.subtitle(),
+                                        "testing-service",
+                                        item.targetMetadata()
+                                )).toList(),
+                                response.page(),
+                                response.size(),
+                                response.totalElements(),
+                                response.totalPages(),
+                                response.first(),
+                                response.last()
+                        ),
+                        false
+                ))
+                .onErrorResume(exception -> {
+                    log.warn("Global search testing downstream failed, requestId={}", requestId, exception);
+                    return Mono.just(new DownstreamSearchResult(emptyPage(0, size), true));
+                });
+    }
+
+    private record DownstreamSearchResult(SearchPageResponse response, boolean failed) {}
 
     private SearchPageResponse emptyPage(int page, int size) {
         return new SearchPageResponse(

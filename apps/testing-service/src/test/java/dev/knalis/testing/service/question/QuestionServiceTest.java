@@ -7,8 +7,11 @@ import dev.knalis.testing.entity.QuestionType;
 import dev.knalis.testing.entity.TestStatus;
 import dev.knalis.testing.exception.TestInvalidStateException;
 import dev.knalis.testing.exception.TestNotFoundException;
+import dev.knalis.testing.factory.answer.AnswerFactory;
 import dev.knalis.testing.factory.question.QuestionFactory;
+import dev.knalis.testing.mapper.AnswerMapper;
 import dev.knalis.testing.mapper.QuestionMapper;
+import dev.knalis.testing.repository.AnswerRepository;
 import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.service.test.TestService;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,12 +34,18 @@ class QuestionServiceTest {
     
     @Mock
     private QuestionRepository questionRepository;
+
+    @Mock
+    private AnswerRepository answerRepository;
     
     @Mock
     private TestService testService;
     
     @Mock
     private QuestionMapper questionMapper;
+
+    @Mock
+    private AnswerMapper answerMapper;
     
     private QuestionService questionService;
     
@@ -43,7 +53,10 @@ class QuestionServiceTest {
     void setUp() {
         questionService = new QuestionService(
                 questionRepository,
+                answerRepository,
+                new AnswerFactory(),
                 new QuestionFactory(),
+                answerMapper,
                 questionMapper,
                 testService
         );
@@ -101,6 +114,7 @@ class QuestionServiceTest {
                 true,
                 null,
                 null,
+                List.of(),
                 now,
                 now
         );
@@ -113,7 +127,7 @@ class QuestionServiceTest {
         when(testService.requireOwnedTest(actorId, false, testId)).thenReturn(test);
         when(questionRepository.sumPointsByTestId(testId)).thenReturn(0);
         when(questionRepository.save(any(Question.class))).thenReturn(question);
-        when(questionMapper.toResponse(question)).thenReturn(response);
+        when(answerRepository.findAllByQuestionIdOrderByCreatedAtAsc(questionId)).thenReturn(List.of());
         
         QuestionResponse result = questionService.createQuestion(actorId, false, new CreateQuestionRequest(
                 testId,

@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/v1/search")
 @RequiredArgsConstructor
@@ -48,6 +50,9 @@ public class SearchController {
         if (requestId == null || requestId.isBlank()) {
             requestId = exchange.getRequest().getHeaders().getFirst(RequestIdFilter.REQUEST_ID_HEADER);
         }
-        return requestId == null ? "" : requestId;
+        if (requestId == null || requestId.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        return requestId;
     }
 }

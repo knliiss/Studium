@@ -97,6 +97,7 @@ interface QuestionEditorItem {
   localId: string
   persistedId: string | null
   draft: QuestionDraft
+  hasInvalidConfiguration: boolean
 }
 
 const questionTypes: QuestionType[] = [
@@ -540,6 +541,20 @@ function TestDetailPage({ testId }: { testId: string }) {
     queryFn: () => userDirectoryService.lookup(resultStudentIds),
     enabled: resultStudentIds.length > 0,
   })
+  const seededQuestionDrafts = useMemo(
+    () => (isStudent ? [] : (questionsQuery.data ?? []).map((question) => toQuestionEditorItem(question))),
+    [isStudent, questionsQuery.data],
+  )
+  const editorQuestionDrafts = questionDrafts.length > 0 ? questionDrafts : seededQuestionDrafts
+  const activeQuestionDraftId = editorQuestionDrafts.some((item) => item.localId === selectedQuestionDraftId)
+    ? selectedQuestionDraftId
+    : editorQuestionDrafts[0]?.localId ?? ''
+  const updateEditorQuestionDrafts = (updater: (items: QuestionEditorItem[]) => QuestionEditorItem[]) => {
+    setQuestionDrafts((current) => {
+      const base = current.length > 0 ? current : seededQuestionDrafts
+      return updater(base)
+    })
+  }
 
   const startMutation = useMutation({
     mutationFn: () => testingService.startTest(testId),
@@ -617,7 +632,7 @@ function TestDetailPage({ testId }: { testId: string }) {
   const saveQuestionsMutation = useMutation({
     mutationFn: async () => {
       const existingQuestions = questionsQuery.data ?? []
-      const nextPersistedIds = new Set(questionDrafts.flatMap((item) => (item.persistedId ? [item.persistedId] : [])))
+      const nextPersistedIds = new Set(editorQuestionDrafts.flatMap((item) => (item.persistedId ? [item.persistedId] : [])))
 
       for (const existingQuestion of existingQuestions) {
         if (!nextPersistedIds.has(existingQuestion.id)) {
@@ -625,7 +640,7 @@ function TestDetailPage({ testId }: { testId: string }) {
         }
       }
 
-      for (const [index, item] of questionDrafts.entries()) {
+      for (const [index, item] of editorQuestionDrafts.entries()) {
         const basePayload = buildQuestionPayload(item.draft, index)
         if (item.persistedId) {
           await testingService.updateQuestion(item.persistedId, basePayload)
@@ -648,6 +663,7 @@ function TestDetailPage({ testId }: { testId: string }) {
     },
     onSuccess: async () => {
       setQuestionEditorError('')
+      setQuestionDrafts([])
       await queryClient.invalidateQueries({ queryKey: ['tests', testId, 'questions'] })
       await queryClient.invalidateQueries({ queryKey: ['tests', testId, 'preview'] })
     },
@@ -673,33 +689,80 @@ function TestDetailPage({ testId }: { testId: string }) {
     },
   })
 
-  useEffect(() => {
-    if (isStudent || !questionsQuery.data) {
-      return
-    }
+  const test = testQuery.data ?? null
+  const selectedQuestionDraft = editorQuestionDrafts.find((item) => item.localId === activeQuestionDraftId) ?? null
+  const availabilityRows = availabilityQuery.data ?? []
+  const availabilityByGroupId = new Map(availabilityRows.map((availability) => [availability.groupId, availability]))
+  const resultStudentById = new Map((resultStudentsQuery.data ?? []).map((student) => [student.id, student]))
+  const availabilityGroupCards = (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : availabilityGroupsQuery.data ?? [])
+    .map((group) => ({
+      group,
+      availability: availabilityByGroupId.get(group.id) ?? null,
+    }))
+  const groupOptions = isTeacher
+    ? (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
+    : (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
+  const usedPoints = editorQuestionDrafts.reduce((total, item) => total + item.draft.points, 0)
+  const maxPoints = test?.maxPoints ?? 0
+  const remainingPoints = maxPoints - usedPoints
+  const structureLocked = test ? test.status !== 'DRAFT' : true
+  const questionValidationReason = editorQuestionDrafts
+    .map((item) => validateQuestionDraft(item.draft, t))
+    .find(Boolean) ?? ''
+  const publishDisabledReason = structureLocked
+    ? ''
+    : usedPoints > maxPoints
+      ? t('testing.pointsExceeded')
+      : editorQuestionDrafts.length === 0
+        ? t('testing.validation.atLeastOneQuestion')
+        : questionValidationReason
+  const availabilitySaveDisabledReason = !availabilityForm.groupId
+    ? t('availability.selectGroupReason')
+    : !availabilityForm.availableUntil
+      ? t('availability.selectAvailableUntilReason')
+      : ''
+  const activeAttempt = isStudent && attemptSession && !attemptSession.finishedAt ? attemptSession : null
+  const now = useNow(activeAttempt ? 1_000 : null)
+  const timeLimitMinutes = test?.timeLimitMinutes ?? null
+  const attemptTimeLeftMs = activeAttempt && timeLimitMinutes
+    ? Math.max(0, (activeAttempt.startedAt + timeLimitMinutes * 60_000) - now)
+    : null
 
-    const nextDrafts = questionsQuery.data.map((question) => toQuestionEditorItem(question))
-    setQuestionDrafts(nextDrafts)
-    setSelectedQuestionDraftId((current) => {
-      if (current && nextDrafts.some((item) => item.localId === current)) {
+  const handleStudentAnswerChange = (questionId: string, value: StudentAnswerValue) => {
+    setAttemptSession((current) => {
+      if (!current || current.finishedAt) {
         return current
       }
-      return nextDrafts[0]?.localId ?? ''
+
+      const nextSession: StudentAttemptSession = {
+        ...current,
+        answers: {
+          ...current.answers,
+          [questionId]: value,
+        },
+      }
+      persistStudentAttemptSession(testId, nextSession)
+      return nextSession
     })
-  }, [isStudent, questionsQuery.data])
+  }
+
+  const handleFinishAttempt = () => {
+    if (!activeAttempt || finishMutation.isPending || !studentViewQuery.data) {
+      return
+    }
+    finishMutation.mutate()
+  }
 
   useEffect(() => {
-    if (!isStudent) {
+    if (!activeAttempt || !timeLimitMinutes || !studentViewQuery.data || finishMutation.isPending) {
       return
     }
 
-    const persistedSession = loadStudentAttemptSession(testId)
-    if (!persistedSession) {
-      return
+    const expiresAt = activeAttempt.startedAt + timeLimitMinutes * 60_000
+    if (Date.now() >= expiresAt) {
+      finishMutation.mutate()
     }
-
-    setAttemptSession(persistedSession)
-  }, [isStudent, testId])
+  }, [activeAttempt, finishMutation, finishMutation.isPending, studentViewQuery.data, timeLimitMinutes])
 
   if (
     testQuery.isLoading
@@ -729,7 +792,7 @@ function TestDetailPage({ testId }: { testId: string }) {
       || testResultsQuery.isError
       || resultStudentsQuery.isError
     ))
-    || !testQuery.data
+    || !test
   ) {
     return (
       <ErrorState
@@ -755,78 +818,6 @@ function TestDetailPage({ testId }: { testId: string }) {
       />
     )
   }
-
-  const test = testQuery.data
-  const selectedQuestionDraft = questionDrafts.find((item) => item.localId === selectedQuestionDraftId) ?? null
-  const availabilityRows = availabilityQuery.data ?? []
-  const availabilityByGroupId = new Map(availabilityRows.map((availability) => [availability.groupId, availability]))
-  const resultStudentById = new Map((resultStudentsQuery.data ?? []).map((student) => [student.id, student]))
-  const availabilityGroupCards = (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : availabilityGroupsQuery.data ?? [])
-    .map((group) => ({
-      group,
-      availability: availabilityByGroupId.get(group.id) ?? null,
-    }))
-  const groupOptions = isTeacher
-    ? (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
-    : (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
-  const usedPoints = questionDrafts.reduce((total, item) => total + item.draft.points, 0)
-  const remainingPoints = test.maxPoints - usedPoints
-  const structureLocked = test.status !== 'DRAFT'
-  const questionValidationReason = questionDrafts
-    .map((item) => validateQuestionDraft(item.draft, t))
-    .find(Boolean) ?? ''
-  const publishDisabledReason = structureLocked
-    ? ''
-    : usedPoints > test.maxPoints
-      ? t('testing.pointsExceeded')
-      : questionDrafts.length === 0
-        ? t('testing.validation.atLeastOneQuestion')
-        : questionValidationReason
-  const availabilitySaveDisabledReason = !availabilityForm.groupId
-    ? t('availability.selectGroupReason')
-    : !availabilityForm.availableUntil
-      ? t('availability.selectAvailableUntilReason')
-      : ''
-  const activeAttempt = isStudent && attemptSession && !attemptSession.finishedAt ? attemptSession : null
-  const attemptTimeLeftMs = activeAttempt && test.timeLimitMinutes
-    ? Math.max(0, (activeAttempt.startedAt + test.timeLimitMinutes * 60_000) - Date.now())
-    : null
-
-  const handleStudentAnswerChange = (questionId: string, value: StudentAnswerValue) => {
-    setAttemptSession((current) => {
-      if (!current || current.finishedAt) {
-        return current
-      }
-
-      const nextSession: StudentAttemptSession = {
-        ...current,
-        answers: {
-          ...current.answers,
-          [questionId]: value,
-        },
-      }
-      persistStudentAttemptSession(testId, nextSession)
-      return nextSession
-    })
-  }
-
-  const handleFinishAttempt = () => {
-    if (!activeAttempt || finishMutation.isPending || !studentViewQuery.data) {
-      return
-    }
-    finishMutation.mutate()
-  }
-
-  useEffect(() => {
-    if (!activeAttempt || !test.timeLimitMinutes || !studentViewQuery.data || finishMutation.isPending) {
-      return
-    }
-
-    const expiresAt = activeAttempt.startedAt + test.timeLimitMinutes * 60_000
-    if (Date.now() >= expiresAt) {
-      handleFinishAttempt()
-    }
-  }, [activeAttempt, finishMutation.isPending, studentViewQuery.data, test.timeLimitMinutes])
 
   return (
     <div className="space-y-6">
@@ -926,7 +917,7 @@ function TestDetailPage({ testId }: { testId: string }) {
                     variant="secondary"
                     onClick={() => {
                       const nextItem = createQuestionEditorItem()
-                      setQuestionDrafts((current) => [...current, nextItem])
+                      updateEditorQuestionDrafts((current) => [...current, nextItem])
                       setSelectedQuestionDraftId(nextItem.localId)
                     }}
                   >
@@ -939,16 +930,16 @@ function TestDetailPage({ testId }: { testId: string }) {
                   <MetricRow label={t('testing.usedPoints')} value={usedPoints} />
                   <MetricRow label={t('testing.remainingPoints')} value={Math.max(remainingPoints, 0)} />
                 </div>
-                {questionDrafts.length === 0 ? (
+                {editorQuestionDrafts.length === 0 ? (
                   <p className="text-sm leading-6 text-text-secondary">{t('testing.noQuestions')}</p>
                 ) : (
                   <div className="space-y-2">
-                    {questionDrafts.map((item, index) => (
+                    {editorQuestionDrafts.map((item, index) => (
                       <div
                         key={item.localId}
                         className={cn(
                           'rounded-[14px] border bg-surface px-3 py-3',
-                          item.localId === selectedQuestionDraftId ? 'border-accent shadow-soft' : 'border-border',
+                          item.localId === activeQuestionDraftId ? 'border-accent shadow-soft' : 'border-border',
                         )}
                       >
                         <button
@@ -960,7 +951,7 @@ function TestDetailPage({ testId }: { testId: string }) {
                             {getQuestionPrompt(item.draft) || t('testing.untitledQuestion', { number: index + 1 })}
                           </p>
                           <p className="mt-1 text-xs text-text-secondary">
-                            {t('testing.questionProgress', { current: index + 1, total: questionDrafts.length })}
+                            {t('testing.questionProgress', { current: index + 1, total: editorQuestionDrafts.length })}
                             {' · '}
                             {t(`testing.questionType.${item.draft.type}`)}
                             {' · '}
@@ -972,16 +963,16 @@ function TestDetailPage({ testId }: { testId: string }) {
                             disabled={structureLocked || index === 0}
                             variant="ghost"
                             onClick={() => {
-                              setQuestionDrafts((current) => moveQuestionEditorItem(current, index, index - 1))
+                              updateEditorQuestionDrafts((current) => moveQuestionEditorItem(current, index, index - 1))
                             }}
                           >
                             {t('common.actions.moveUp')}
                           </Button>
                           <Button
-                            disabled={structureLocked || index === questionDrafts.length - 1}
+                            disabled={structureLocked || index === editorQuestionDrafts.length - 1}
                             variant="ghost"
                             onClick={() => {
-                              setQuestionDrafts((current) => moveQuestionEditorItem(current, index, index + 1))
+                              updateEditorQuestionDrafts((current) => moveQuestionEditorItem(current, index, index + 1))
                             }}
                           >
                             {t('common.actions.moveDown')}
@@ -990,9 +981,9 @@ function TestDetailPage({ testId }: { testId: string }) {
                             disabled={structureLocked}
                             variant="ghost"
                             onClick={() => {
-                              const nextDrafts = questionDrafts.filter((question) => question.localId !== item.localId)
+                              const nextDrafts = editorQuestionDrafts.filter((question) => question.localId !== item.localId)
                               setQuestionDrafts(nextDrafts)
-                              if (selectedQuestionDraftId === item.localId) {
+                              if (activeQuestionDraftId === item.localId) {
                                 setSelectedQuestionDraftId(nextDrafts[Math.max(0, index - 1)]?.localId ?? nextDrafts[0]?.localId ?? '')
                               }
                             }}
@@ -1013,11 +1004,11 @@ function TestDetailPage({ testId }: { testId: string }) {
                     disabled={structureLocked}
                     draft={selectedQuestionDraft.draft}
                     onChange={(nextDraft) => {
-                      setQuestionDrafts((current) => current.map((item) => item.localId === selectedQuestionDraft.localId
+                      updateEditorQuestionDrafts((current) => current.map((item) => item.localId === selectedQuestionDraft.localId
                         ? { ...item, draft: nextDraft }
                         : item))
                     }}
-                    totalQuestions={questionDrafts.length}
+                    totalQuestions={editorQuestionDrafts.length}
                   />
                 ) : (
                   <EmptyState description={t('testing.addQuestionToStart')} title={t('testing.questionEditor')} />
@@ -1027,6 +1018,9 @@ function TestDetailPage({ testId }: { testId: string }) {
                 ) : null}
                 {questionValidationReason && selectedQuestionDraft ? (
                   <p className="text-sm font-semibold text-warning">{questionValidationReason}</p>
+                ) : null}
+                {selectedQuestionDraft?.hasInvalidConfiguration ? (
+                  <p className="text-sm font-semibold text-warning">{t('testing.invalidConfigurationWarning')}</p>
                 ) : null}
                 {questionEditorError ? <p className="text-sm font-semibold text-danger">{questionEditorError}</p> : null}
                 <Button
@@ -1396,6 +1390,16 @@ function MatchingEditor({ disabled, draft, onChange }: { disabled: boolean; draf
 
 function OrderingEditor({ disabled, draft, onChange }: { disabled: boolean; draft: QuestionDraft; onChange: (draft: QuestionDraft) => void }) {
   const { t } = useTranslation()
+  const moveItem = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= draft.orderingItems.length) {
+      return
+    }
+    const nextItems = [...draft.orderingItems]
+    const [movedItem] = nextItems.splice(fromIndex, 1)
+    nextItems.splice(toIndex, 0, movedItem)
+    onChange({ ...draft, orderingItems: nextItems })
+  }
+
   return (
     <div className="space-y-3">
       <p className="text-sm font-semibold text-text-primary">{t('testing.orderedItems')}</p>
@@ -1408,9 +1412,17 @@ function OrderingEditor({ disabled, draft, onChange }: { disabled: boolean; draf
             value={item.text}
             onChange={(event) => onChange({ ...draft, orderingItems: draft.orderingItems.map((option) => option.id === item.id ? { ...option, text: event.target.value } : option) })}
           />
-          <Button disabled={disabled || draft.orderingItems.length <= 2} variant="ghost" onClick={() => onChange({ ...draft, orderingItems: draft.orderingItems.filter((option) => option.id !== item.id) })}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={disabled || index === 0} variant="ghost" onClick={() => moveItem(index, index - 1)}>
+              {t('common.actions.moveUp')}
+            </Button>
+            <Button disabled={disabled || index === draft.orderingItems.length - 1} variant="ghost" onClick={() => moveItem(index, index + 1)}>
+              {t('common.actions.moveDown')}
+            </Button>
+            <Button disabled={disabled || draft.orderingItems.length <= 2} variant="ghost" onClick={() => onChange({ ...draft, orderingItems: draft.orderingItems.filter((option) => option.id !== item.id) })}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       ))}
       <Button disabled={disabled} variant="secondary" onClick={() => onChange({ ...draft, orderingItems: [...draft.orderingItems, createOptionDraft()] })}>
@@ -1606,7 +1618,8 @@ function StudentQuestionCard({
   total: number
 }) {
   const { t } = useTranslation()
-  const config = parseQuestionConfiguration(question.configurationJson)
+  const parsedConfiguration = parseQuestionConfigurationSafe(question.configurationJson)
+  const config = parsedConfiguration.config
 
   return (
     <div className="rounded-[16px] border border-border bg-surface p-4">
@@ -1662,11 +1675,16 @@ function createQuestionDraft(type: QuestionType = 'SINGLE_CHOICE'): QuestionDraf
   }
 }
 
-function createQuestionEditorItem(draft?: QuestionDraft, persistedId: string | null = null): QuestionEditorItem {
+function createQuestionEditorItem(
+  draft?: QuestionDraft,
+  persistedId: string | null = null,
+  hasInvalidConfiguration = false,
+): QuestionEditorItem {
   return {
     localId: createLocalId(),
     persistedId,
     draft: draft ?? createQuestionDraft(),
+    hasInvalidConfiguration,
   }
 }
 
@@ -1783,7 +1801,8 @@ function toQuestionEditorItem(question: QuestionResponse): QuestionEditorItem {
   draft.required = question.required
   draft.feedback = question.feedback ?? ''
 
-  const config = parseQuestionConfiguration(question.configurationJson)
+  const parsedConfiguration = parseQuestionConfigurationSafe(question.configurationJson)
+  const config = parsedConfiguration.config
   if (question.type === 'SINGLE_CHOICE' || question.type === 'MULTIPLE_CHOICE') {
     draft.options = question.answers.length > 0
       ? question.answers.map(toOptionDraft)
@@ -1832,7 +1851,7 @@ function toQuestionEditorItem(question: QuestionResponse): QuestionEditorItem {
     draft.rubric = typeof config.rubric === 'string' ? config.rubric : draft.rubric
   }
 
-  return createQuestionEditorItem(draft, question.id)
+  return createQuestionEditorItem(draft, question.id, parsedConfiguration.hasInvalidConfiguration)
 }
 
 function toOptionDraft(answer: AnswerResponse): QuestionOptionDraft {
@@ -1905,14 +1924,33 @@ function splitComma(value: string) {
 }
 
 function parseQuestionConfiguration(value: string | null) {
+  return parseQuestionConfigurationSafe(value).config
+}
+
+function parseQuestionConfigurationSafe(value: string | null) {
   if (!value) {
-    return {} as Record<string, unknown>
+    return {
+      config: {} as Record<string, unknown>,
+      hasInvalidConfiguration: false,
+    }
   }
   try {
     const parsed = JSON.parse(value)
-    return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {}
+    if (typeof parsed === 'object' && parsed !== null) {
+      return {
+        config: parsed as Record<string, unknown>,
+        hasInvalidConfiguration: false,
+      }
+    }
+    return {
+      config: {} as Record<string, unknown>,
+      hasInvalidConfiguration: true,
+    }
   } catch {
-    return {}
+    return {
+      config: {} as Record<string, unknown>,
+      hasInvalidConfiguration: true,
+    }
   }
 }
 
@@ -2056,7 +2094,7 @@ function localizeAnswerText(value: string, t: (key: string) => string) {
 }
 
 function useNow(intervalMs: number | null) {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Number(new Date()))
 
   useEffect(() => {
     if (!intervalMs) {

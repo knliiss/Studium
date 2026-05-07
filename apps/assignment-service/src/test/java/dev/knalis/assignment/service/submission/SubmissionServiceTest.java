@@ -6,6 +6,7 @@ import dev.knalis.assignment.client.education.dto.TopicResponse;
 import dev.knalis.assignment.client.FileServiceClient;
 import dev.knalis.assignment.client.dto.RemoteStoredFileResponse;
 import dev.knalis.assignment.dto.request.CreateSubmissionRequest;
+import dev.knalis.assignment.dto.response.SubmissionFileResponse;
 import dev.knalis.assignment.dto.response.SubmissionPageResponse;
 import dev.knalis.assignment.dto.response.SubmissionResponse;
 import dev.knalis.assignment.entity.Assignment;
@@ -15,9 +16,9 @@ import dev.knalis.assignment.entity.Submission;
 import dev.knalis.assignment.exception.MaxSubmissionsExceededException;
 import dev.knalis.assignment.exception.InvalidSubmissionFileException;
 import dev.knalis.assignment.factory.submission.SubmissionFactory;
-import dev.knalis.assignment.mapper.SubmissionMapper;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
+import dev.knalis.assignment.repository.GradeRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
@@ -55,10 +56,10 @@ class SubmissionServiceTest {
     private AssignmentGroupAvailabilityRepository assignmentGroupAvailabilityRepository;
     
     @Mock
-    private SubmissionMapper submissionMapper;
-    
-    @Mock
     private FileServiceClient fileServiceClient;
+
+    @Mock
+    private GradeRepository gradeRepository;
     
     @Mock
     private AssignmentEventPublisher assignmentEventPublisher;
@@ -78,8 +79,8 @@ class SubmissionServiceTest {
                 assignmentRepository,
                 assignmentGroupAvailabilityRepository,
                 new SubmissionFactory(),
-                submissionMapper,
                 fileServiceClient,
+                gradeRepository,
                 assignmentAuditService,
                 assignmentEventPublisher,
                 educationServiceClient
@@ -131,6 +132,17 @@ class SubmissionServiceTest {
                 assignmentId,
                 userId,
                 fileId,
+                new SubmissionFileResponse(
+                        fileId,
+                        "submission.pdf",
+                        "application/pdf",
+                        1024L,
+                        "UPLOADED"
+                ),
+                null,
+                null,
+                null,
+                false,
                 now,
                 now
         );
@@ -162,7 +174,7 @@ class SubmissionServiceTest {
                 now.toString()
         ));
         when(submissionRepository.save(any(Submission.class))).thenReturn(submission);
-        when(submissionMapper.toResponse(submission)).thenReturn(response);
+        when(gradeRepository.findBySubmissionId(submissionId)).thenReturn(Optional.empty());
         
         SubmissionResponse result = submissionService.createSubmission(
                 userId,
@@ -258,6 +270,11 @@ class SubmissionServiceTest {
                 assignmentId,
                 userId,
                 fileId,
+                null,
+                null,
+                null,
+                null,
+                false,
                 now,
                 now
         );
@@ -265,7 +282,7 @@ class SubmissionServiceTest {
         when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
         when(submissionRepository.findAllByAssignmentId(eq(assignmentId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(submission)));
-        when(submissionMapper.toResponse(submission)).thenReturn(response);
+        when(gradeRepository.findBySubmissionId(submissionId)).thenReturn(Optional.empty());
         
         SubmissionPageResponse result = submissionService.getSubmissionsByAssignment(
                 userId,

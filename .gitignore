@@ -70,3 +70,4 @@ test-output/
 # Misc
 *.swp
 *.swo
+.agent-report.md

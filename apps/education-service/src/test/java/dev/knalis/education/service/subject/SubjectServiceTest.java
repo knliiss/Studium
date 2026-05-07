@@ -1,10 +1,12 @@
 package dev.knalis.education.service.subject;
 
 import dev.knalis.education.dto.request.CreateSubjectRequest;
+import dev.knalis.education.dto.request.UpdateSubjectRequest;
 import dev.knalis.education.dto.response.SubjectPageResponse;
 import dev.knalis.education.dto.response.SubjectResponse;
 import dev.knalis.education.entity.Subject;
 import dev.knalis.education.exception.GroupNotFoundException;
+import dev.knalis.education.exception.SubjectBindingRequiredException;
 import dev.knalis.education.factory.subject.SubjectFactory;
 import dev.knalis.education.repository.GroupRepository;
 import dev.knalis.education.repository.SubjectGroupRepository;
@@ -21,12 +23,15 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -77,6 +82,42 @@ class SubjectServiceTest {
                         "Core subject"
                 ))
         );
+    }
+
+    @Test
+    void createSubjectThrowsWhenNoGroupsProvided() {
+        assertThrows(
+                SubjectBindingRequiredException.class,
+                () -> subjectService.createSubject(
+                        UUID.randomUUID(),
+                        new CreateSubjectRequest("Math", null, List.of(), List.of(), "Core subject")
+                )
+        );
+        verify(subjectRepository, never()).save(any(Subject.class));
+    }
+
+    @Test
+    void updateSubjectThrowsWhenNoGroupsProvided() {
+        UUID subjectId = UUID.randomUUID();
+        Subject subject = new Subject();
+        subject.setId(subjectId);
+        subject.setName("Math");
+        subject.setDescription("Core subject");
+        subject.setGroupId(UUID.randomUUID());
+        subject.setCreatedAt(Instant.now());
+        subject.setUpdatedAt(Instant.now());
+
+        when(subjectRepository.findById(subjectId)).thenReturn(Optional.of(subject));
+
+        assertThrows(
+                SubjectBindingRequiredException.class,
+                () -> subjectService.updateSubject(
+                        UUID.randomUUID(),
+                        subjectId,
+                        new UpdateSubjectRequest("Math", null, List.of(), List.of(), "Core subject")
+                )
+        );
+        verify(subjectRepository, never()).save(any(Subject.class));
     }
     
     @Test

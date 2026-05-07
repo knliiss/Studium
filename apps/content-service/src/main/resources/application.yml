@@ -1,0 +1,60 @@
+server:
+  port: ${CONTENT_PORT:8091}
+  shutdown: graceful
+
+spring:
+  application:
+    name: content-service
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}?currentSchema=${CONTENT_DB_SCHEMA:content}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+
+  sql:
+    init:
+      continue-on-error: true
+      mode: always
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: ${CONTENT_DB_SCHEMA:content}
+        format_sql: true
+    show-sql: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+
+app:
+  content:
+    jwt:
+      issuer: ${JWT_ISSUER:dev.knalis.auth-service}
+      audience: ${JWT_AUDIENCE:dev.knalis.api}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:file:/opt/keys/public.pem}
+    education-service:
+      base-url: ${CONTENT_EDUCATION_SERVICE_BASE_URL:http://localhost:8085}
+      connect-timeout: ${CONTENT_EDUCATION_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${CONTENT_EDUCATION_SERVICE_READ_TIMEOUT:5s}
+      shared-secret: ${EDUCATION_INTERNAL_SHARED_SECRET}
+
