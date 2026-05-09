@@ -43,6 +43,7 @@ public class AcademicSemesterService {
                 request.startDate(),
                 request.endDate(),
                 request.weekOneStartDate(),
+                request.semesterNumber(),
                 request.active(),
                 request.published()
         );
@@ -79,6 +80,7 @@ public class AcademicSemesterService {
         semester.setStartDate(request.startDate());
         semester.setEndDate(request.endDate());
         semester.setWeekOneStartDate(request.weekOneStartDate());
+        semester.setSemesterNumber(request.semesterNumber());
         semester.setActive(request.active());
         semester.setPublished(request.active() || request.published());
 
@@ -104,6 +106,7 @@ public class AcademicSemesterService {
                             currentSemester.startDate(),
                             currentSemester.endDate(),
                             currentSemester.weekOneStartDate(),
+                            currentSemester.semesterNumber(),
                             true,
                             true
                     );

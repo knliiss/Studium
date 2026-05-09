@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
 import { AccessDeniedPage } from '@/pages/shared/AccessDeniedPage'
+import { loadAccessibleSubjects, loadStudentScopedSubjects } from '@/pages/education/helpers'
 import { assignmentService, dashboardService, educationService, userDirectoryService } from '@/shared/api/services'
 import {
   getAuditActionLabel,
@@ -44,24 +45,17 @@ export function DashboardPage() {
 
 function StudentDashboard() {
   const { t } = useTranslation()
+  const { session } = useAuth()
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'student'],
     queryFn: () => dashboardService.getStudentDashboard(),
   })
   const dashboard = dashboardQuery.data
-  const disciplineSubjectIds = useMemo(
-    () => uniqueIds([
-      ...(dashboard?.todaySchedule.map((lesson) => lesson.subjectId) ?? []),
-      ...(dashboard?.pendingAssignments.map((assignment) => assignment.subjectId) ?? []),
-      ...(dashboard?.availableTests.map((test) => test.subjectId) ?? []),
-      ...(dashboard?.upcomingDeadlines.map((deadline) => deadline.subjectId ?? '') ?? []),
-    ]),
-    [dashboard],
-  )
   const disciplinesQuery = useQuery({
-    queryKey: ['dashboard', 'student-disciplines', disciplineSubjectIds.join(',')],
-    queryFn: () => loadSubjectsById(disciplineSubjectIds),
-    enabled: disciplineSubjectIds.length > 0,
+    queryKey: ['dashboard', 'student-disciplines', session?.user.id],
+    queryFn: () => loadStudentScopedSubjects(session?.user.id ?? ''),
+    enabled: Boolean(session?.user.id),
+    staleTime: 60_000,
   })
 
   if (dashboardQuery.isLoading) {
@@ -82,9 +76,14 @@ function StudentDashboard() {
       <DisciplinesBlock
         assignments={dashboard.pendingAssignments}
         lessons={dashboard.todaySchedule}
-        subjects={disciplinesQuery.data ?? []}
+        emptyDescription={
+          disciplinesQuery.data?.hasGroup
+            ? t('education.noSubjectsForGroup')
+            : t('education.notAssignedToGroup')
+        }
+        subjects={disciplinesQuery.data?.subjects ?? []}
         tests={dashboard.availableTests}
-        title={t('dashboard.disciplines.studentTitle')}
+        title={t('dashboard.disciplines.myDisciplines')}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -177,19 +176,12 @@ function StudentDashboard() {
 
 function TeacherDashboard() {
   const { t } = useTranslation()
+  const { session } = useAuth()
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'teacher'],
     queryFn: () => dashboardService.getTeacherDashboard(),
   })
   const dashboard = dashboardQuery.data
-  const disciplineSubjectIds = useMemo(
-    () => uniqueIds([
-      ...(dashboard?.todayLessons.map((lesson) => lesson.subjectId) ?? []),
-      ...(dashboard?.activeAssignments.map((assignment) => assignment.subjectId) ?? []),
-      ...(dashboard?.activeTests.map((test) => test.subjectId) ?? []),
-    ]),
-    [dashboard],
-  )
   const pendingStudentIds = useMemo(
     () => uniqueIds(dashboard?.pendingSubmissionsToReview.map((submission) => submission.studentId) ?? []),
     [dashboard?.pendingSubmissionsToReview],
@@ -203,9 +195,10 @@ function TeacherDashboard() {
     [dashboard?.groupsAtRisk],
   )
   const disciplinesQuery = useQuery({
-    queryKey: ['dashboard', 'teacher-disciplines', disciplineSubjectIds.join(',')],
-    queryFn: () => loadSubjectsById(disciplineSubjectIds),
-    enabled: disciplineSubjectIds.length > 0,
+    queryKey: ['dashboard', 'teacher-disciplines', session?.user.id],
+    queryFn: () => loadAccessibleSubjects('TEACHER', session?.user.id ?? ''),
+    enabled: Boolean(session?.user.id),
+    staleTime: 60_000,
   })
   const pendingStudentsQuery = useQuery({
     queryKey: ['dashboard', 'teacher-pending-students', pendingStudentIds.join(',')],
@@ -266,7 +259,7 @@ function TeacherDashboard() {
         lessons={dashboard.todayLessons}
         subjects={disciplinesQuery.data ?? []}
         tests={dashboard.activeTests}
-        title={t('dashboard.disciplines.teacherTitle')}
+        title={t('dashboard.disciplines.assignedDisciplines')}
       />
 
       <section className="space-y-4">
@@ -394,6 +387,23 @@ function AdminDashboard() {
         <MetricCard title={t('dashboard.metrics.totalGroups')} value={dashboard.totalGroups} />
         <MetricCard title={t('dashboard.metrics.highRiskStudents')} value={dashboard.highRiskStudentsCount} />
       </div>
+      <Card className="space-y-3">
+        <PageHeader title={t('dashboard.academicManagement')} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {[
+            { to: '/academic', label: t('navigation.groups.academicManagement') },
+            { to: '/academic/specialties', label: t('navigation.shared.specialties') },
+            { to: '/academic/groups', label: t('navigation.shared.groups') },
+            { to: '/subjects', label: t('navigation.shared.subjects') },
+            { to: '/teachers', label: t('navigation.shared.teachers') },
+            { to: '/academic/rooms', label: t('navigation.shared.rooms') },
+          ].map((item) => (
+            <Link key={item.to} className="rounded-[12px] border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-text-primary transition hover:border-border-strong" to={item.to}>
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </Card>
 
       {dashboard.analyticsSummary.totalStudentsTracked > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -426,12 +436,14 @@ function AdminDashboard() {
 
 function DisciplinesBlock({
   assignments,
+  emptyDescription,
   lessons,
   subjects,
   tests,
   title,
 }: {
   assignments: DashboardAssignmentItemResponse[]
+  emptyDescription?: string
   lessons: ResolvedLessonResponse[]
   subjects: SubjectResponse[]
   tests: DashboardTestItemResponse[]
@@ -465,7 +477,7 @@ function DisciplinesBlock({
       </div>
       {!collapsed ? (
         cards.length === 0 ? (
-          <EmptyState description={t('analytics.notEnoughDataYet')} title={title} />
+          <EmptyState description={emptyDescription ?? t('analytics.notEnoughDataYet')} title={title} />
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {cards.map((card) => (
@@ -493,18 +505,6 @@ function DisciplinesBlock({
       ) : null}
     </Card>
   )
-}
-
-async function loadSubjectsById(subjectIds: string[]) {
-  const subjects = await Promise.all(subjectIds.map(async (subjectId) => {
-    try {
-      return await educationService.getSubject(subjectId)
-    } catch {
-      return null
-    }
-  }))
-
-  return subjects.filter((subject): subject is SubjectResponse => Boolean(subject))
 }
 
 function uniqueIds(values: string[]) {

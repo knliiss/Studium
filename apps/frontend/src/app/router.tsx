@@ -16,7 +16,11 @@ import { PasswordResetPage } from '@/pages/auth/PasswordResetPage'
 import { RegisterPage } from '@/pages/auth/RegisterPage'
 import { GroupDetailPage } from '@/pages/education/GroupDetailPage'
 import { GroupsPage } from '@/pages/education/GroupsPage'
+import { CurriculumPlansPage } from '@/pages/education/CurriculumPlansPage'
 import { EducationCenterPage } from '@/pages/education/EducationCenterPage'
+import { SpecialtiesPage } from '@/pages/education/SpecialtiesPage'
+import { SpecialtyDetailPage } from '@/pages/education/SpecialtyDetailPage'
+import { StreamsPage } from '@/pages/education/StreamsPage'
 import { SubjectDetailPage } from '@/pages/education/SubjectDetailPage'
 import { SubjectsPage } from '@/pages/education/SubjectsPage'
 import { TeachersPage } from '@/pages/education/TeachersPage'
@@ -69,6 +73,24 @@ export function AppRouter() {
           <Route path="/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/teachers" element={<TeachersPage />} />
           <Route path="/teachers/:teacherId" element={<TeachersPage />} />
+          <Route element={<RequireRole allowedRoles={['OWNER', 'ADMIN', 'TEACHER']} />}>
+            <Route path="/academic" element={<EducationCenterPage />} />
+            <Route path="/academic/specialties" element={<SpecialtiesPage />} />
+            <Route path="/academic/specialties/:specialtyId" element={<SpecialtyDetailPage />} />
+            <Route path="/academic/specialties/:specialtyId/streams" element={<StreamsPage />} />
+            <Route path="/academic/specialties/:specialtyId/streams/:streamId" element={<StreamsPage />} />
+            <Route path="/academic/specialties/:specialtyId/curriculum-plans" element={<CurriculumPlansPage />} />
+            <Route path="/academic/specialties/:specialtyId/groups" element={<GroupsPage />} />
+            <Route path="/academic/groups" element={<GroupsPage />} />
+            <Route path="/academic/groups/:groupId" element={<GroupDetailPage />} />
+
+            <Route path="/specialties" element={<Navigate replace to="/academic/specialties" />} />
+            <Route path="/streams" element={<Navigate replace to="/academic/specialties" />} />
+            <Route path="/curriculum-plans" element={<Navigate replace to="/academic/specialties" />} />
+          </Route>
+          <Route element={<RequireRole allowedRoles={['OWNER', 'ADMIN']} />}>
+            <Route path="/academic/rooms" element={<Navigate replace to="/schedule/rooms" />} />
+          </Route>
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/assignments/:assignmentId" element={<AssignmentsPage />} />
           <Route path="/tests" element={<TestsPage />} />
@@ -105,7 +127,7 @@ export function AppRouter() {
           <Route path="/teacher/dashboard" element={<Navigate replace to="/dashboard" />} />
           <Route path="/teacher/schedule" element={<Navigate replace to="/schedule/me" />} />
           <Route path="/teacher/subjects" element={<Navigate replace to="/subjects" />} />
-          <Route path="/teacher/education" element={<Navigate replace to="/education" />} />
+          <Route path="/teacher/education" element={<Navigate replace to="/academic" />} />
           <Route path="/teacher/assignments" element={<Navigate replace to="/assignments" />} />
           <Route path="/teacher/assignments/:assignmentId" element={<ParamRedirect to="/assignments/:assignmentId" />} />
           <Route path="/teacher/submissions" element={<Navigate replace to="/submissions" />} />
@@ -125,9 +147,12 @@ export function AppRouter() {
           <Route path="/search" element={<SearchPage />} />
 
           <Route path="/owner/dashboard" element={<Navigate replace to="/dashboard" />} />
-          <Route path="/admin/education" element={<Navigate replace to="/education" />} />
+          <Route path="/admin/education" element={<Navigate replace to="/academic" />} />
           <Route path="/admin/groups" element={<Navigate replace to="/groups" />} />
           <Route path="/admin/subjects" element={<Navigate replace to="/subjects" />} />
+          <Route path="/admin/specialties" element={<Navigate replace to="/academic/specialties" />} />
+          <Route path="/admin/streams" element={<Navigate replace to="/academic/specialties" />} />
+          <Route path="/admin/curriculum-plans" element={<Navigate replace to="/academic/specialties" />} />
           <Route path="/admin/topics" element={<Navigate replace to="/subjects" />} />
           <Route path="/admin/schedule" element={<Navigate replace to="/schedule" />} />
           <Route path="/admin/rooms" element={<Navigate replace to="/schedule/rooms" />} />

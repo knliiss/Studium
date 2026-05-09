@@ -146,6 +146,10 @@
       "analytics": "Analityka",
       "education": "Edukacja",
       "teachers": "Prowadzący",
+      "specialties": "Specjalności",
+      "streams": "Strumienie",
+      "curriculumPlans": "Plany nauczania",
+      "rooms": "Sale",
       "search": "Wyszukiwanie"
     },
     "student": {
@@ -317,10 +321,13 @@
     "disciplines": {
       "studentTitle": "Bieżące przedmioty",
       "teacherTitle": "Przypisane przedmioty",
+      "myDisciplines": "Moje dyscypliny",
+      "assignedDisciplines": "Przypisane dyscypliny",
       "activeItems": "{{count}} aktywnych elementów",
       "nearestDeadline": "Najbliższy termin",
       "nextLesson": "Następne zajęcia"
-    }
+    },
+    "academicManagement": "Zarządzanie akademickie"
   },
   "analytics": {
     "title": "Analityka",
@@ -365,8 +372,11 @@
     "deletePermanently": "Usuń trwale",
     "deletePermanentConfirm": "Usunąć to zadanie trwale? Tej operacji nie można cofnąć.",
     "backToAssignments": "Wróć do zadań",
+    "backToCourse": "Wróć do kursu",
     "comment": "Komentarz",
     "createAssignment": "Utwórz zadanie",
+    "createFromCourseOnly": "Tworzenie zadania jest dostępne ze strony kursu.",
+    "globalCreateUnavailable": "Globalne tworzenie zadań jest niedostępne",
     "empty": "Brak zadań w bieżącym zakresie.",
     "feedback": "Informacja zwrotna",
     "file": "Plik",
@@ -618,6 +628,8 @@
     "groupId": "ID grupy",
     "groupLookupHint": "Podaj ID użytkownika, aby sprawdzić członkostwa, albo ID grupy, aby wyświetlić konkretną grupę.",
     "noSubjects": "W bieżącym zakresie nie ma dostępnych przedmiotów.",
+    "noSubjectsForGroup": "Dla Twojej grupy nie ma jeszcze dostępnych przedmiotów.",
+    "notAssignedToGroup": "Nie jesteś jeszcze przypisany do grupy.",
     "orderIndex": "Kolejność",
     "studentSubjectsDescription": "Przedmioty dostępne w ramach Twoich aktualnych grup.",
     "subjectId": "ID przedmiotu",
@@ -632,6 +644,8 @@
     "studentGroupsDescription": "Grupy, w których zorganizowano Twój bieżący plan nauki.",
     "noGroups": "W bieżącym zakresie nie ma dostępnych grup.",
     "subject": "Przedmiot",
+    "groupLoadFailed": "Nie udało się załadować danych grupy.",
+    "academicStructureLoadFailed": "Nie udało się załadować struktury akademickiej. Sprawdź migrację schematu backendu i spróbuj ponownie.",
     "subjectDescriptionFallback": "Szczegóły przedmiotu pojawią się tutaj wraz z rozwojem przestrzeni kursu.",
     "topicPlural": "Tematy",
     "educationLandingDescription": "Organizuj przedmioty, grupy i strukturę nauki z jednego akademickiego centrum.",
@@ -1210,6 +1224,8 @@
     "semesterUpdatedSuccess": "Semestr został pomyślnie zaktualizowany.",
     "semesterHistoryDescription": "Poprzednie semestry pozostają dostępne jako historia tylko do odczytu.",
     "semesterLabel": "Semestr",
+    "semesterNumber": "Numer semestru",
+    "semesterNumberMissing": "Numer semestru nie jest skonfigurowany. Przedmioty są określane bez filtrowania po semestrze.",
     "slotId": "ID slotu",
     "slotCreatedSuccess": "Slot zajęć został pomyślnie zapisany.",
     "slotLabel": "Para",
@@ -1246,6 +1262,7 @@
     "pasteDay": "Wklej dzień",
     "copyLesson": "Kopiuj zajęcia",
     "dropHere": "Upuść tutaj",
+    "validDropTarget": "Prawidłowy cel upuszczenia",
     "invalidDropTarget": "Nieprawidłowy cel upuszczenia",
     "pasteLesson": "Wklej zajęcia",
     "moveLesson": "Przenieś zajęcia",
@@ -1441,7 +1458,26 @@
     "noRooms": "Nie dodano jeszcze żadnych sal.",
     "noSlots": "Nie dodano jeszcze żadnych slotów zajęć.",
     "emptyGroup": "Nie znaleziono zajęć dla tej grupy w wybranym zakresie.",
-    "emptySubject": "Nie znaleziono zajęć dla tego przedmiotu w wybranym zakresie."
+    "emptySubject": "Nie znaleziono zajęć dla tego przedmiotu w wybranym zakresie.",
+    "directBindingsFallback": "Ta grupa nie ma skonfigurowanej specjalności lub roku nauki. Używane są bezpośrednie przypisania przedmiotów.",
+    "subjectLoadCounts": "Wykłady: {{lecture}} · Ćwiczenia: {{practice}} · Laboratoria: {{lab}}",
+    "streamLectureSupported": "Obsługuje wykład strumieniowy",
+    "streamLectureNote": "Ten przedmiot będzie można później zaplanować jako wykład strumieniowy.",
+    "requiresSubgroupsForLabs": "Laboratoria wymagają podgrup",
+    "roomFitSupported": "Dopasowanie sali: obsługiwane.",
+    "roomFitUnsupported": "Ta sala nie jest oznaczona jako obsługująca ten typ zajęć.",
+    "roomCapabilityPriority": "Priorytet: {{priority}}",
+    "subjectSource": {
+      "CURRICULUM_PLAN": "Plan nauczania",
+      "DIRECT_BINDING": "Bezpośrednie przypisanie",
+      "GROUP_OVERRIDE": "Override"
+    },
+    "actions": {
+      "manageCurriculum": "Zarządzaj planem nauczania",
+      "manageSubjectBindings": "Zarządzaj przypisaniami przedmiotów",
+      "manageSubjects": "Zarządzaj przedmiotami",
+      "manageSubjectTeachers": "Zarządzaj prowadzącymi przedmiotu"
+    }
   },
   "adminSystem": {
     "description": "Zarządzaj dostępem, historią zmian i narzędziami wyszukiwania platformy z jednego miejsca.",
@@ -1461,6 +1497,182 @@
         "title": "Globalna nawigacja",
         "description": "Szybko znajduj przedmioty, grupy, tematy, zadania i testy bez przełączania modułów."
       }
+    }
+  },
+  "academic": {
+    "filters": {
+      "activeOnly": "Tylko aktywne",
+      "archivedOnly": "Tylko archiwalne",
+      "all": "Wszystkie",
+      "allSpecialties": "Wszystkie specjalności",
+      "allStudyYears": "Wszystkie lata nauki",
+      "allSemesters": "Wszystkie semestry",
+      "allSubjects": "Wszystkie przedmioty"
+    },
+    "common": {
+      "archive": "Archiwizuj",
+      "restore": "Przywróć"
+    },
+    "subject": "Przedmiot",
+    "studyYear": "Rok nauki",
+    "studyYearValue": "Rok {{year}}",
+    "readOnlyOverviewDescription": "Przegląd akademicki tylko do odczytu.",
+    "selectSpecialtyToContinueStreams": "Wybierz specjalność, aby zarządzać strumieniami.",
+    "selectSpecialtyToContinueCurriculum": "Wybierz specjalność, aby zarządzać planami nauczania.",
+    "nestedManagementHint": "Zarządzaj strumieniami, grupami i planami nauczania przez kontekst specjalności i roku.",
+    "studyYears": {
+      "empty": "Brak lat nauki z danymi akademickimi.",
+      "allYears": "Wszystkie lata nauki"
+    },
+    "sections": {
+      "overview": "Przegląd",
+      "studyYears": "Lata nauki",
+      "streams": "Strumienie",
+      "curriculum": "Plany nauczania",
+      "groups": "Grupy"
+    },
+    "actions": {
+      "viewSpecialties": "Pokaż specjalności",
+      "viewSpecialty": "Pokaż specjalność",
+      "viewGroups": "Pokaż grupy",
+      "viewStreams": "Pokaż strumienie",
+      "viewCurriculum": "Pokaż plan nauczania",
+      "viewResolvedSubjects": "Pokaż wynikowe przedmioty",
+      "createStreamInSpecialty": "Dodaj strumień dla tego roku",
+      "createCurriculumInSpecialty": "Dodaj plan nauczania dla tego roku",
+      "assignToStream": "Przypisz do strumienia"
+    },
+    "specialties": {
+      "hubDescription": "Zarządzaj kierunkami dla grup i planów nauczania.",
+      "description": "Specjalności określają kierunek akademicki grup i planów.",
+      "detailTitle": "Szczegóły specjalności",
+      "detailDescription": "Przegląd, lata nauki, strumienie, plany nauczania i grupy tej specjalności.",
+      "searchPlaceholder": "Szukaj specjalności",
+      "add": "Dodaj specjalność",
+      "edit": "Edytuj specjalność",
+      "createDescription": "Ustaw kod i nazwę specjalności do planowania.",
+      "editDescription": "Aktualizuj kod i nazwę specjalności.",
+      "code": "Kod specjalności",
+      "name": "Nazwa specjalności",
+      "specialty": "Specjalność",
+      "specialtyUnknown": "Nieznana specjalność",
+      "noDescription": "Brak opisu",
+      "empty": "Brak specjalności"
+    },
+    "streams": {
+      "hubDescription": "Łącz grupy w strumienie dla wspólnych wykładów.",
+      "description": "Strumienie grupują zgodne grupy według specjalności i roku.",
+      "forSpecialtyTitle": "Strumienie specjalności",
+      "searchPlaceholder": "Szukaj strumieni",
+      "add": "Dodaj strumień",
+      "edit": "Edytuj strumień",
+      "stream": "Strumień",
+      "createDescription": "Ustaw nazwę strumienia, specjalność i rok nauki.",
+      "editDescription": "Aktualizuj ustawienia strumienia.",
+      "groupCount": "Grupy: {{count}}",
+      "emptyForSpecialty": "Brak strumieni dla tej specjalności."
+    },
+    "subgroupMode": {
+      "label": "Tryb podgrup",
+      "NONE": "Bez podgrup",
+      "TWO_SUBGROUPS": "Dwie podgrupy"
+    },
+    "groupSettings": {
+      "title": "Ustawienia akademickie grupy",
+      "description": "Przypisz specjalność, rok nauki, strumień i tryb podgrup.",
+      "incompleteContextWarning": "Ta grupa nie ma skonfigurowanej specjalności/roku nauki. Przedmioty planu nauczania nie mogą być w pełni wyliczone.",
+      "streamHint": "Najpierw wybierz specjalność i rok nauki.",
+      "noSpecialty": "Brak specjalności",
+      "noStudyYear": "Brak roku nauki",
+      "noStream": "Brak strumienia",
+      "saveSuccess": "Zapisano ustawienia akademickie grupy."
+    },
+    "curriculum": {
+      "hubDescription": "Definiuj przedmioty i liczbę zajęć na semestr.",
+      "description": "Plan nauczania określa domyślne obciążenie przedmiotu dla specjalności, roku i semestru.",
+      "forSpecialtyTitle": "Plany nauczania specjalności",
+      "searchPlaceholder": "Szukaj planów nauczania",
+      "add": "Dodaj plan nauczania",
+      "edit": "Edytuj plan nauczania",
+      "createDescription": "Ustaw liczbę zajęć i flagi planowania.",
+      "editDescription": "Aktualizuj obciążenie, semestr i flagi.",
+      "semester": "Semestr",
+      "semesterValue": "Semestr {{semester}}",
+      "lectureCount": "Liczba wykładów",
+      "practiceCount": "Liczba ćwiczeń",
+      "labCount": "Liczba laboratoriów",
+      "supportsStreamLecture": "Obsługuje wykłady strumieniowe",
+      "requiresSubgroupsForLabs": "Wymaga podgrup na laboratoria",
+      "subjectUnknown": "Nieznany przedmiot",
+      "empty": "Brak planów nauczania",
+      "emptyForSpecialty": "Brak planów nauczania dla tej specjalności."
+    },
+    "groups": {
+      "hubDescription": "Przeglądaj grupy według specjalności i roku nauki.",
+      "forSpecialtyTitle": "Grupy specjalności {{specialty}} · {{studyYear}}",
+      "forSpecialtyDescription": "Grupy w kontekście tej specjalności.",
+      "specialtyContextHint": "Aby przypisać strumień i pola akademickie, otwórz ustawienia grupy.",
+      "emptyForSpecialty": "Brak grup w tej specjalności.",
+      "unassignedTitle": "Grupy bez przypisania",
+      "unassignedDescription": "Tutaj są grupy bez specjalności lub roku nauki.",
+      "unassignedEmpty": "Brak grup bez przypisania."
+    },
+    "resolvedSubjects": {
+      "title": "Przedmioty wynikowe",
+      "description": "Widok łączy plan nauczania, override'y i bezpośrednie przypisania.",
+      "currentSemester": "Bieżący semestr",
+      "directFallback": "Grupa nie ma ustawionej specjalności lub roku nauki. Używane są bezpośrednie przypisania.",
+      "empty": "Brak przedmiotów dla tej grupy.",
+      "teacherCount": "Prowadzący: {{count}}",
+      "streamLectureNotEnabled": "Wykład strumieniowy jest wyłączony",
+      "subgroupsNotRequired": "Podgrupy nie są wymagane dla laboratoriów",
+      "source": {
+        "DIRECT_BINDING": "Bezpośrednie przypisanie",
+        "CURRICULUM_PLAN": "Plan nauczania",
+        "GROUP_OVERRIDE": "Override"
+      }
+    },
+    "overrides": {
+      "title": "Override'y planu",
+      "description": "Override pozwala zmienić lub wyłączyć przedmiot dla konkretnej grupy.",
+      "add": "Dodaj override",
+      "empty": "Brak override'ów dla tej grupy.",
+      "createSuccess": "Utworzono override.",
+      "updateSuccess": "Zaktualizowano override.",
+      "deleteSuccess": "Usunięto override.",
+      "disableSubjectForGroup": "Wyłącz przedmiot dla grupy",
+      "enabledForGroup": "Włączone dla grupy",
+      "disabledByOverride": "Wyłączone przez override",
+      "lectureCountOverride": "Override wykładów",
+      "practiceCountOverride": "Override ćwiczeń",
+      "labCountOverride": "Override laboratoriów"
+    },
+    "roomCapabilities": {
+      "title": "Możliwości sali",
+      "description": "Zdefiniuj typy zajęć obsługiwane przez salę i ich priorytet.",
+      "hubDescription": "Zarządzaj priorytetami typów zajęć dla sal.",
+      "priority": "Priorytet",
+      "priorityHint": "Wyższy priorytet oznacza lepsze dopasowanie.",
+      "saveSuccess": "Zapisano możliwości sali."
+    },
+    "validation": {
+      "specialtyCodeRequired": "Wprowadź kod specjalności.",
+      "specialtyNameRequired": "Wprowadź nazwę specjalności.",
+      "streamNameRequired": "Wprowadź nazwę strumienia.",
+      "selectSpecialty": "Wybierz specjalność.",
+      "selectStudyYear": "Wybierz rok nauki.",
+      "selectSpecialtyForStudyYear": "Wybierz specjalność, gdy ustawiasz rok nauki.",
+      "enterStudyYearForSpecialty": "Podaj rok nauki, gdy wybrano specjalność.",
+      "specialtyRequiredForStream": "Specjalność jest wymagana przed utworzeniem strumienia.",
+      "specialtyRequiredForGroup": "Specjalność jest wymagana przed aktualizacją ustawień akademickich grupy.",
+      "specialtyRequiredForCurriculumPlan": "Specjalność jest wymagana przed utworzeniem planu nauczania.",
+      "selectSubject": "Wybierz przedmiot.",
+      "selectSemester": "Wybierz semestr.",
+      "enterStudyYear": "Podaj poprawny rok nauki.",
+      "countsNonNegative": "Liczby zajęć muszą być nieujemne.",
+      "atLeastOneLessonCount": "Co najmniej jedna liczba zajęć musi być większa od zera.",
+      "enableAtLeastOneCapability": "Włącz co najmniej jedną możliwość sali.",
+      "priorityPositive": "Priorytet musi być dodatni."
     }
   }
 }

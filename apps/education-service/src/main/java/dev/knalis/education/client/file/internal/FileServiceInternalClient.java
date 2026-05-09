@@ -3,10 +3,12 @@ package dev.knalis.education.client.file.internal;
 import dev.knalis.education.client.file.dto.RemoteStoredFileResponse;
 import dev.knalis.education.config.EducationFileServiceProperties;
 import dev.knalis.education.exception.FileAccessDeniedException;
+import dev.knalis.education.exception.FileServiceUnavailableException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -29,12 +31,18 @@ public class FileServiceInternalClient {
                     .retrieve()
                     .body(RemoteStoredFileResponse.class);
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new FileServiceUnavailableException("metadata", fileId);
+            }
             throw new FileAccessDeniedException();
+        } catch (RestClientException exception) {
+            throw new FileServiceUnavailableException("metadata", fileId);
         }
     }
 
     public ResponseEntity<byte[]> download(UUID fileId, boolean preview) {
         String path = preview ? "/internal/files/{fileId}/preview" : "/internal/files/{fileId}/download";
+        String operation = preview ? "preview" : "download";
         try {
             ResponseEntity<byte[]> response = fileServiceRestClient.get()
                     .uri(path, fileId)
@@ -46,8 +54,12 @@ public class FileServiceInternalClient {
                     .headers(headers)
                     .body(response.getBody());
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new FileServiceUnavailableException(operation, fileId);
+            }
             throw new FileAccessDeniedException();
+        } catch (RestClientException exception) {
+            throw new FileServiceUnavailableException(operation, fileId);
         }
     }
 }
-

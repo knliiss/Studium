@@ -51,6 +51,12 @@ The startup flow ensures `.env`, RSA keys, service build artifacts, Docker Compo
   Run `Reset Runtime Variables`, rerun setup, and then rerun the dependent folder in order.
 - `404 ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND`
   This now indicates schedule foundation bootstrap or demo seed did not run as expected. The local stack should expose an active semester.
+- `Database schema is missing ...` or `Database schema is not migrated. Run ... Flyway migrations.`
+  Schema guards are validation-only now. They do not apply DDL.
+  Start services with Flyway enabled (default) and check logs for successful migration.
+  If a local schema is inconsistent, inspect the service schema history:
+  `SELECT version, description, success FROM <service_schema>.flyway_schema_history ORDER BY installed_rank;`
+  Then apply a corrective Flyway migration (preferred) instead of ad-hoc schema.sql changes.
 
 ## Reset Local State
 
@@ -64,6 +70,16 @@ If the local database or seed state must be rebuilt from scratch:
 If a full rebuild is unnecessary and you only want to rerun the verification against the current local data:
 
 - `./infra/scripts/local/start-local.sh --skip-build`
+
+## Flyway Baseline and Repair
+
+- Runtime schema evolution is Flyway-first across DB-owning services.
+- `spring.jpa.hibernate.ddl-auto` is `validate`, not `update`.
+- Existing local DB volumes are handled by `baseline-on-migrate=true` and additive `V1__base_schema.sql` scripts.
+- If migration fails on a dirty local schema:
+  1. inspect `flyway_schema_history` in the affected service schema;
+  2. add a new additive migration (`V2__...`) to reconcile drift;
+  3. rerun the service. Avoid manual table resets unless you intentionally want a full rebuild.
 
 ## Rerun Notes
 

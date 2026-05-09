@@ -497,14 +497,25 @@ ensure_schedule_semester() {
   local week_one_start_date="$4"
   local active="$5"
   local published="${6:-$active}"
+  local semester_number="${7:-}"
   local existing_id
+
+  if [[ -z "$semester_number" ]]; then
+    local month="${start_date:5:2}"
+    month=$((10#$month))
+    if (( month >= 9 || month == 1 )); then
+      semester_number=1
+    else
+      semester_number=2
+    fi
+  fi
 
   existing_id="$(sql_scalar "select id::text from ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters where name = '${name}' limit 1;")"
   if [[ -z "$existing_id" ]]; then
     existing_id="$(new_uuid)"
-    sql_exec "insert into ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters (id, name, start_date, end_date, week_one_start_date, active, published, created_at, updated_at) values ('${existing_id}', '${name}', '${start_date}', '${end_date}', '${week_one_start_date}', ${active}, ${published}, now(), now());"
+    sql_exec "insert into ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters (id, name, start_date, end_date, week_one_start_date, semester_number, active, published, created_at, updated_at) values ('${existing_id}', '${name}', '${start_date}', '${end_date}', '${week_one_start_date}', ${semester_number}, ${active}, ${published}, now(), now());"
   else
-    sql_exec "update ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters set start_date = '${start_date}', end_date = '${end_date}', week_one_start_date = '${week_one_start_date}', active = ${active}, published = ${published}, updated_at = now() where id = '${existing_id}';"
+    sql_exec "update ${SCHEDULE_DB_SCHEMA:-schedule}.academic_semesters set start_date = '${start_date}', end_date = '${end_date}', week_one_start_date = '${week_one_start_date}', semester_number = ${semester_number}, active = ${active}, published = ${published}, updated_at = now() where id = '${existing_id}';"
   fi
 
   printf '%s' "$existing_id"
@@ -536,6 +547,20 @@ wait_for_gateway() {
   done
   echo "Gateway did not become ready in time" >&2
   exit 1
+}
+
+wait_for_analytics_service() {
+  local token="$1"
+  for _ in $(seq 1 60); do
+    if curl -fsS \
+      -H "Authorization: Bearer ${token}" \
+      "http://localhost:${GATEWAY_PORT:-8080}/api/v1/analytics/dashboard/overview" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "WARN: Analytics service did not become ready in time" >&2
+  return 1
 }
 
 login_user() {
@@ -663,15 +688,39 @@ wait_for_student_risk() {
   local user_id="$1"
   local _expected_risk="$2"
   local token="$3"
+  local last_status=""
+  local last_error=""
+  local out
+  local response
+  local status
+  local risk_level
   for _ in $(seq 1 60); do
-    if response=$(api_json "GET" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/analytics/students/${user_id}/risk" "$token" "" 2>/dev/null); then
-      if [[ -n "$(printf '%s' "$response" | json_get riskLevel)" ]]; then
+    out=$(curl -sS -w "\n%{http_code}" -X GET \
+      -H "Authorization: Bearer ${token}" \
+      "http://localhost:${GATEWAY_PORT:-8080}/api/v1/analytics/students/${user_id}/risk" 2>/dev/null || true)
+    status="${out##*$'\n'}"
+    response="${out%$'\n'*}"
+    if [[ "$out" != *$'\n'* ]]; then
+      response=""
+      status=""
+    fi
+    if [[ "$status" == "200" ]]; then
+      risk_level="$(printf '%s' "$response" | json_get riskLevel)"
+      if [[ -n "$risk_level" ]]; then
         return 0
       fi
     fi
+    if [[ -n "$status" ]]; then
+      last_status="$status"
+      last_error="$(printf '%s' "$response" | json_get message)"
+    fi
     sleep 2
   done
-  echo "WARN: Timed out waiting for analytics risk endpoint for user ${user_id}" >&2
+  if [[ -n "$last_status" ]]; then
+    echo "WARN: Timed out waiting for analytics risk endpoint for user ${user_id} (last status=${last_status}, message=${last_error:-n/a})" >&2
+  else
+    echo "WARN: Timed out waiting for analytics risk endpoint for user ${user_id}" >&2
+  fi
   return 1
 }
 
@@ -760,7 +809,7 @@ insert into ${EDUCATION_DB_SCHEMA:-education}.group_students (id, group_id, user
   ('$(new_uuid)', '${group_one_id}', '${student_three_id}', 'STUDENT', 'ALL', now(), now()),
   ('$(new_uuid)', '${group_two_id}', '${student_four_id}', 'STUDENT', 'ALL', now(), now()),
   ('$(new_uuid)', '${group_two_id}', '${student_five_id}', 'STUDENT', 'ALL', now(), now())
-on conflict on constraint uk_group_students_group_id_user_id do nothing;
+on conflict (group_id, user_id) do nothing;
 SQL
 )"
 
@@ -948,6 +997,7 @@ best_effort_notification_internal_json "POST" "/internal/notifications/users/${s
 JSON
 )"
 
+wait_for_analytics_service "$admin_token" || true
 wait_for_student_risk "$student_one_id" "LOW" "$admin_token" || true
 wait_for_student_risk "$student_two_id" "HIGH" "$admin_token" || true
 wait_for_teacher_groups "$teacher_alpha_id" "$admin_token" || true

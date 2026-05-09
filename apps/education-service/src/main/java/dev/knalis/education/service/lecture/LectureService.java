@@ -45,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -231,7 +232,7 @@ public class LectureService {
                 .orElseThrow(() -> new LectureNotFoundException(lectureId));
         ensureCanReadLecture(currentUserId, currentRoles, lecture);
         return lectureAttachmentRepository.findAllByLectureIdOrderByCreatedAtAsc(lectureId).stream()
-                .map(attachment -> toAttachmentResponse(attachment, fileServiceInternalClient.getMetadata(attachment.getFileId())))
+                .map(this::toAttachmentResponse)
                 .toList();
     }
 
@@ -258,9 +259,12 @@ public class LectureService {
         attachment.setLectureId(lectureId);
         attachment.setFileId(request.fileId());
         attachment.setDisplayName(normalizeDisplayName(request.displayName()));
+        attachment.setOriginalFileName(file.originalFileName());
+        attachment.setContentType(file.contentType());
+        attachment.setSizeBytes(file.sizeBytes());
         attachment.setUploadedByUserId(currentUserId);
         LectureAttachment saved = lectureAttachmentRepository.save(attachment);
-        LectureAttachmentResponse response = toAttachmentResponse(saved, file);
+        LectureAttachmentResponse response = toAttachmentResponse(saved);
         educationAuditService.record(currentUserId, "LECTURE_ATTACHMENT_ADDED", "LECTURE", lectureId, null, response);
         return response;
     }
@@ -321,19 +325,27 @@ public class LectureService {
         return response;
     }
 
-    private LectureAttachmentResponse toAttachmentResponse(LectureAttachment attachment, RemoteStoredFileResponse file) {
+    private LectureAttachmentResponse toAttachmentResponse(LectureAttachment attachment) {
         return new LectureAttachmentResponse(
                 attachment.getId(),
                 attachment.getLectureId(),
                 attachment.getFileId(),
                 attachment.getDisplayName(),
-                file.originalFileName(),
-                file.contentType(),
-                file.sizeBytes(),
-                file.previewAvailable(),
+                attachment.getOriginalFileName(),
+                attachment.getContentType(),
+                attachment.getSizeBytes(),
+                isPreviewAvailable(attachment.getContentType()),
                 attachment.getUploadedByUserId(),
                 attachment.getCreatedAt()
         );
+    }
+
+    private boolean isPreviewAvailable(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return false;
+        }
+        String normalized = contentType.toLowerCase(Locale.ROOT);
+        return normalized.equals("application/pdf") || normalized.startsWith("image/");
     }
 
     private String normalizeDisplayName(String displayName) {
@@ -422,4 +434,3 @@ public class LectureService {
         return roles.contains("ROLE_STUDENT");
     }
 }
-

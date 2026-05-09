@@ -146,6 +146,10 @@
       "analytics": "Analytics",
       "education": "Education",
       "teachers": "Teachers",
+      "specialties": "Specialties",
+      "streams": "Streams",
+      "curriculumPlans": "Curriculum plans",
+      "rooms": "Rooms",
       "search": "Search"
     },
     "student": {
@@ -317,10 +321,13 @@
     "disciplines": {
       "studentTitle": "Current subjects",
       "teacherTitle": "Assigned subjects",
+      "myDisciplines": "My disciplines",
+      "assignedDisciplines": "Assigned disciplines",
       "activeItems": "{{count}} active items",
       "nearestDeadline": "Nearest deadline",
       "nextLesson": "Next lesson"
-    }
+    },
+    "academicManagement": "Academic management"
   },
   "analytics": {
     "title": "Analytics",
@@ -365,8 +372,11 @@
     "deletePermanently": "Delete permanently",
     "deletePermanentConfirm": "Delete this assignment permanently? This action cannot be undone.",
     "backToAssignments": "Back to assignments",
+    "backToCourse": "Back to course",
     "comment": "Comment",
     "createAssignment": "Create assignment",
+    "createFromCourseOnly": "Assignment creation is available from the course page.",
+    "globalCreateUnavailable": "Global assignment creation is unavailable",
     "empty": "No assignments are available in the current scope.",
     "feedback": "Feedback",
     "file": "File",
@@ -618,6 +628,8 @@
     "groupId": "Group ID",
     "groupLookupHint": "Enter a user ID to inspect memberships or a group ID to inspect a concrete group.",
     "noSubjects": "No subjects are available in the current scope.",
+    "noSubjectsForGroup": "No subjects are available for your group yet.",
+    "notAssignedToGroup": "You are not assigned to a group yet.",
     "orderIndex": "Order",
     "studentSubjectsDescription": "Subjects available through your current group enrollments.",
     "subjectId": "Subject ID",
@@ -632,6 +644,8 @@
     "studentGroupsDescription": "Groups where your current learning plan is organized.",
     "subject": "Subject",
     "noGroups": "No groups are available in the current scope.",
+    "groupLoadFailed": "Failed to load group details.",
+    "academicStructureLoadFailed": "Failed to load academic structure. Verify backend schema migration and try again.",
     "subjectDescriptionFallback": "Subject details will appear here as the course space grows.",
     "topicPlural": "Topics",
     "educationLandingDescription": "Organize subjects, groups, and learning structure from one academic center.",
@@ -803,7 +817,6 @@
     "subjectGroupsCountShort": "{{count}} groups",
     "groupsLabel": "groups",
     "teacherLabel": "Teacher",
-    "subjectId": "Subject ID",
     "subjectGroupsHubDescription": "Keep subject groups and teaching staff aligned from one page.",
     "groupCardDescription": "Group learning and membership page.",
     "groupStudentCountSummary": "Students currently in this group",
@@ -926,8 +939,7 @@
       "userBannedSuccess": "User banned successfully.",
       "userIdCopied": "User ID copied.",
       "userUnbannedSuccess": "User unbanned successfully.",
-      "userId": "User ID"
-      ,
+      "userId": "User ID",
       "hierarchyViolationTitle": "Insufficient permissions",
       "hierarchyViolationMessage": "You do not have permission to assign this role.",
       "hierarchyViolationDetails": "Technical details (expand for support)",
@@ -1035,7 +1047,9 @@
         "subgroup": "Subgroup:"
       },
       "actions": {
-        "manageSubjects": "Go to subject management",
+        "manageCurriculum": "Manage curriculum",
+        "manageSubjectBindings": "Manage subject bindings",
+        "manageSubjects": "Manage subjects",
         "manageSubjectTeachers": "Manage subject teachers"
       },
       "emptyPairs": "Empty pairs",
@@ -1134,6 +1148,8 @@
       "semesterUpdatedSuccess": "Semester updated successfully.",
       "semesterHistoryDescription": "Past semesters stay visible as read-only history.",
       "semesterLabel": "Semester",
+      "semesterNumber": "Semester number",
+      "semesterNumberMissing": "Semester number is not configured. Subjects are resolved without semester filtering.",
       "slotId": "Slot ID",
       "slotCreatedSuccess": "Lesson slot saved successfully.",
       "slotLabel": "Pair",
@@ -1171,6 +1187,7 @@
       "copyLesson": "Copy lesson",
       "dragLesson": "Drag to move",
       "dropHere": "Drop here",
+      "validDropTarget": "Valid drop target",
       "invalidDropTarget": "Invalid drop target",
       "pasteLesson": "Paste lesson",
       "moveLesson": "Move lesson",
@@ -1358,9 +1375,22 @@
       "noRooms": "No rooms have been added yet.",
       "noSlots": "No lesson slots have been added yet.",
       "emptyGroup": "No lessons were found for this group in the selected range.",
-      "emptySubject": "No lessons were found for this subject in the selected range."
+      "emptySubject": "No lessons were found for this subject in the selected range.",
+      "directBindingsFallback": "This group has no specialty/year configured. Direct subject bindings are used.",
+      "subjectLoadCounts": "Lecture: {{lecture}} · Practice: {{practice}} · Laboratory: {{lab}}",
+      "streamLectureSupported": "Stream lecture supported",
+      "streamLectureNote": "This subject can later be scheduled as a stream lecture.",
+      "requiresSubgroupsForLabs": "Requires subgroups for labs",
+      "roomFitSupported": "Room fit: supported.",
+      "roomFitUnsupported": "This room is not marked as supporting this lesson type.",
+      "roomCapabilityPriority": "Priority: {{priority}}",
+      "subjectSource": {
+        "CURRICULUM_PLAN": "Curriculum",
+        "DIRECT_BINDING": "Direct binding",
+        "GROUP_OVERRIDE": "Override"
+      }
     },
-  "adminSystem": {
+    "adminSystem": {
       "description": "Manage access, audit history, and platform lookup tools from one place.",
       "blocks": {
         "access": {
@@ -1379,6 +1409,367 @@
           "description": "Find subjects, groups, topics, assignments, and tests without switching modules."
         }
       }
+    },
+    "academic": {
+      "filters": {
+        "activeOnly": "Active only",
+        "archivedOnly": "Archived only",
+        "all": "All",
+        "allSpecialties": "All specialties",
+        "allStudyYears": "All study years",
+        "allSemesters": "All semesters",
+        "allSubjects": "All subjects"
+      },
+      "common": {
+        "archive": "Archive",
+        "restore": "Restore"
+      },
+      "subject": "Subject",
+      "studyYear": "Study year",
+      "studyYearValue": "Year {{year}}",
+      "readOnlyOverviewDescription": "Read-only academic overview.",
+      "selectSpecialtyToContinueStreams": "Select a specialty to manage streams.",
+      "selectSpecialtyToContinueCurriculum": "Select a specialty to manage curriculum plans.",
+      "nestedManagementHint": "Manage streams, groups, and curriculum from specialty and study year context.",
+      "studyYears": {
+        "empty": "No study years with academic data yet.",
+        "allYears": "All study years"
+      },
+      "sections": {
+        "overview": "Overview",
+        "studyYears": "Study years",
+        "streams": "Streams",
+        "curriculum": "Curriculum plans",
+        "groups": "Groups"
+      },
+      "actions": {
+        "viewSpecialties": "View specialties",
+        "viewSpecialty": "View specialty",
+        "viewGroups": "View groups",
+        "viewStreams": "View streams",
+        "viewCurriculum": "View curriculum",
+        "viewResolvedSubjects": "View resolved subjects",
+        "createStreamInSpecialty": "Add stream for this year",
+        "createCurriculumInSpecialty": "Add curriculum plan for this year",
+        "assignToStream": "Assign to stream"
+      },
+      "specialties": {
+        "hubDescription": "Manage academic directions and visibility for groups and curriculum plans.",
+        "description": "Specialties define the academic direction used by groups and curriculum plans.",
+        "detailTitle": "Specialty details",
+        "detailDescription": "Overview, study years, streams, curriculum plans, and groups for this specialty.",
+        "searchPlaceholder": "Search specialties",
+        "add": "Add specialty",
+        "edit": "Edit specialty",
+        "createDescription": "Create a specialty code and title for academic planning.",
+        "editDescription": "Update specialty code and display details.",
+        "code": "Specialty code",
+        "name": "Specialty name",
+        "specialty": "Specialty",
+        "specialtyUnknown": "Specialty not found",
+        "noDescription": "No description",
+        "empty": "No specialties found"
+      },
+      "streams": {
+        "hubDescription": "Group parallel cohorts by specialty and year for shared lecture planning.",
+        "description": "Streams group compatible groups for shared academic planning.",
+        "forSpecialtyTitle": "Streams for specialty",
+        "searchPlaceholder": "Search streams",
+        "add": "Add stream",
+        "edit": "Edit stream",
+        "stream": "Stream",
+        "createDescription": "Set stream name, specialty, and study year.",
+        "editDescription": "Update stream mapping and study year.",
+        "groupCount": "{{count}} groups",
+        "emptyForSpecialty": "No streams for this specialty."
+      },
+      "subgroupMode": {
+        "label": "Subgroup mode",
+        "NONE": "No subgroups",
+        "TWO_SUBGROUPS": "Two subgroups"
+      },
+      "groupSettings": {
+        "title": "Group academic settings",
+        "description": "Assign specialty, study year, stream, and subgroup mode for this group.",
+        "incompleteContextWarning": "This group has no specialty/year configured. Curriculum subjects cannot be resolved fully.",
+        "streamHint": "Select specialty and study year before assigning a stream.",
+        "noSpecialty": "No specialty",
+        "noStudyYear": "No study year",
+        "noStream": "No stream",
+        "saveSuccess": "Group academic settings were updated."
+      },
+      "curriculum": {
+        "hubDescription": "Define planned subjects and lesson counts per specialty and semester.",
+        "description": "Curriculum plans define default subject workload for specialty, year, and semester.",
+        "forSpecialtyTitle": "Curriculum plans for specialty",
+        "searchPlaceholder": "Search curriculum plans",
+        "add": "Add curriculum plan",
+        "edit": "Edit curriculum plan",
+        "createDescription": "Set subject workload and flags for specialty and semester.",
+        "editDescription": "Update workload, semester, and planning flags.",
+        "semester": "Semester",
+        "semesterValue": "Semester {{semester}}",
+        "lectureCount": "Lecture count",
+        "practiceCount": "Practice count",
+        "labCount": "Lab count",
+        "supportsStreamLecture": "Supports stream lecture",
+        "requiresSubgroupsForLabs": "Requires subgroups for labs",
+        "subjectUnknown": "Unknown subject",
+        "empty": "No curriculum plans found",
+        "emptyForSpecialty": "No curriculum plans for this specialty."
+      },
+      "groups": {
+        "hubDescription": "Review groups by specialty and study year.",
+        "forSpecialtyTitle": "Groups for {{specialty}} · {{studyYear}}",
+        "forSpecialtyDescription": "Groups in this specialty context.",
+        "specialtyContextHint": "Use group settings to assign stream and adjust academic context.",
+        "emptyForSpecialty": "No groups in this specialty.",
+        "unassignedTitle": "Unassigned groups",
+        "unassignedDescription": "Groups without specialty or study year are shown here.",
+        "unassignedEmpty": "No unassigned groups."
+      },
+      "resolvedSubjects": {
+        "title": "Resolved subjects",
+        "description": "Resolved view combines curriculum plans, overrides, and direct bindings.",
+        "currentSemester": "Current semester",
+        "directFallback": "Group has no specialty or study year configured. Direct subject bindings are used.",
+        "empty": "No resolved subjects found for this group.",
+        "teacherCount": "{{count}} teachers",
+        "streamLectureNotEnabled": "Stream lecture support is disabled",
+        "subgroupsNotRequired": "Subgroups are not required for labs",
+        "source": {
+          "DIRECT_BINDING": "Direct binding",
+          "CURRICULUM_PLAN": "Curriculum",
+          "GROUP_OVERRIDE": "Override"
+        }
+      },
+      "overrides": {
+        "title": "Curriculum overrides",
+        "description": "Overrides customize or disable curriculum subjects for this group.",
+        "add": "Add override",
+        "empty": "No overrides configured for this group.",
+        "createSuccess": "Override was created.",
+        "updateSuccess": "Override was updated.",
+        "deleteSuccess": "Override was deleted.",
+        "disableSubjectForGroup": "Disable subject for group",
+        "enabledForGroup": "Enabled for group",
+        "disabledByOverride": "Disabled by override",
+        "lectureCountOverride": "Lecture override",
+        "practiceCountOverride": "Practice override",
+        "labCountOverride": "Lab override"
+      },
+      "roomCapabilities": {
+        "title": "Room capabilities",
+        "description": "Define which lesson types this room supports and their priority.",
+        "hubDescription": "Manage lesson-type capabilities and priorities for room selection.",
+        "priority": "Capability priority",
+        "priorityHint": "Higher priority means better fit for this lesson type.",
+        "saveSuccess": "Room capabilities were updated."
+      },
+      "validation": {
+        "specialtyCodeRequired": "Enter specialty code.",
+        "specialtyNameRequired": "Enter specialty name.",
+        "streamNameRequired": "Enter stream name.",
+        "selectSpecialty": "Select specialty.",
+        "selectStudyYear": "Select study year.",
+        "selectSpecialtyForStudyYear": "Select specialty when study year is set.",
+        "enterStudyYearForSpecialty": "Enter study year when specialty is selected.",
+        "specialtyRequiredForStream": "Specialty is required before creating a stream.",
+        "specialtyRequiredForGroup": "Specialty is required before updating group academic settings.",
+        "specialtyRequiredForCurriculumPlan": "Specialty is required before creating a curriculum plan.",
+        "selectSubject": "Select subject.",
+        "selectSemester": "Select semester.",
+        "enterStudyYear": "Enter valid study year.",
+        "countsNonNegative": "Counts must be non-negative.",
+        "atLeastOneLessonCount": "At least one lesson count must be greater than zero.",
+        "enableAtLeastOneCapability": "Enable at least one room capability.",
+        "priorityPositive": "Capability priority must be positive."
+      }
     }
+  },
+  "academic": {
+    "filters": {
+      "activeOnly": "Active only",
+      "archivedOnly": "Archived only",
+      "all": "All",
+      "allSpecialties": "All specialties",
+      "allStudyYears": "All study years",
+      "allSemesters": "All semesters",
+      "allSubjects": "All subjects"
+    },
+    "common": {
+      "archive": "Archive",
+      "restore": "Restore"
+    },
+    "subject": "Subject",
+    "studyYear": "Study year",
+    "studyYearValue": "Year {{year}}",
+    "readOnlyOverviewDescription": "Read-only academic overview.",
+    "selectSpecialtyToContinueStreams": "Select a specialty to manage streams.",
+    "selectSpecialtyToContinueCurriculum": "Select a specialty to manage curriculum plans.",
+    "nestedManagementHint": "Manage streams, groups, and curriculum from specialty and study year context.",
+    "studyYears": {
+      "empty": "No study years with academic data yet.",
+      "allYears": "All study years"
+    },
+    "sections": {
+      "overview": "Overview",
+      "studyYears": "Study years",
+      "streams": "Streams",
+      "curriculum": "Curriculum plans",
+      "groups": "Groups"
+    },
+    "actions": {
+      "viewSpecialties": "View specialties",
+      "viewSpecialty": "View specialty",
+      "viewGroups": "View groups",
+      "viewStreams": "View streams",
+      "viewCurriculum": "View curriculum",
+      "viewResolvedSubjects": "View resolved subjects",
+      "createStreamInSpecialty": "Add stream for this year",
+      "createCurriculumInSpecialty": "Add curriculum plan for this year",
+      "assignToStream": "Assign to stream"
+    },
+    "specialties": {
+      "hubDescription": "Manage academic directions and visibility for groups and curriculum plans.",
+      "description": "Specialties define the academic direction used by groups and curriculum plans.",
+      "detailTitle": "Specialty details",
+      "detailDescription": "Overview, study years, streams, curriculum plans, and groups for this specialty.",
+      "searchPlaceholder": "Search specialties",
+      "add": "Add specialty",
+      "edit": "Edit specialty",
+      "createDescription": "Create a specialty code and title for academic planning.",
+      "editDescription": "Update specialty code and display details.",
+      "code": "Specialty code",
+      "name": "Specialty name",
+      "specialty": "Specialty",
+      "specialtyUnknown": "Specialty not found",
+      "noDescription": "No description",
+      "empty": "No specialties found"
+    },
+    "streams": {
+      "hubDescription": "Group parallel cohorts by specialty and year for shared lecture planning.",
+      "description": "Streams group compatible groups for shared academic planning.",
+      "forSpecialtyTitle": "Streams for specialty",
+      "searchPlaceholder": "Search streams",
+      "add": "Add stream",
+      "edit": "Edit stream",
+      "stream": "Stream",
+      "createDescription": "Set stream name, specialty, and study year.",
+      "editDescription": "Update stream mapping and study year.",
+      "groupCount": "{{count}} groups",
+      "emptyForSpecialty": "No streams for this specialty."
+    },
+    "subgroupMode": {
+      "label": "Subgroup mode",
+      "NONE": "No subgroups",
+      "TWO_SUBGROUPS": "Two subgroups"
+    },
+    "groupSettings": {
+      "title": "Group academic settings",
+      "description": "Assign specialty, study year, stream, and subgroup mode for this group.",
+      "incompleteContextWarning": "This group has no specialty/year configured. Curriculum subjects cannot be resolved fully.",
+      "streamHint": "Select specialty and study year before assigning a stream.",
+      "noSpecialty": "No specialty",
+      "noStudyYear": "No study year",
+      "noStream": "No stream",
+      "saveSuccess": "Group academic settings were updated."
+    },
+    "curriculum": {
+      "hubDescription": "Define planned subjects and lesson counts per specialty and semester.",
+      "description": "Curriculum plans define default subject workload for specialty, year, and semester.",
+      "forSpecialtyTitle": "Curriculum plans for specialty",
+      "searchPlaceholder": "Search curriculum plans",
+      "add": "Add curriculum plan",
+      "edit": "Edit curriculum plan",
+      "createDescription": "Set subject workload and flags for specialty and semester.",
+      "editDescription": "Update workload, semester, and planning flags.",
+      "semester": "Semester",
+      "semesterValue": "Semester {{semester}}",
+      "lectureCount": "Lecture count",
+      "practiceCount": "Practice count",
+      "labCount": "Lab count",
+      "supportsStreamLecture": "Supports stream lecture",
+      "requiresSubgroupsForLabs": "Requires subgroups for labs",
+      "subjectUnknown": "Unknown subject",
+      "empty": "No curriculum plans found",
+      "emptyForSpecialty": "No curriculum plans for this specialty."
+    },
+    "groups": {
+      "hubDescription": "Review groups by specialty and study year.",
+      "forSpecialtyTitle": "Groups for {{specialty}} · {{studyYear}}",
+      "forSpecialtyDescription": "Groups in this specialty context.",
+      "specialtyContextHint": "Use group settings to assign stream and adjust academic context.",
+      "emptyForSpecialty": "No groups in this specialty.",
+      "unassignedTitle": "Unassigned groups",
+      "unassignedDescription": "Groups without specialty or study year are shown here.",
+      "unassignedEmpty": "No unassigned groups."
+    },
+    "resolvedSubjects": {
+      "title": "Resolved subjects",
+      "description": "Resolved view combines curriculum plans, overrides, and direct bindings.",
+      "currentSemester": "Current semester",
+      "directFallback": "Group has no specialty or study year configured. Direct subject bindings are used.",
+      "empty": "No resolved subjects found for this group.",
+      "teacherCount": "{{count}} teachers",
+      "streamLectureNotEnabled": "Stream lecture support is disabled",
+      "subgroupsNotRequired": "Subgroups are not required for labs",
+      "source": {
+        "DIRECT_BINDING": "Direct binding",
+        "CURRICULUM_PLAN": "Curriculum",
+        "GROUP_OVERRIDE": "Override"
+      }
+    },
+    "overrides": {
+      "title": "Curriculum overrides",
+      "description": "Overrides customize or disable curriculum subjects for this group.",
+      "add": "Add override",
+      "empty": "No overrides configured for this group.",
+      "createSuccess": "Override was created.",
+      "updateSuccess": "Override was updated.",
+      "deleteSuccess": "Override was deleted.",
+      "disableSubjectForGroup": "Disable subject for group",
+      "enabledForGroup": "Enabled for group",
+      "disabledByOverride": "Disabled by override",
+      "lectureCountOverride": "Lecture override",
+      "practiceCountOverride": "Practice override",
+      "labCountOverride": "Lab override"
+    },
+    "roomCapabilities": {
+      "title": "Room capabilities",
+      "description": "Define which lesson types this room supports and their priority.",
+      "hubDescription": "Manage lesson-type capabilities and priorities for room selection.",
+      "priority": "Capability priority",
+      "priorityHint": "Higher priority means better fit for this lesson type.",
+      "saveSuccess": "Room capabilities were updated."
+    },
+    "validation": {
+      "specialtyCodeRequired": "Enter specialty code.",
+      "specialtyNameRequired": "Enter specialty name.",
+      "streamNameRequired": "Enter stream name.",
+      "selectSpecialty": "Select specialty.",
+      "selectStudyYear": "Select study year.",
+      "selectSpecialtyForStudyYear": "Select specialty when study year is set.",
+      "enterStudyYearForSpecialty": "Enter study year when specialty is selected.",
+      "specialtyRequiredForStream": "Specialty is required before creating a stream.",
+      "specialtyRequiredForGroup": "Specialty is required before updating group academic settings.",
+      "specialtyRequiredForCurriculumPlan": "Specialty is required before creating a curriculum plan.",
+      "selectSubject": "Select subject.",
+      "selectSemester": "Select semester.",
+      "enterStudyYear": "Enter valid study year.",
+      "countsNonNegative": "Counts must be non-negative.",
+      "atLeastOneLessonCount": "At least one lesson count must be greater than zero.",
+      "enableAtLeastOneCapability": "Enable at least one room capability.",
+      "priorityPositive": "Capability priority must be positive."
+    }
+  },
+  "schedule": {
+    "routeCards": {
+      "roomsTitle": "Rooms"
+    },
+    "roomDirectoryDescription": "Search rooms and open their weekly occupancy schedule.",
+    "roomSearchPlaceholder": "Search rooms",
+    "roomDirectoryEmpty": "No rooms matched the current search.",
+    "roomCardDescription": "{{count}} seats available in this room configuration."
   }
 }

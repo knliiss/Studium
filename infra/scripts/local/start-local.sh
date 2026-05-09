@@ -16,6 +16,7 @@ APP_SERVICES=(
   education-service
   schedule-service
   assignment-service
+  content-service
   testing-service
   file-service
   analytics-service
@@ -31,6 +32,7 @@ BOOTJAR_TASKS=(
   :apps:education-service:bootJar
   :apps:schedule-service:bootJar
   :apps:assignment-service:bootJar
+  :apps:content-service:bootJar
   :apps:testing-service:bootJar
   :apps:file-service:bootJar
   :apps:analytics-service:bootJar
@@ -84,6 +86,7 @@ TESTING_PORT=8087
 SCHEDULE_PORT=8088
 ANALYTICS_PORT=8089
 AUDIT_PORT=8090
+CONTENT_PORT=8091
 POSTGRES_DB=postgres
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
@@ -97,6 +100,7 @@ TESTING_DB_SCHEMA=testing
 SCHEDULE_DB_SCHEMA=schedule
 ANALYTICS_DB_SCHEMA=analytics
 AUDIT_DB_SCHEMA=audit
+CONTENT_DB_SCHEMA=content
 KAFKA_PORT=29092
 KAFKA_BOOTSTRAP_SERVERS=localhost:29092
 KAFKA_CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk

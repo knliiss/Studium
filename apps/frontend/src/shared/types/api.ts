@@ -2,6 +2,7 @@ export type Role = 'OWNER' | 'ADMIN' | 'TEACHER' | 'STUDENT' | 'USER'
 export type LocaleValue = 'en' | 'uk' | 'pl'
 export type GroupMemberRole = 'STUDENT' | 'STAROSTA'
 export type SubgroupValue = 'ALL' | 'FIRST' | 'SECOND'
+export type GroupSubgroupMode = 'NONE' | 'TWO_SUBGROUPS'
 export type QuestionType =
   | 'SINGLE_CHOICE'
   | 'MULTIPLE_CHOICE'
@@ -99,8 +100,76 @@ export interface PageResponse<T> {
 export interface GroupResponse {
   id: string
   name: string
+  specialtyId: string | null
+  studyYear: number | null
+  streamId: string | null
+  subgroupMode: GroupSubgroupMode
   createdAt: string
   updatedAt: string
+}
+
+export interface SpecialtyResponse {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StreamResponse {
+  id: string
+  name: string
+  specialtyId: string
+  studyYear: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CurriculumPlanResponse {
+  id: string
+  specialtyId: string
+  studyYear: number
+  semesterNumber: number
+  subjectId: string
+  lectureCount: number
+  practiceCount: number
+  labCount: number
+  supportsStreamLecture: boolean
+  requiresSubgroupsForLabs: boolean
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GroupCurriculumOverrideResponse {
+  id: string
+  groupId: string
+  subjectId: string
+  enabled: boolean
+  lectureCountOverride: number | null
+  practiceCountOverride: number | null
+  labCountOverride: number | null
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type ResolvedGroupSubjectSource = 'DIRECT_BINDING' | 'CURRICULUM_PLAN' | 'GROUP_OVERRIDE'
+
+export interface ResolvedGroupSubjectResponse {
+  subjectId: string
+  subjectName: string
+  source: ResolvedGroupSubjectSource
+  lectureCount: number
+  practiceCount: number
+  labCount: number
+  teacherIds: string[]
+  supportsStreamLecture: boolean
+  requiresSubgroupsForLabs: boolean
+  disabledByOverride: boolean
 }
 
 export interface GroupMembershipResponse {
@@ -172,6 +241,7 @@ export interface AcademicSemesterResponse {
   startDate: string
   endDate: string
   weekOneStartDate: string
+  semesterNumber: number | null
   active: boolean
   published: boolean
   createdAt: string
@@ -194,6 +264,16 @@ export interface RoomResponse {
   building: string
   floor: number
   capacity: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RoomCapabilityResponse {
+  id: string
+  roomId: string
+  lessonType: 'LECTURE' | 'PRACTICAL' | 'LABORATORY'
+  priority: number
   active: boolean
   createdAt: string
   updatedAt: string

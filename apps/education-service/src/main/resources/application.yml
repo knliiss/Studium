@@ -11,9 +11,19 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    schemas: ${EDUCATION_DB_SCHEMA:education}
+    default-schema: ${EDUCATION_DB_SCHEMA:education}
+    create-schemas: true
+
   sql:
     init:
-      mode: always
+      mode: never
 
   data:
     redis:
@@ -24,7 +34,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
@@ -74,6 +84,10 @@ logging:
 
 app:
   education:
+    schema-guard:
+      enabled: ${EDUCATION_SCHEMA_GUARD_ENABLED:true}
+      auto-repair: ${EDUCATION_SCHEMA_GUARD_AUTO_REPAIR:false}
+      schema: ${EDUCATION_DB_SCHEMA:education}
     jwt:
       issuer: ${JWT_ISSUER:dev.knalis.auth-service}
       audience: ${JWT_AUDIENCE:dev.knalis.api}
@@ -86,7 +100,7 @@ app:
       read-timeout: ${EDUCATION_AUDIT_SERVICE_READ_TIMEOUT:5s}
       shared-secret: ${AUDIT_INTERNAL_SHARED_SECRET}
     file-service:
-      base-url: ${EDUCATION_FILE_SERVICE_BASE_URL:http://localhost:8083}
+      base-url: ${EDUCATION_FILE_SERVICE_BASE_URL:${FILE_SERVICE_BASE_URL:http://localhost:8083}}
       connect-timeout: ${EDUCATION_FILE_SERVICE_CONNECT_TIMEOUT:2s}
       read-timeout: ${EDUCATION_FILE_SERVICE_READ_TIMEOUT:10s}
       shared-secret: ${FILE_INTERNAL_SHARED_SECRET}

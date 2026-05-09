@@ -1,7 +1,9 @@
 package dev.knalis.schedule.controller;
 
 import dev.knalis.schedule.dto.request.CreateRoomRequest;
+import dev.knalis.schedule.dto.request.UpdateRoomCapabilitiesRequest;
 import dev.knalis.schedule.dto.request.UpdateRoomRequest;
+import dev.knalis.schedule.dto.response.RoomCapabilityResponse;
 import dev.knalis.schedule.dto.response.RoomResponse;
 import dev.knalis.schedule.service.room.RoomService;
 import jakarta.validation.Valid;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -50,5 +53,23 @@ public class RoomController {
             @Valid @RequestBody UpdateRoomRequest request
     ) {
         return roomService.updateRoom(roomId, request);
+    }
+
+    @GetMapping("/{id}/capabilities")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public List<RoomCapabilityResponse> getRoomCapabilities(
+            @PathVariable("id") UUID roomId,
+            @RequestParam(defaultValue = "false") boolean includeInactive
+    ) {
+        return roomService.getRoomCapabilities(roomId, includeInactive);
+    }
+
+    @PutMapping("/{id}/capabilities")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
+    public List<RoomCapabilityResponse> updateRoomCapabilities(
+            @PathVariable("id") UUID roomId,
+            @Valid @RequestBody UpdateRoomCapabilitiesRequest request
+    ) {
+        return roomService.updateRoomCapabilities(roomId, request);
     }
 }

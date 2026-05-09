@@ -34,5 +34,21 @@
   "USER_ALREADY_EXISTS": "A user with this username already exists.",
   "USER_NOT_FOUND": "The requested user was not found.",
   "VALIDATION_FAILED": "Please review the form fields and try again.",
-  "fallback": "We couldn't complete the request. Please try again."
+  "fallback": "We couldn't complete the request. Please try again.",
+  "SPECIALTY_CODE_ALREADY_EXISTS": "Specialty code already exists.",
+  "SPECIALTY_NOT_FOUND": "Specialty was not found.",
+  "SPECIALTY_NOT_ACTIVE": "Specialty is archived and cannot be used.",
+  "STREAM_NOT_FOUND": "Stream was not found.",
+  "STREAM_NOT_ACTIVE": "Stream is archived and cannot be used.",
+  "STREAM_SPECIALTY_YEAR_MISMATCH": "Selected stream does not match group specialty or study year.",
+  "GROUP_NOT_FOUND": "Group was not found.",
+  "SUBJECT_NOT_FOUND": "Subject was not found.",
+  "CURRICULUM_PLAN_ALREADY_EXISTS": "An active curriculum plan for this subject already exists.",
+  "CURRICULUM_PLAN_NOT_FOUND": "Curriculum plan was not found.",
+  "CURRICULUM_PLAN_INVALID_COUNTS": "Curriculum counts are invalid.",
+  "GROUP_CURRICULUM_OVERRIDE_ALREADY_EXISTS": "An override for this subject already exists in this group.",
+  "ROOM_CAPABILITY_NOT_FOUND": "Room capability was not found.",
+  "DOWNSTREAM_ERROR": "A dependent service request failed. Please try again.",
+  "ROOM_CAPABILITY_ALREADY_EXISTS": "Room capability for this lesson type already exists.",
+  "ROOM_CAPABILITY_INVALID_PRIORITY": "Room capability priority must be positive."
 }

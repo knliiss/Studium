@@ -34,5 +34,21 @@
   "USER_ALREADY_EXISTS": "Користувач із таким іменем уже існує.",
   "USER_NOT_FOUND": "Користувача не знайдено.",
   "VALIDATION_FAILED": "Перевірте поля форми та спробуйте ще раз.",
-  "fallback": "Не вдалося виконати запит. Спробуйте ще раз."
+  "fallback": "Не вдалося виконати запит. Спробуйте ще раз.",
+  "SPECIALTY_CODE_ALREADY_EXISTS": "Код спеціальності вже існує.",
+  "SPECIALTY_NOT_FOUND": "Спеціальність не знайдено.",
+  "SPECIALTY_NOT_ACTIVE": "Спеціальність в архіві та недоступна для використання.",
+  "STREAM_NOT_FOUND": "Потік не знайдено.",
+  "STREAM_NOT_ACTIVE": "Потік в архіві та недоступний для використання.",
+  "STREAM_SPECIALTY_YEAR_MISMATCH": "Обраний потік не відповідає спеціальності або року навчання групи.",
+  "GROUP_NOT_FOUND": "Групу не знайдено.",
+  "SUBJECT_NOT_FOUND": "Предмет не знайдено.",
+  "CURRICULUM_PLAN_ALREADY_EXISTS": "Активний навчальний план для цього предмета вже існує.",
+  "CURRICULUM_PLAN_NOT_FOUND": "Навчальний план не знайдено.",
+  "CURRICULUM_PLAN_INVALID_COUNTS": "Кількість занять у навчальному плані некоректна.",
+  "GROUP_CURRICULUM_OVERRIDE_ALREADY_EXISTS": "Override для цього предмета вже існує в групі.",
+  "ROOM_CAPABILITY_NOT_FOUND": "Можливість аудиторії не знайдено.",
+  "DOWNSTREAM_ERROR": "Помилка запиту до залежного сервісу. Спробуйте ще раз.",
+  "ROOM_CAPABILITY_ALREADY_EXISTS": "Можливість аудиторії для цього типу заняття вже існує.",
+  "ROOM_CAPABILITY_INVALID_PRIORITY": "Пріоритет можливості аудиторії має бути додатнім."
 }

@@ -3,9 +3,11 @@ package dev.knalis.education.client.file.http;
 import dev.knalis.education.client.file.FileServiceClient;
 import dev.knalis.education.client.file.dto.RemoteStoredFileResponse;
 import dev.knalis.education.exception.FileAttachmentNotAllowedException;
+import dev.knalis.education.exception.FileServiceUnavailableException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.util.UUID;
@@ -25,7 +27,12 @@ public class HttpFileServiceClient implements FileServiceClient {
                     .retrieve()
                     .body(RemoteStoredFileResponse.class);
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new FileServiceUnavailableException("metadata", fileId);
+            }
             throw new FileAttachmentNotAllowedException(fileId);
+        } catch (RestClientException exception) {
+            throw new FileServiceUnavailableException("metadata", fileId);
         }
     }
 
@@ -38,8 +45,12 @@ public class HttpFileServiceClient implements FileServiceClient {
                     .retrieve()
                     .toBodilessEntity();
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new FileServiceUnavailableException("activate", fileId);
+            }
             throw new FileAttachmentNotAllowedException(fileId);
+        } catch (RestClientException exception) {
+            throw new FileServiceUnavailableException("activate", fileId);
         }
     }
 }
-

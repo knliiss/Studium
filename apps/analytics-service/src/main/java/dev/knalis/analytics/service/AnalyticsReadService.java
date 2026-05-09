@@ -56,7 +56,9 @@ public class AnalyticsReadService {
     
     @Transactional(readOnly = true)
     public StudentAnalyticsResponse getStudentAnalytics(UUID userId) {
-        StudentProgressSnapshot userSnapshot = studentProgressSnapshotRepository.findByUserIdAndGroupIdIsNull(userId).orElse(null);
+        StudentProgressSnapshot userSnapshot = studentProgressSnapshotRepository
+                .findFirstByUserIdAndGroupIdIsNullOrderByUpdatedAtDesc(userId)
+                .orElse(null);
         List<StudentGroupProgressResponse> groupProgress = studentProgressSnapshotRepository
                 .findAllByUserIdAndGroupIdIsNotNullOrderByUpdatedAtDesc(userId)
                 .stream()
@@ -84,7 +86,7 @@ public class AnalyticsReadService {
     public StudentRiskResponse getStudentRisk(UUID userId) {
         return analyticsReadMapper.toStudentRiskResponse(
                 userId,
-                studentProgressSnapshotRepository.findByUserIdAndGroupIdIsNull(userId).orElse(null)
+                studentProgressSnapshotRepository.findFirstByUserIdAndGroupIdIsNullOrderByUpdatedAtDesc(userId).orElse(null)
         );
     }
     

@@ -37,6 +37,15 @@ public class AssignmentAttachment {
     @Column(length = 255)
     private String displayName;
 
+    @Column(nullable = false, length = 500)
+    private String originalFileName;
+
+    @Column(length = 255)
+    private String contentType;
+
+    @Column(nullable = false)
+    private long sizeBytes;
+
     @Column(nullable = false)
     private UUID uploadedByUserId;
 

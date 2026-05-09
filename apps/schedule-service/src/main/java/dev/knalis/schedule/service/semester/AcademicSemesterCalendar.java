@@ -22,7 +22,8 @@ public class AcademicSemesterCalendar {
                 "Semester 2 " + academicYearStart + "/" + academicYearEnd,
                 LocalDate.of(academicYearEnd, 2, 1),
                 LocalDate.of(academicYearEnd, 8, 31),
-                LocalDate.of(academicYearEnd, 2, 1)
+                LocalDate.of(academicYearEnd, 2, 1),
+                2
         );
     }
 
@@ -37,7 +38,8 @@ public class AcademicSemesterCalendar {
                 "Semester 1 " + academicYearStart + "/" + academicYearEnd,
                 LocalDate.of(academicYearStart, 9, 1),
                 LocalDate.of(academicYearEnd, 1, 31),
-                LocalDate.of(academicYearStart, 9, 1)
+                LocalDate.of(academicYearStart, 9, 1),
+                1
         );
     }
 }

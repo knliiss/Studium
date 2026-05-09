@@ -18,6 +18,7 @@ import dev.knalis.education.repository.SubjectGroupRepository;
 import dev.knalis.education.repository.SubjectRepository;
 import dev.knalis.education.repository.SubjectTeacherRepository;
 import dev.knalis.education.service.common.EducationAuditService;
+import dev.knalis.education.service.group.GroupResolvedSubjectService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,6 +64,9 @@ class SubjectServiceTest {
     @Mock
     private EducationAuditService educationAuditService;
 
+    @Mock
+    private GroupResolvedSubjectService groupResolvedSubjectService;
+
     private SubjectService subjectService;
 
     @BeforeEach
@@ -74,7 +78,8 @@ class SubjectServiceTest {
                 subjectGroupRepository,
                 subjectTeacherRepository,
                 new SubjectFactory(),
-                educationAuditService
+                educationAuditService,
+                groupResolvedSubjectService
         );
     }
 
@@ -179,13 +184,9 @@ class SubjectServiceTest {
     @Test
     void studentListSubjectsReturnsOnlyOwnGroups() {
         UUID userId = UUID.randomUUID();
-        UUID groupId = UUID.randomUUID();
-        GroupStudent membership = new GroupStudent();
-        membership.setGroupId(groupId);
-        membership.setUserId(userId);
-
-        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(userId)).thenReturn(List.of(membership));
-        when(subjectRepository.findAllByBoundGroupIdsAndNameContainingIgnoreCase(eq(List.of(groupId)), eq(""), any(Pageable.class)))
+        UUID subjectId = UUID.randomUUID();
+        when(groupResolvedSubjectService.resolveStudentSubjectIds(userId)).thenReturn(Set.of(subjectId));
+        when(subjectRepository.findAllByIdInAndNameContainingIgnoreCase(eq(Set.of(subjectId)), eq(""), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         SubjectPageResponse response = subjectService.listSubjects(
@@ -228,7 +229,7 @@ class SubjectServiceTest {
         subject.setId(subjectId);
 
         when(subjectRepository.findById(subjectId)).thenReturn(Optional.of(subject));
-        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(userId)).thenReturn(List.of());
+        when(groupResolvedSubjectService.resolveStudentSubjectIds(userId)).thenReturn(Set.of());
 
         assertThrows(
                 EducationAccessDeniedException.class,

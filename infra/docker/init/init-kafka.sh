@@ -36,4 +36,14 @@ for topic in "${TOPICS[@]}"; do
     --replication-factor 1
 done
 
+for topic in "${TOPICS[@]}"; do
+  kafka-topics \
+    --bootstrap-server "$KAFKA_BOOTSTRAP_SERVERS" \
+    --create \
+    --if-not-exists \
+    --topic "${topic}.dlt" \
+    --partitions 3 \
+    --replication-factor 1
+done
+
 echo "Kafka topics are initialized."

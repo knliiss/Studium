@@ -55,10 +55,13 @@ public class SubmissionAttachmentService {
     private final FileServiceInternalClient fileServiceInternalClient;
 
     @Transactional
-    public void createInitialAttachment(UUID submissionId, UUID uploadedByUserId, UUID fileId) {
+    public void createInitialAttachment(UUID submissionId, UUID uploadedByUserId, RemoteStoredFileResponse file) {
         SubmissionAttachment attachment = new SubmissionAttachment();
         attachment.setSubmissionId(submissionId);
-        attachment.setFileId(fileId);
+        attachment.setFileId(file.id());
+        attachment.setOriginalFileName(file.originalFileName());
+        attachment.setContentType(file.contentType());
+        attachment.setSizeBytes(file.sizeBytes());
         attachment.setUploadedByUserId(uploadedByUserId);
         submissionAttachmentRepository.save(attachment);
     }
@@ -77,7 +80,7 @@ public class SubmissionAttachmentService {
             throw new SubmissionNotAccessibleException(submissionId);
         }
         return submissionAttachmentRepository.findAllBySubmissionIdOrderByCreatedAtAsc(submissionId).stream()
-                .map(attachment -> toResponse(attachment, fileServiceInternalClient.getMetadata(attachment.getFileId())))
+                .map(this::toResponse)
                 .toList();
     }
 
@@ -107,9 +110,12 @@ public class SubmissionAttachmentService {
         attachment.setSubmissionId(submissionId);
         attachment.setFileId(request.fileId());
         attachment.setDisplayName(normalizeDisplayName(request.displayName()));
+        attachment.setOriginalFileName(file.originalFileName());
+        attachment.setContentType(file.contentType());
+        attachment.setSizeBytes(file.sizeBytes());
         attachment.setUploadedByUserId(currentUserId);
         SubmissionAttachment savedAttachment = submissionAttachmentRepository.save(attachment);
-        return toResponse(savedAttachment, file);
+        return toResponse(savedAttachment);
     }
 
     @Transactional
@@ -258,16 +264,16 @@ public class SubmissionAttachmentService {
                 .orElseThrow(() -> new AssignmentNotFoundException(assignmentId));
     }
 
-    private SubmissionAttachmentResponse toResponse(SubmissionAttachment attachment, RemoteStoredFileResponse file) {
+    private SubmissionAttachmentResponse toResponse(SubmissionAttachment attachment) {
         return new SubmissionAttachmentResponse(
                 attachment.getId(),
                 attachment.getSubmissionId(),
                 attachment.getFileId(),
                 attachment.getDisplayName(),
-                file.originalFileName(),
-                file.contentType(),
-                file.sizeBytes(),
-                isPreviewAvailable(file.contentType()),
+                attachment.getOriginalFileName(),
+                attachment.getContentType(),
+                attachment.getSizeBytes(),
+                isPreviewAvailable(attachment.getContentType()),
                 attachment.getUploadedByUserId(),
                 attachment.getCreatedAt()
         );

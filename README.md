@@ -28,6 +28,21 @@ Studium is organized into three main areas:
 - Docker Compose
 - Testcontainers
 
+## Database Migrations
+
+Studium uses Flyway for schema evolution in all database-owning microservices.
+
+- Migration scripts live in each service under `src/main/resources/db/migration`.
+- Local and runtime startup run Flyway automatically.
+- Hibernate DDL is set to `validate` to prevent implicit schema mutation.
+- Schema guards (where present) are validation-only and fail fast when Flyway migrations were not applied.
+
+When adding schema changes:
+
+1. Add a new migration file with the next version (`V2__...`, `V3__...`) in the owning service.
+2. Keep migrations additive and non-destructive for compatibility with existing local volumes.
+3. Run the service tests for the touched module and verify startup logs include successful Flyway migration.
+
 ## Services
 
 ### `gateway`

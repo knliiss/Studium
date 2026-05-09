@@ -6,6 +6,7 @@ public record AcademicSemesterPeriod(
         String name,
         LocalDate startDate,
         LocalDate endDate,
-        LocalDate weekOneStartDate
+        LocalDate weekOneStartDate,
+        Integer semesterNumber
 ) {
 }

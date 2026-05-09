@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { convertToHtml } from 'mammoth/mammoth.browser'
 
 import { useAuth } from '@/features/auth/useAuth'
@@ -10,16 +10,14 @@ import { assignmentService, dashboardService, educationService, fileService, use
 import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { downloadBlob } from '@/shared/lib/download'
 import { formatDateTime } from '@/shared/lib/format'
-import { toGroupOption, toSubjectOption, toTopicOption } from '@/shared/lib/picker-options'
+import { toGroupOption } from '@/shared/lib/picker-options'
 import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
 import { Button } from '@/shared/ui/Button'
 import { Card } from '@/shared/ui/Card'
 import { DataTable } from '@/shared/ui/DataTable'
-import { EntityPicker } from '@/shared/ui/EntityPicker'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
-import { Textarea } from '@/shared/ui/Textarea'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { DeadlineBadge } from '@/widgets/common/DeadlineBadge'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
@@ -77,7 +75,15 @@ function StudentAssignmentsPage() {
       />
       <DataTable
         columns={[
-          { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/assignments/${item.assignmentId}`}>{item.title}</Link> },
+          {
+            key: 'title',
+            header: t('common.labels.title'),
+            render: (item) => (
+              <Link className="font-medium text-accent" to={`/assignments/${item.assignmentId}`} state={{ fromPath: '/assignments' }}>
+                {item.title}
+              </Link>
+            ),
+          },
           { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
           { key: 'deadline', header: t('common.labels.deadline'), render: (item) => <DeadlineBadge deadline={item.deadline} /> },
           { key: 'submitted', header: t('assignments.submitted'), render: (item) => (item.submitted ? t('assignments.yes') : t('assignments.no')) },
@@ -90,25 +96,9 @@ function StudentAssignmentsPage() {
 
 function ManagementAssignmentsPage() {
   const { t } = useTranslation()
-  const { primaryRole, session } = useAuth()
-  const queryClient = useQueryClient()
+  const { primaryRole } = useAuth()
   const [query, setQuery] = useState('')
-  const [groupSearch, setGroupSearch] = useState('')
   const debouncedQuery = useDebouncedValue(query.trim(), 350)
-  const debouncedGroupSearch = useDebouncedValue(groupSearch.trim(), 350)
-  const [selectedGroupId, setSelectedGroupId] = useState('')
-  const [selectedSubjectId, setSelectedSubjectId] = useState('')
-  const [form, setForm] = useState({
-    topicId: '',
-    title: '',
-    description: '',
-    deadline: '',
-    allowLateSubmissions: true,
-    maxSubmissions: 1,
-    allowResubmit: true,
-    acceptedFileTypes: 'application/pdf,image/png,image/jpeg',
-    maxFileSizeMb: 10,
-  })
   const isTeacher = primaryRole === 'TEACHER'
 
   const teacherDashboardQuery = useQuery({
@@ -120,68 +110,6 @@ function ManagementAssignmentsPage() {
     queryKey: ['assignments', 'search', debouncedQuery],
     queryFn: () => assignmentService.searchAssignments({ q: debouncedQuery || ' ', page: 0, size: 30 }),
     enabled: !isTeacher,
-  })
-  const accessibleGroupsQuery = useQuery({
-    queryKey: ['education', 'groups', 'assignment-accessible', primaryRole, session?.user.id],
-    queryFn: () => loadAccessibleGroups(primaryRole, session?.user.id ?? ''),
-    enabled: Boolean(isTeacher && session?.user.id),
-  })
-  const accessibleSubjectsQuery = useQuery({
-    queryKey: ['education', 'subjects', 'assignment-accessible', primaryRole, session?.user.id],
-    queryFn: () => loadAccessibleSubjects(primaryRole, session?.user.id ?? ''),
-    enabled: Boolean(isTeacher && session?.user.id),
-  })
-  const adminGroupSearchQuery = useQuery({
-    queryKey: ['education', 'assignment-group-search', debouncedGroupSearch],
-    queryFn: () => educationService.listGroups({
-      page: 0,
-      size: 20,
-      q: debouncedGroupSearch || undefined,
-      sortBy: 'name',
-      direction: 'asc',
-    }),
-    enabled: !isTeacher,
-  })
-  const adminSubjectsQuery = useQuery({
-    queryKey: ['education', 'assignment-subjects', selectedGroupId],
-    queryFn: () => educationService.getSubjectsByGroup(selectedGroupId, { page: 0, size: 100 }),
-    enabled: Boolean(!isTeacher && selectedGroupId),
-  })
-  const topicsQuery = useQuery({
-    queryKey: ['education', 'assignment-topics', selectedSubjectId],
-    queryFn: () => educationService.getTopicsBySubject(selectedSubjectId, { page: 0, size: 100 }),
-    enabled: Boolean(selectedSubjectId),
-  })
-
-  const createMutation = useMutation({
-    mutationFn: () =>
-      assignmentService.createAssignment({
-        ...form,
-        deadline: new Date(form.deadline).toISOString(),
-        acceptedFileTypes: form.acceptedFileTypes.split(',').map((value) => value.trim()).filter(Boolean),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      await queryClient.invalidateQueries({ queryKey: ['assignments'] })
-    },
-  })
-
-  const groupNameById = useMemo(
-    () => new Map((accessibleGroupsQuery.data ?? []).map((group) => [group.id, group.name])),
-    [accessibleGroupsQuery.data],
-  )
-  const groupOptions = isTeacher
-    ? (accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
-    : (adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
-  const subjectOptions = isTeacher
-    ? (accessibleSubjectsQuery.data ?? []).map((subject) => toSubjectOption(
-        subject,
-        subject.groupId ? groupNameById.get(subject.groupId) : undefined,
-      ))
-    : (adminSubjectsQuery.data?.items ?? []).map((subject) => toSubjectOption(subject))
-  const topicOptions = (topicsQuery.data?.items ?? []).map((topic) => {
-    const selectedSubject = subjectOptions.find((option) => option.value === selectedSubjectId)
-    return toTopicOption(topic, selectedSubject?.label)
   })
 
   const rows: AssignmentManagementRow[] = isTeacher
@@ -199,35 +127,27 @@ function ManagementAssignmentsPage() {
       }))
 
   if (
-    (isTeacher && (teacherDashboardQuery.isLoading || accessibleGroupsQuery.isLoading || accessibleSubjectsQuery.isLoading))
-    || (!isTeacher && (adminAssignmentsQuery.isLoading || adminSubjectsQuery.isLoading))
+    (isTeacher && teacherDashboardQuery.isLoading)
+    || (!isTeacher && adminAssignmentsQuery.isLoading)
   ) {
     return <LoadingState />
   }
 
   if (
-    (isTeacher && (teacherDashboardQuery.isError || accessibleGroupsQuery.isError || accessibleSubjectsQuery.isError))
-    || (!isTeacher && (adminAssignmentsQuery.isError || adminSubjectsQuery.isError || adminGroupSearchQuery.isError))
+    (isTeacher && teacherDashboardQuery.isError)
+    || (!isTeacher && adminAssignmentsQuery.isError)
   ) {
     return (
       <ErrorState
         title={t('navigation.shared.assignments')}
         description={getLocalizedRequestErrorMessage(
           teacherDashboardQuery.error
-            ?? accessibleGroupsQuery.error
-            ?? accessibleSubjectsQuery.error
-            ?? adminAssignmentsQuery.error
-            ?? adminSubjectsQuery.error
-            ?? adminGroupSearchQuery.error,
+            ?? adminAssignmentsQuery.error,
           t,
         )}
         onRetry={() => {
           void teacherDashboardQuery.refetch()
-          void accessibleGroupsQuery.refetch()
-          void accessibleSubjectsQuery.refetch()
           void adminAssignmentsQuery.refetch()
-          void adminSubjectsQuery.refetch()
-          void adminGroupSearchQuery.refetch()
         }}
       />
     )
@@ -241,74 +161,14 @@ function ManagementAssignmentsPage() {
       />
 
       <Card className="space-y-4">
-        <PageHeader title={t('assignments.createAssignment')} />
-        <div className="grid gap-4 xl:grid-cols-3">
-          {!isTeacher ? (
-            <EntityPicker
-              label={t('navigation.shared.groups')}
-              value={selectedGroupId}
-              options={groupOptions}
-              placeholder={t('assignments.selectGroup')}
-              emptyLabel={t('education.noGroups')}
-              searchLabel={t('common.actions.search')}
-              searchPlaceholder={t('assignments.groupSearchPlaceholder')}
-              searchValue={groupSearch}
-              onChange={(value) => {
-                setSelectedGroupId(value)
-                setSelectedSubjectId('')
-                setForm((current) => ({ ...current, topicId: '' }))
-              }}
-              onSearchChange={setGroupSearch}
-            />
-          ) : null}
-          <EntityPicker
-            disabled={!isTeacher && !selectedGroupId}
-            label={t('education.subject')}
-            value={selectedSubjectId}
-            options={subjectOptions}
-            placeholder={t('assignments.selectSubject')}
-            emptyLabel={!isTeacher && !selectedGroupId ? t('assignments.selectGroupFirst') : t('education.noSubjects')}
-            onChange={(value) => {
-              setSelectedSubjectId(value)
-              setForm((current) => ({ ...current, topicId: '' }))
-            }}
-          />
-          <EntityPicker
-            disabled={!selectedSubjectId}
-            label={t('education.topic')}
-            value={form.topicId}
-            options={topicOptions}
-            placeholder={t('assignments.selectTopic')}
-            emptyLabel={!selectedSubjectId ? t('assignments.selectSubjectFirst') : t('education.noTopics')}
-            onChange={(value) => setForm((current) => ({ ...current, topicId: value }))}
-          />
-        </div>
-        <div className="grid gap-4 xl:grid-cols-2">
-          <FormField label={t('common.labels.title')}>
-            <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-          </FormField>
-          <FormField label={t('common.labels.deadline')}>
-            <Input type="datetime-local" value={form.deadline} onChange={(event) => setForm((current) => ({ ...current, deadline: event.target.value }))} />
-          </FormField>
-        </div>
-        <FormField label={t('common.labels.description')}>
-          <Textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-        </FormField>
-        <div className="grid gap-4 xl:grid-cols-4">
-          <FormField label={t('assignments.maxSubmissions')}>
-            <Input type="number" value={form.maxSubmissions} onChange={(event) => setForm((current) => ({ ...current, maxSubmissions: Number(event.target.value) }))} />
-          </FormField>
-          <FormField label={t('assignments.maxFileSizeMb')}>
-            <Input type="number" value={form.maxFileSizeMb} onChange={(event) => setForm((current) => ({ ...current, maxFileSizeMb: Number(event.target.value) }))} />
-          </FormField>
-          <FormField label={t('assignments.acceptedFileTypes')}>
-            <Input value={form.acceptedFileTypes} onChange={(event) => setForm((current) => ({ ...current, acceptedFileTypes: event.target.value }))} />
-          </FormField>
-        </div>
+        <PageHeader
+          title={t('assignments.globalCreateUnavailable')}
+          description={t('assignments.createFromCourseOnly')}
+        />
         <div className="flex flex-wrap gap-3">
-          <Button disabled={!form.topicId || createMutation.isPending} onClick={() => createMutation.mutate()}>
-            {t('common.actions.create')}
-          </Button>
+          <Link to="/subjects">
+            <Button variant="secondary">{t('assignments.backToCourse')}</Button>
+          </Link>
         </div>
       </Card>
 
@@ -325,7 +185,15 @@ function ManagementAssignmentsPage() {
       ) : (
         <DataTable
           columns={[
-            { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/assignments/${item.id}`}>{item.title}</Link> },
+            {
+              key: 'title',
+              header: t('common.labels.title'),
+              render: (item) => (
+                <Link className="font-medium text-accent" to={`/assignments/${item.id}`} state={{ fromPath: '/assignments' }}>
+                  {item.title}
+                </Link>
+              ),
+            },
             { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
             { key: 'deadline', header: t('common.labels.deadline'), render: (item) => <DeadlineBadge deadline={item.deadline} /> },
           ]}
@@ -339,6 +207,8 @@ function ManagementAssignmentsPage() {
 function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   const { t } = useTranslation()
   const { primaryRole, session } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const isStudent = primaryRole === 'STUDENT'
   const isTeacher = primaryRole === 'TEACHER'
@@ -727,6 +597,10 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     score: activeGradeDraft?.score ?? selectedSubmissionQuery.data?.score ?? 0,
     feedback: activeGradeDraft?.feedback ?? selectedSubmissionQuery.data?.feedback ?? '',
   }
+  const backTarget = assignmentSubjectQuery.data ? `/subjects/${assignmentSubjectQuery.data.id}` : '/assignments'
+  const backLabel = assignmentSubjectQuery.data
+    ? t('assignments.backToCourse')
+    : t('assignments.backToAssignments')
 
   useEffect(() => {
     if (!activeSubmissionId) {
@@ -835,9 +709,23 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   return (
     <div className="space-y-6">
       <Breadcrumbs items={[{ label: t('navigation.shared.assignments'), to: '/assignments' }, { label: assignment.title }]} />
-      <Link to="/assignments">
-        <Button variant="secondary">{t('assignments.backToAssignments')}</Button>
-      </Link>
+      <Button
+        variant="secondary"
+        onClick={() => {
+          const fromPath = (location.state as { fromPath?: string } | null)?.fromPath
+          if (fromPath && fromPath !== location.pathname) {
+            navigate(fromPath)
+            return
+          }
+          if (window.history.length > 1) {
+            navigate(-1)
+            return
+          }
+          navigate(backTarget)
+        }}
+      >
+        {backLabel}
+      </Button>
       <PageHeader description={assignment.description ?? ''} title={assignment.title} />
       <Card className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -897,7 +785,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                         <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-muted px-3 py-2">
                           <div>
                             <p className="text-sm font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
-                            <p className="text-xs text-text-muted">{formatFileSize(attachment.sizeBytes)}</p>
+                            <p className="text-xs text-text-muted">
+                              {formatFileType(attachment.contentType, attachment.originalFileName)} · {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
+                            </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {attachment.previewAvailable ? (
@@ -1019,7 +909,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                     <p className="font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
                     <p className="mt-1 text-sm text-text-secondary">{attachment.originalFileName}</p>
                     <p className="mt-1 text-xs text-text-muted">
-                      {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
+                      {formatFileType(attachment.contentType, attachment.originalFileName)} · {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1169,7 +1059,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                               onClick={() => setSelectedSubmissionAttachmentId(attachment.id)}
                             >
                               <p className="text-sm font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
-                              <p className="text-xs text-text-muted">{formatFileSize(attachment.sizeBytes)}</p>
+                              <p className="text-xs text-text-muted">
+                                {formatFileType(attachment.contentType, attachment.originalFileName)} · {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
+                              </p>
                             </button>
                           ))}
                         </div>
@@ -1291,4 +1183,15 @@ function formatFileSize(sizeBytes: number) {
   }
   const precision = unitIndex === 0 ? 0 : value >= 10 ? 1 : 2
   return `${value.toFixed(precision)} ${units[unitIndex]}`
+}
+
+function formatFileType(contentType: string | null, originalFileName: string) {
+  if (contentType && contentType.trim().length > 0) {
+    return contentType
+  }
+  const extensionIndex = originalFileName.lastIndexOf('.')
+  if (extensionIndex <= 0 || extensionIndex === originalFileName.length - 1) {
+    return originalFileName
+  }
+  return originalFileName.slice(extensionIndex + 1).toUpperCase()
 }

@@ -112,6 +112,7 @@ public class ScheduleFoundationBootstrapService implements ApplicationRunner {
                         current.startDate(),
                         current.endDate(),
                         current.weekOneStartDate(),
+                        current.semesterNumber(),
                         true,
                         true
                 )));
@@ -126,6 +127,7 @@ public class ScheduleFoundationBootstrapService implements ApplicationRunner {
                     future.startDate(),
                     future.endDate(),
                     future.weekOneStartDate(),
+                    future.semesterNumber(),
                     false,
                     false
             ));
@@ -139,12 +141,14 @@ public class ScheduleFoundationBootstrapService implements ApplicationRunner {
         semester.setStartDate(future.startDate());
         semester.setEndDate(future.endDate());
         semester.setWeekOneStartDate(future.weekOneStartDate());
+        semester.setSemesterNumber(future.semesterNumber());
         academicSemesterRepository.save(semester);
     }
 
     private boolean sameDates(AcademicSemester semester, AcademicSemesterPeriod period) {
         return Objects.equals(semester.getStartDate(), period.startDate())
                 && Objects.equals(semester.getEndDate(), period.endDate())
-                && Objects.equals(semester.getWeekOneStartDate(), period.weekOneStartDate());
+                && Objects.equals(semester.getWeekOneStartDate(), period.weekOneStartDate())
+                && Objects.equals(semester.getSemesterNumber(), period.semesterNumber());
     }
 }

@@ -44,10 +44,22 @@ create table if not exists assignment.assignment_attachments (
     assignment_id uuid not null,
     file_id uuid not null,
     display_name varchar(255),
+    original_file_name varchar(500) not null default '',
+    content_type varchar(255),
+    size_bytes bigint not null default 0,
     uploaded_by_user_id uuid not null,
     created_at timestamp(6) with time zone not null,
     updated_at timestamp(6) with time zone not null
 );
+
+alter table if exists assignment.assignment_attachments
+    add column if not exists original_file_name varchar(500) not null default '';
+
+alter table if exists assignment.assignment_attachments
+    add column if not exists content_type varchar(255);
+
+alter table if exists assignment.assignment_attachments
+    add column if not exists size_bytes bigint not null default 0;
 
 create index if not exists idx_assignment_attachments_assignment_id
     on assignment.assignment_attachments (assignment_id);
@@ -60,10 +72,22 @@ create table if not exists assignment.submission_attachments (
     submission_id uuid not null,
     file_id uuid not null,
     display_name varchar(255),
+    original_file_name varchar(500) not null default '',
+    content_type varchar(255),
+    size_bytes bigint not null default 0,
     uploaded_by_user_id uuid not null,
     created_at timestamp(6) with time zone not null,
     updated_at timestamp(6) with time zone not null
 );
+
+alter table if exists assignment.submission_attachments
+    add column if not exists original_file_name varchar(500) not null default '';
+
+alter table if exists assignment.submission_attachments
+    add column if not exists content_type varchar(255);
+
+alter table if exists assignment.submission_attachments
+    add column if not exists size_bytes bigint not null default 0;
 
 create index if not exists idx_submission_attachments_submission_id
     on assignment.submission_attachments (submission_id);

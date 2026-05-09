@@ -44,6 +44,9 @@ public class AcademicSemester {
     private LocalDate weekOneStartDate;
 
     @Column(nullable = false)
+    private Integer semesterNumber;
+
+    @Column(nullable = false)
     private boolean active;
 
     @Column(nullable = false, columnDefinition = "boolean default false")

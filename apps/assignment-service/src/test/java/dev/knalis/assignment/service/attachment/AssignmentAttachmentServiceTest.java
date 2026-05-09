@@ -15,6 +15,7 @@ import dev.knalis.assignment.entity.AssignmentStatus;
 import dev.knalis.assignment.exception.AssignmentAttachmentNotFoundException;
 import dev.knalis.assignment.exception.AssignmentFileAccessDeniedException;
 import dev.knalis.assignment.exception.AssignmentNotAccessibleException;
+import dev.knalis.assignment.exception.FileServiceUnavailableException;
 import dev.knalis.assignment.repository.AssignmentAttachmentRepository;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
@@ -85,6 +86,9 @@ class AssignmentAttachmentServiceTest {
         attachment.setId(UUID.randomUUID());
         attachment.setAssignmentId(assignmentId);
         attachment.setFileId(fileId);
+        attachment.setOriginalFileName("file.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(1024L);
         attachment.setUploadedByUserId(teacherId);
         attachment.setCreatedAt(Instant.now());
         when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
@@ -100,6 +104,7 @@ class AssignmentAttachmentServiceTest {
         );
 
         assertEquals(fileId, response.fileId());
+        assertEquals("file.pdf", response.originalFileName());
         verify(fileServiceClient).markFileActive("token", fileId);
     }
 
@@ -139,6 +144,9 @@ class AssignmentAttachmentServiceTest {
         attachment.setId(UUID.randomUUID());
         attachment.setAssignmentId(assignmentId);
         attachment.setFileId(fileId);
+        attachment.setOriginalFileName("file.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(1024L);
         attachment.setUploadedByUserId(UUID.randomUUID());
         attachment.setCreatedAt(Instant.now());
         when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
@@ -146,7 +154,6 @@ class AssignmentAttachmentServiceTest {
         when(assignmentGroupAvailabilityRepository.existsAvailableForGroups(eq(assignmentId), eq(Set.of(groupId)), any(Instant.class)))
                 .thenReturn(true);
         when(assignmentAttachmentRepository.findAllByAssignmentIdOrderByCreatedAtAsc(assignmentId)).thenReturn(List.of(attachment));
-        when(fileServiceInternalClient.getMetadata(fileId)).thenReturn(file(fileId, UUID.randomUUID(), "ATTACHMENT"));
 
         List<AssignmentAttachmentResponse> response = assignmentAttachmentService.listAttachments(
                 studentId,
@@ -156,6 +163,8 @@ class AssignmentAttachmentServiceTest {
         );
 
         assertEquals(1, response.size());
+        assertEquals("file.pdf", response.get(0).originalFileName());
+        verify(fileServiceInternalClient, never()).getMetadata(any());
     }
 
     @Test
@@ -170,6 +179,7 @@ class AssignmentAttachmentServiceTest {
                 () -> assignmentAttachmentService.listAttachments(studentId, false, false, assignmentId)
         );
         verify(assignmentAttachmentRepository, never()).findAllByAssignmentIdOrderByCreatedAtAsc(any());
+        verify(fileServiceInternalClient, never()).getMetadata(any());
     }
 
     @Test
@@ -184,6 +194,30 @@ class AssignmentAttachmentServiceTest {
                 () -> assignmentAttachmentService.listAttachments(studentId, false, false, assignmentId)
         );
         verify(assignmentAttachmentRepository, never()).findAllByAssignmentIdOrderByCreatedAtAsc(any());
+        verify(fileServiceInternalClient, never()).getMetadata(any());
+    }
+
+    @Test
+    void attachFailsWhenFileServiceUnavailable() {
+        UUID teacherId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Assignment assignment = assignment(assignmentId, teacherId, AssignmentStatus.PUBLISHED);
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+        when(fileServiceClient.getMyFile("token", fileId)).thenThrow(new FileServiceUnavailableException("metadata", fileId));
+
+        assertThrows(
+                FileServiceUnavailableException.class,
+                () -> assignmentAttachmentService.addAttachment(
+                        teacherId,
+                        false,
+                        assignmentId,
+                        "token",
+                        new CreateAssignmentAttachmentRequest(fileId, "Task file")
+                )
+        );
+        verify(assignmentAttachmentRepository, never()).save(any());
+        verify(fileServiceClient, never()).markFileActive(any(), any());
     }
 
     @Test

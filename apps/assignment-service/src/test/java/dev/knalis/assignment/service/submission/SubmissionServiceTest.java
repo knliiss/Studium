@@ -189,6 +189,7 @@ class SubmissionServiceTest {
         );
         
         verify(fileServiceClient).markFileActive("token", fileId);
+        verify(submissionAttachmentService).createInitialAttachment(eq(submissionId), eq(userId), any(RemoteStoredFileResponse.class));
         verify(assignmentEventPublisher).publishAssignmentSubmitted(any());
         assertEquals(response, result);
     }

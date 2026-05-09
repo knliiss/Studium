@@ -6,7 +6,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
 import type { SubjectCardMetrics } from '@/pages/education/helpers'
-import { loadAccessibleSubjects, loadSubjectCardMetrics } from '@/pages/education/helpers'
+import { loadAccessibleSubjects, loadStudentScopedSubjects, loadSubjectCardMetrics } from '@/pages/education/helpers'
 import { adminUserService, educationService, userDirectoryService } from '@/shared/api/services'
 import { hasAnyRole } from '@/shared/lib/roles'
 import type { AdminUserResponse, SubjectResponse, UserSummaryResponse } from '@/shared/types/api'
@@ -317,10 +317,17 @@ function AccessibleSubjectsPage({
 }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
+  const studentScopeQuery = useQuery({
+    queryKey: ['education', 'subjects', 'student-scope', userId],
+    queryFn: () => loadStudentScopedSubjects(userId),
+    enabled: role === 'STUDENT' && Boolean(userId),
+    staleTime: 60_000,
+  })
   const subjectsQuery = useQuery({
     queryKey: ['education', 'subjects', 'accessible', role, userId],
     queryFn: () => loadAccessibleSubjects(role, userId),
     enabled: Boolean(userId),
+    staleTime: 60_000,
   })
   const teacherIds = useMemo(
     () => Array.from(new Set((subjectsQuery.data ?? []).flatMap((subject) => subject.teacherIds))),
@@ -375,7 +382,13 @@ function AccessibleSubjectsPage({
 
       {subjects.length === 0 ? (
         <EmptyState
-          description={t('education.noSubjects')}
+          description={
+            role === 'STUDENT'
+              ? (studentScopeQuery.data?.hasGroup
+                ? t('education.noSubjectsForGroup')
+                : t('education.notAssignedToGroup'))
+              : t('education.noSubjects')
+          }
           title={t('navigation.shared.subjects')}
         />
       ) : (

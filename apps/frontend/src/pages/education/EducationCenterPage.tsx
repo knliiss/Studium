@@ -1,42 +1,62 @@
-import { BookOpen, GraduationCap, Users } from 'lucide-react'
+import { BookOpen, CalendarDays, GraduationCap, School, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 
+import { useAuth } from '@/features/auth/useAuth'
+import { hasAnyRole } from '@/shared/lib/roles'
 import { Card } from '@/shared/ui/Card'
 import { PageHeader } from '@/shared/ui/PageHeader'
 
-const academicBlocks = [
-  {
-    to: '/subjects',
-    titleKey: 'navigation.shared.subjects',
-    descriptionKey: 'education.academicCenter.subjectsDescription',
-    icon: BookOpen,
-  },
-  {
-    to: '/groups',
-    titleKey: 'navigation.shared.groups',
-    descriptionKey: 'education.academicCenter.groupsDescription',
-    icon: Users,
-  },
-  {
-    to: '/teachers',
-    titleKey: 'navigation.shared.teachers',
-    descriptionKey: 'education.academicCenter.teachersDescription',
-    icon: GraduationCap,
-  },
-]
-
 export function EducationCenterPage() {
   const { t } = useTranslation()
+  const { roles } = useAuth()
+  const canManageAcademicStructure = hasAnyRole(roles, ['OWNER', 'ADMIN'])
+  const canReadAcademicOverview = hasAnyRole(roles, ['OWNER', 'ADMIN', 'TEACHER'])
+  if (!canReadAcademicOverview) {
+    return <Navigate replace to="/subjects" />
+  }
+
+  const academicBlocks = [
+    {
+      to: '/academic/specialties',
+      titleKey: 'navigation.shared.specialties',
+      descriptionKey: 'academic.specialties.hubDescription',
+      icon: School,
+    },
+    {
+      to: '/academic/groups',
+      titleKey: 'navigation.shared.groups',
+      descriptionKey: 'academic.groups.hubDescription',
+      icon: Users,
+    },
+    {
+      to: '/subjects',
+      titleKey: 'navigation.shared.subjects',
+      descriptionKey: 'education.academicCenter.subjectsDescription',
+      icon: BookOpen,
+    },
+    {
+      to: '/teachers',
+      titleKey: 'navigation.shared.teachers',
+      descriptionKey: 'education.academicCenter.teachersDescription',
+      icon: GraduationCap,
+    },
+    ...(canManageAcademicStructure ? [{
+      to: '/academic/rooms',
+      titleKey: 'navigation.shared.rooms',
+      descriptionKey: 'academic.roomCapabilities.hubDescription',
+      icon: CalendarDays,
+    }] : []),
+  ]
 
   return (
     <div className="space-y-6">
       <PageHeader
-        description={t('education.academicCenter.description')}
-        title={t('navigation.shared.education')}
+        description={canManageAcademicStructure ? t('academic.nestedManagementHint') : t('academic.readOnlyOverviewDescription')}
+        title={t('navigation.groups.academicManagement')}
       />
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {academicBlocks.map((block) => {
           const Icon = block.icon
 

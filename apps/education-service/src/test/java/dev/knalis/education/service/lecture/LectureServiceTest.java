@@ -14,6 +14,7 @@ import dev.knalis.education.entity.LectureAttachment;
 import dev.knalis.education.entity.LectureStatus;
 import dev.knalis.education.entity.Topic;
 import dev.knalis.education.exception.EducationAccessDeniedException;
+import dev.knalis.education.exception.FileServiceUnavailableException;
 import dev.knalis.education.exception.LectureAttachmentNotFoundException;
 import dev.knalis.education.exception.LectureHasDependenciesException;
 import dev.knalis.education.exception.LectureNotAccessibleException;
@@ -258,6 +259,9 @@ class LectureServiceTest {
         attachment.setLectureId(lectureId);
         attachment.setFileId(fileId);
         attachment.setDisplayName("Lecture PDF");
+        attachment.setOriginalFileName("lecture.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(128L);
         attachment.setUploadedByUserId(userId);
         attachment.setCreatedAt(Instant.now());
 
@@ -279,6 +283,100 @@ class LectureServiceTest {
         assertEquals(fileId, response.fileId());
         verify(fileServiceClient).markFileActive("token", fileId);
         verify(lectureAttachmentRepository).delete(attachment);
+    }
+
+    @Test
+    void listAttachmentsReturnsEmptyWhenLectureHasNoAttachments() {
+        UUID studentId = UUID.randomUUID();
+        UUID lectureId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        Lecture lecture = lecture(lectureId, subjectId, LectureStatus.PUBLISHED);
+        when(lectureRepository.findById(lectureId)).thenReturn(Optional.of(lecture));
+        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(studentId)).thenReturn(List.of(groupStudent(studentId, groupId)));
+        when(subjectRepository.existsByIdAndBoundGroupIds(eq(subjectId), eq(List.of(groupId)))).thenReturn(true);
+        when(lectureAttachmentRepository.findAllByLectureIdOrderByCreatedAtAsc(lectureId)).thenReturn(List.of());
+
+        List<LectureAttachmentResponse> response = lectureService.listAttachments(studentId, Set.of("ROLE_STUDENT"), lectureId);
+
+        assertEquals(0, response.size());
+        verify(fileServiceInternalClient, never()).getMetadata(any());
+    }
+
+    @Test
+    void listAttachmentsReturnsPersistedMetadataWhenLectureAccessible() {
+        UUID studentId = UUID.randomUUID();
+        UUID lectureId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Lecture lecture = lecture(lectureId, subjectId, LectureStatus.PUBLISHED);
+        LectureAttachment attachment = new LectureAttachment();
+        attachment.setId(UUID.randomUUID());
+        attachment.setLectureId(lectureId);
+        attachment.setFileId(fileId);
+        attachment.setDisplayName("Lecture PDF");
+        attachment.setOriginalFileName("lecture.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(128L);
+        attachment.setUploadedByUserId(UUID.randomUUID());
+        attachment.setCreatedAt(Instant.now());
+        when(lectureRepository.findById(lectureId)).thenReturn(Optional.of(lecture));
+        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(studentId)).thenReturn(List.of(groupStudent(studentId, groupId)));
+        when(subjectRepository.existsByIdAndBoundGroupIds(eq(subjectId), eq(List.of(groupId)))).thenReturn(true);
+        when(lectureAttachmentRepository.findAllByLectureIdOrderByCreatedAtAsc(lectureId)).thenReturn(List.of(attachment));
+
+        List<LectureAttachmentResponse> response = lectureService.listAttachments(studentId, Set.of("ROLE_STUDENT"), lectureId);
+
+        assertEquals(1, response.size());
+        assertEquals(fileId, response.get(0).fileId());
+        assertEquals("lecture.pdf", response.get(0).originalFileName());
+        assertEquals("application/pdf", response.get(0).contentType());
+        assertEquals(128L, response.get(0).sizeBytes());
+        verify(fileServiceInternalClient, never()).getMetadata(any());
+    }
+
+    @Test
+    void attachFailsWithControlledExceptionWhenFileServiceUnavailable() {
+        UUID teacherId = UUID.randomUUID();
+        UUID lectureId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Lecture lecture = lecture(lectureId, subjectId, LectureStatus.PUBLISHED);
+        when(lectureRepository.findById(lectureId)).thenReturn(Optional.of(lecture));
+        when(subjectTeacherRepository.existsBySubjectIdAndTeacherId(subjectId, teacherId)).thenReturn(true);
+        when(fileServiceClient.getMyFile("token", fileId)).thenThrow(new FileServiceUnavailableException("metadata", fileId));
+
+        assertThrows(
+                FileServiceUnavailableException.class,
+                () -> lectureService.addAttachment(
+                        teacherId,
+                        Set.of("ROLE_TEACHER"),
+                        "token",
+                        lectureId,
+                        new CreateLectureAttachmentRequest(fileId, "Lecture PDF")
+                )
+        );
+        verify(lectureAttachmentRepository, never()).save(any());
+        verify(fileServiceClient, never()).markFileActive(any(), any());
+    }
+
+    @Test
+    void deniedLectureAttachmentListDoesNotCallFileService() {
+        UUID studentId = UUID.randomUUID();
+        UUID lectureId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        Lecture lecture = lecture(lectureId, subjectId, LectureStatus.DRAFT);
+        when(lectureRepository.findById(lectureId)).thenReturn(Optional.of(lecture));
+        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(studentId)).thenReturn(List.of(groupStudent(studentId, groupId)));
+        when(subjectRepository.existsByIdAndBoundGroupIds(eq(subjectId), eq(List.of(groupId)))).thenReturn(true);
+
+        assertThrows(
+                LectureNotAccessibleException.class,
+                () -> lectureService.listAttachments(studentId, Set.of("ROLE_STUDENT"), lectureId)
+        );
+        verify(fileServiceInternalClient, never()).getMetadata(any());
     }
 
     @Test
@@ -520,6 +618,68 @@ class LectureServiceTest {
 
         assertEquals(200, response.getStatusCode().value());
         verify(fileServiceInternalClient).download(fileId, true);
+    }
+
+    @Test
+    void downloadAttachmentMapsFileServiceUnavailableException() {
+        UUID studentId = UUID.randomUUID();
+        UUID lectureId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Lecture lecture = lecture(lectureId, subjectId, LectureStatus.PUBLISHED);
+        LectureAttachment attachment = new LectureAttachment();
+        attachment.setId(attachmentId);
+        attachment.setLectureId(lectureId);
+        attachment.setFileId(fileId);
+        when(lectureRepository.findById(lectureId)).thenReturn(Optional.of(lecture));
+        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(studentId)).thenReturn(List.of(groupStudent(studentId, groupId)));
+        when(subjectRepository.existsByIdAndBoundGroupIds(eq(subjectId), eq(List.of(groupId)))).thenReturn(true);
+        when(lectureAttachmentRepository.findByIdAndLectureId(attachmentId, lectureId)).thenReturn(Optional.of(attachment));
+        when(fileServiceInternalClient.download(fileId, false)).thenThrow(new FileServiceUnavailableException("download", fileId));
+
+        assertThrows(
+                FileServiceUnavailableException.class,
+                () -> lectureService.downloadAttachment(
+                        studentId,
+                        Set.of("ROLE_STUDENT"),
+                        lectureId,
+                        attachmentId,
+                        false
+                )
+        );
+    }
+
+    @Test
+    void previewAttachmentMapsFileServiceUnavailableException() {
+        UUID studentId = UUID.randomUUID();
+        UUID lectureId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID attachmentId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Lecture lecture = lecture(lectureId, subjectId, LectureStatus.PUBLISHED);
+        LectureAttachment attachment = new LectureAttachment();
+        attachment.setId(attachmentId);
+        attachment.setLectureId(lectureId);
+        attachment.setFileId(fileId);
+        when(lectureRepository.findById(lectureId)).thenReturn(Optional.of(lecture));
+        when(groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(studentId)).thenReturn(List.of(groupStudent(studentId, groupId)));
+        when(subjectRepository.existsByIdAndBoundGroupIds(eq(subjectId), eq(List.of(groupId)))).thenReturn(true);
+        when(lectureAttachmentRepository.findByIdAndLectureId(attachmentId, lectureId)).thenReturn(Optional.of(attachment));
+        when(fileServiceInternalClient.download(fileId, true)).thenThrow(new FileServiceUnavailableException("preview", fileId));
+
+        assertThrows(
+                FileServiceUnavailableException.class,
+                () -> lectureService.downloadAttachment(
+                        studentId,
+                        Set.of("ROLE_STUDENT"),
+                        lectureId,
+                        attachmentId,
+                        true
+                )
+        );
     }
 
     @Test

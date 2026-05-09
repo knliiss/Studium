@@ -66,6 +66,7 @@ class AcademicSemesterServiceTest {
         savedSemester.setStartDate(startDate);
         savedSemester.setEndDate(endDate);
         savedSemester.setWeekOneStartDate(weekOneStartDate);
+        savedSemester.setSemesterNumber(1);
         savedSemester.setActive(true);
         savedSemester.setPublished(true);
         savedSemester.setCreatedAt(now);
@@ -77,6 +78,7 @@ class AcademicSemesterServiceTest {
                 startDate,
                 endDate,
                 weekOneStartDate,
+                1,
                 true,
                 true,
                 now,
@@ -87,7 +89,7 @@ class AcademicSemesterServiceTest {
         when(academicSemesterMapper.toResponse(savedSemester)).thenReturn(response);
 
         AcademicSemesterResponse result = academicSemesterService.createSemester(
-                new CreateAcademicSemesterRequest("  Autumn 2026  ", startDate, endDate, weekOneStartDate, true, false)
+                new CreateAcademicSemesterRequest("  Autumn 2026  ", startDate, endDate, weekOneStartDate, 1, true, false)
         );
 
         ArgumentCaptor<AcademicSemester> captor = ArgumentCaptor.forClass(AcademicSemester.class);
@@ -108,6 +110,7 @@ class AcademicSemesterServiceTest {
                                 LocalDate.of(2027, 2, 1),
                                 LocalDate.of(2027, 6, 30),
                                 LocalDate.of(2027, 2, 1),
+                                2,
                                 true,
                                 false
                         )
@@ -123,6 +126,7 @@ class AcademicSemesterServiceTest {
         spring.setStartDate(LocalDate.of(2027, 2, 1));
         spring.setEndDate(LocalDate.of(2027, 6, 30));
         spring.setWeekOneStartDate(LocalDate.of(2027, 2, 1));
+        spring.setSemesterNumber(2);
         spring.setActive(false);
 
         AcademicSemester autumn = new AcademicSemester();
@@ -131,6 +135,7 @@ class AcademicSemesterServiceTest {
         autumn.setStartDate(LocalDate.of(2026, 9, 1));
         autumn.setEndDate(LocalDate.of(2026, 12, 31));
         autumn.setWeekOneStartDate(LocalDate.of(2026, 9, 7));
+        autumn.setSemesterNumber(1);
         autumn.setActive(true);
 
         AcademicSemesterResponse springResponse = new AcademicSemesterResponse(
@@ -139,6 +144,7 @@ class AcademicSemesterServiceTest {
                 spring.getStartDate(),
                 spring.getEndDate(),
                 spring.getWeekOneStartDate(),
+                spring.getSemesterNumber(),
                 spring.isActive(),
                 spring.isPublished(),
                 Instant.now(),
@@ -150,6 +156,7 @@ class AcademicSemesterServiceTest {
                 autumn.getStartDate(),
                 autumn.getEndDate(),
                 autumn.getWeekOneStartDate(),
+                autumn.getSemesterNumber(),
                 autumn.isActive(),
                 autumn.isPublished(),
                 Instant.now(),
@@ -173,6 +180,7 @@ class AcademicSemesterServiceTest {
         semester.setStartDate(LocalDate.of(2026, 2, 1));
         semester.setEndDate(LocalDate.of(2026, 8, 31));
         semester.setWeekOneStartDate(LocalDate.of(2026, 2, 1));
+        semester.setSemesterNumber(2);
         semester.setActive(true);
         semester.setPublished(true);
         semester.setCreatedAt(now);
@@ -184,6 +192,7 @@ class AcademicSemesterServiceTest {
                 LocalDate.of(2026, 2, 1),
                 LocalDate.of(2026, 8, 31),
                 LocalDate.of(2026, 2, 1),
+                2,
                 true,
                 true,
                 now,
@@ -213,6 +222,7 @@ class AcademicSemesterServiceTest {
         savedSemester.setStartDate(LocalDate.of(2026, 2, 1));
         savedSemester.setEndDate(LocalDate.of(2026, 8, 31));
         savedSemester.setWeekOneStartDate(LocalDate.of(2026, 2, 1));
+        savedSemester.setSemesterNumber(2);
         savedSemester.setActive(true);
         savedSemester.setPublished(true);
         savedSemester.setCreatedAt(now);
@@ -224,6 +234,7 @@ class AcademicSemesterServiceTest {
                 LocalDate.of(2026, 2, 1),
                 LocalDate.of(2026, 8, 31),
                 LocalDate.of(2026, 2, 1),
+                2,
                 true,
                 true,
                 now,
@@ -245,6 +256,7 @@ class AcademicSemesterServiceTest {
         assertEquals(LocalDate.of(2026, 2, 1), captor.getValue().getStartDate());
         assertEquals(LocalDate.of(2026, 8, 31), captor.getValue().getEndDate());
         assertEquals(LocalDate.of(2026, 2, 1), captor.getValue().getWeekOneStartDate());
+        assertEquals(2, captor.getValue().getSemesterNumber());
         assertEquals(response, result);
     }
 }

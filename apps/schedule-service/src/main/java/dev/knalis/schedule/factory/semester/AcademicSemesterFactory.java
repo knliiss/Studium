@@ -13,6 +13,7 @@ public class AcademicSemesterFactory {
             LocalDate startDate,
             LocalDate endDate,
             LocalDate weekOneStartDate,
+            Integer semesterNumber,
             boolean active,
             boolean published
     ) {
@@ -21,6 +22,7 @@ public class AcademicSemesterFactory {
         semester.setStartDate(startDate);
         semester.setEndDate(endDate);
         semester.setWeekOneStartDate(weekOneStartDate);
+        semester.setSemesterNumber(semesterNumber);
         semester.setActive(active);
         semester.setPublished(active || published);
         return semester;

@@ -81,7 +81,7 @@ public class SubmissionService {
                 request.fileId()
         );
         Submission savedSubmission = submissionRepository.save(submission);
-        submissionAttachmentService.createInitialAttachment(savedSubmission.getId(), userId, request.fileId());
+        submissionAttachmentService.createInitialAttachment(savedSubmission.getId(), userId, file);
         UUID subjectId = educationServiceClient.getTopic(assignment.getTopicId()).subjectId();
         boolean wasLate = savedSubmission.getSubmittedAt().isAfter(availability.getDeadline());
         assignmentEventPublisher.publishAssignmentSubmitted(new AssignmentSubmittedEventV1(

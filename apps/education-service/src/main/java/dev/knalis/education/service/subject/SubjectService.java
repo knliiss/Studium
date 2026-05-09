@@ -6,7 +6,6 @@ import dev.knalis.education.dto.request.UpdateSubjectRequest;
 import dev.knalis.education.dto.request.UpdateSubjectTeachersRequest;
 import dev.knalis.education.dto.response.SubjectPageResponse;
 import dev.knalis.education.dto.response.SubjectResponse;
-import dev.knalis.education.entity.GroupStudent;
 import dev.knalis.education.entity.Subject;
 import dev.knalis.education.entity.SubjectGroup;
 import dev.knalis.education.entity.SubjectTeacher;
@@ -25,6 +24,7 @@ import dev.knalis.education.repository.SubjectRepository;
 import dev.knalis.education.repository.SubjectGroupRepository;
 import dev.knalis.education.repository.SubjectTeacherRepository;
 import dev.knalis.education.service.common.EducationAuditService;
+import dev.knalis.education.service.group.GroupResolvedSubjectService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -58,6 +58,7 @@ public class SubjectService {
     private final SubjectTeacherRepository subjectTeacherRepository;
     private final SubjectFactory subjectFactory;
     private final EducationAuditService educationAuditService;
+    private final GroupResolvedSubjectService groupResolvedSubjectService;
     
     @Transactional
     public SubjectResponse createSubject(UUID currentUserId, CreateSubjectRequest request) {
@@ -339,11 +340,11 @@ public class SubjectService {
         if (isTeacher(currentRoles)) {
             return subjectRepository.findAllByTeacherIdAndNameContainingIgnoreCase(currentUserId, query, pageRequest);
         }
-        List<UUID> groupIds = currentGroupIds(currentUserId);
-        if (groupIds.isEmpty()) {
+        Set<UUID> subjectIds = groupResolvedSubjectService.resolveStudentSubjectIds(currentUserId);
+        if (subjectIds.isEmpty()) {
             return Page.empty(pageRequest);
         }
-        return subjectRepository.findAllByBoundGroupIdsAndNameContainingIgnoreCase(groupIds, query, pageRequest);
+        return subjectRepository.findAllByIdInAndNameContainingIgnoreCase(subjectIds, query, pageRequest);
     }
 
     private void ensureCanReadSubject(UUID currentUserId, Set<String> currentRoles, UUID subjectId) {
@@ -356,8 +357,8 @@ public class SubjectService {
             }
             throw new EducationAccessDeniedException();
         }
-        List<UUID> groupIds = currentGroupIds(currentUserId);
-        if (!groupIds.isEmpty() && subjectRepository.existsByIdAndBoundGroupIds(subjectId, groupIds)) {
+        Set<UUID> subjectIds = groupResolvedSubjectService.resolveStudentSubjectIds(currentUserId);
+        if (subjectIds.contains(subjectId)) {
             return;
         }
         throw new EducationAccessDeniedException();
@@ -368,7 +369,7 @@ public class SubjectService {
             return;
         }
         if (isTeacher(currentRoles)) {
-            if (subjectRepository.existsByTeacherIdAndBoundGroupId(currentUserId, groupId)) {
+            if (groupResolvedSubjectService.teacherCanReadGroup(currentUserId, groupId)) {
                 return;
             }
             throw new EducationAccessDeniedException();
@@ -377,13 +378,6 @@ public class SubjectService {
             return;
         }
         throw new EducationAccessDeniedException();
-    }
-
-    private List<UUID> currentGroupIds(UUID userId) {
-        return groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(userId).stream()
-                .map(GroupStudent::getGroupId)
-                .distinct()
-                .toList();
     }
 
     private boolean isAdmin(Collection<String> roles) {

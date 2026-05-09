@@ -14,6 +14,7 @@ import dev.knalis.assignment.entity.AssignmentGroupAvailability;
 import dev.knalis.assignment.entity.AssignmentStatus;
 import dev.knalis.assignment.entity.Submission;
 import dev.knalis.assignment.entity.SubmissionAttachment;
+import dev.knalis.assignment.exception.FileServiceUnavailableException;
 import dev.knalis.assignment.repository.AssignmentAttachmentRepository;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
@@ -191,14 +192,16 @@ class AttachmentControllerIntegrationTest {
         AssignmentAttachment attachment = saveAssignmentAttachment(assignment.getId(), UUID.randomUUID(), UUID.randomUUID(), "Guide");
 
         when(educationServiceClient.getGroupsByUser(studentId)).thenReturn(List.of(new GroupMembershipResponse(groupId)));
-        when(fileServiceInternalClient.getMetadata(attachment.getFileId())).thenReturn(file(attachment.getFileId(), UUID.randomUUID(), "ATTACHMENT"));
         when(fileServiceInternalClient.download(attachment.getFileId(), false)).thenReturn(ResponseEntity.ok("download".getBytes()));
         when(fileServiceInternalClient.download(attachment.getFileId(), true)).thenReturn(ResponseEntity.ok("preview".getBytes()));
 
         mockMvc.perform(get("/api/v1/assignments/{id}/attachments", assignment.getId())
                         .with(jwtFor(studentId, "student", "ROLE_STUDENT")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()));
+                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()))
+                .andExpect(jsonPath("$[0].originalFileName").value("file.pdf"))
+                .andExpect(jsonPath("$[0].contentType").value("application/pdf"))
+                .andExpect(jsonPath("$[0].sizeBytes").value(2048));
 
         mockMvc.perform(get("/api/v1/assignments/{id}/attachments/{attachmentId}/download", assignment.getId(), attachment.getId())
                         .with(jwtFor(studentId, "student", "ROLE_STUDENT")))
@@ -263,12 +266,12 @@ class AttachmentControllerIntegrationTest {
         saveAvailability(assignment.getId(), groupId, true, Instant.now().minusSeconds(60));
         AssignmentAttachment attachment = saveAssignmentAttachment(assignment.getId(), UUID.randomUUID(), UUID.randomUUID(), "Closed");
         when(educationServiceClient.getGroupsByUser(studentId)).thenReturn(List.of(new GroupMembershipResponse(groupId)));
-        when(fileServiceInternalClient.getMetadata(attachment.getFileId())).thenReturn(file(attachment.getFileId(), UUID.randomUUID(), "ATTACHMENT"));
 
         mockMvc.perform(get("/api/v1/assignments/{id}/attachments", assignment.getId())
                         .with(jwtFor(studentId, "student", "ROLE_STUDENT")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()));
+                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()))
+                .andExpect(jsonPath("$[0].originalFileName").value("file.pdf"));
     }
 
     @Test
@@ -289,6 +292,27 @@ class AttachmentControllerIntegrationTest {
                 .andExpect(jsonPath("$.errorCode").value("ASSIGNMENT_ATTACHMENT_NOT_FOUND"))
                 .andExpect(jsonPath("$.requestId").value(requestId))
                 .andExpect(jsonPath("$.details.ownerId").doesNotExist());
+    }
+
+    @Test
+    void assignmentAttachmentDownloadReturnsControlled503WhenFileServiceUnavailable() throws Exception {
+        UUID studentId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        Assignment assignment = saveAssignment(UUID.randomUUID(), AssignmentStatus.PUBLISHED, UUID.randomUUID());
+        saveAvailability(assignment.getId(), groupId, true, Instant.now().minusSeconds(60));
+        AssignmentAttachment attachment = saveAssignmentAttachment(assignment.getId(), UUID.randomUUID(), UUID.randomUUID(), "Guide");
+        String requestId = "assignment-download-unavailable";
+
+        when(educationServiceClient.getGroupsByUser(studentId)).thenReturn(List.of(new GroupMembershipResponse(groupId)));
+        when(fileServiceInternalClient.download(attachment.getFileId(), false))
+                .thenThrow(new FileServiceUnavailableException("download", attachment.getFileId()));
+
+        mockMvc.perform(get("/api/v1/assignments/{id}/attachments/{attachmentId}/download", assignment.getId(), attachment.getId())
+                        .header("X-Request-Id", requestId)
+                        .with(jwtFor(studentId, "student", "ROLE_STUDENT")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.errorCode").value("FILE_SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.requestId").value(requestId));
     }
 
     @Test
@@ -320,8 +344,6 @@ class AttachmentControllerIntegrationTest {
 
         when(educationServiceClient.getGroupsByUser(studentId)).thenReturn(List.of(new GroupMembershipResponse(groupId)));
         when(fileServiceClient.getMyFile("test-token", newFileId)).thenReturn(file(newFileId, studentId, "ATTACHMENT"));
-        when(fileServiceInternalClient.getMetadata(any(UUID.class))).thenAnswer(invocation ->
-                file(invocation.getArgument(0), studentId, "ATTACHMENT"));
         when(fileServiceInternalClient.download(primaryAttachment.getFileId(), false)).thenReturn(ResponseEntity.ok("download".getBytes()));
         when(fileServiceInternalClient.download(primaryAttachment.getFileId(), true)).thenReturn(ResponseEntity.ok("preview".getBytes()));
 
@@ -394,14 +416,14 @@ class AttachmentControllerIntegrationTest {
 
         when(educationServiceClient.getTopic(topicId)).thenReturn(topic(topicId, subjectId));
         when(educationServiceClient.getSubject(subjectId)).thenReturn(subject(subjectId, List.of(assignedTeacherId)));
-        when(fileServiceInternalClient.getMetadata(attachment.getFileId())).thenReturn(file(attachment.getFileId(), submission.getUserId(), "ATTACHMENT"));
         when(fileServiceInternalClient.download(attachment.getFileId(), false)).thenReturn(ResponseEntity.ok("download".getBytes()));
         when(fileServiceInternalClient.download(attachment.getFileId(), true)).thenReturn(ResponseEntity.ok("preview".getBytes()));
 
         mockMvc.perform(get("/api/v1/submissions/{submissionId}/attachments", submission.getId())
                         .with(jwtFor(assignedTeacherId, "teacher", "ROLE_TEACHER")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()));
+                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()))
+                .andExpect(jsonPath("$[0].originalFileName").value("file.pdf"));
 
         mockMvc.perform(get("/api/v1/submissions/{submissionId}/attachments/{attachmentId}/download", submission.getId(), attachment.getId())
                         .with(jwtFor(assignedTeacherId, "teacher", "ROLE_TEACHER")))
@@ -424,13 +446,13 @@ class AttachmentControllerIntegrationTest {
         Assignment assignment = saveAssignment(UUID.randomUUID(), AssignmentStatus.ARCHIVED, UUID.randomUUID());
         Submission submission = saveSubmission(assignment.getId(), UUID.randomUUID(), UUID.randomUUID());
         SubmissionAttachment attachment = saveSubmissionAttachment(submission.getId(), submission.getFileId(), submission.getUserId(), "Archived");
-        when(fileServiceInternalClient.getMetadata(attachment.getFileId())).thenReturn(file(attachment.getFileId(), submission.getUserId(), "ATTACHMENT"));
         when(fileServiceInternalClient.download(attachment.getFileId(), false)).thenReturn(ResponseEntity.ok("download".getBytes()));
 
         mockMvc.perform(get("/api/v1/submissions/{submissionId}/attachments", submission.getId())
                         .with(jwtFor(UUID.randomUUID(), "admin", "ROLE_ADMIN")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()));
+                .andExpect(jsonPath("$[0].id").value(attachment.getId().toString()))
+                .andExpect(jsonPath("$[0].originalFileName").value("file.pdf"));
 
         mockMvc.perform(get("/api/v1/submissions/{submissionId}/attachments/{attachmentId}/download", submission.getId(), attachment.getId())
                         .with(jwtFor(UUID.randomUUID(), "admin", "ROLE_ADMIN")))
@@ -453,6 +475,25 @@ class AttachmentControllerIntegrationTest {
                 .andExpect(jsonPath("$.errorCode").value("SUBMISSION_ATTACHMENT_NOT_FOUND"))
                 .andExpect(jsonPath("$.requestId").value(requestId))
                 .andExpect(jsonPath("$.details.ownerId").doesNotExist());
+    }
+
+    @Test
+    void submissionAttachmentPreviewReturnsControlled503WhenFileServiceUnavailable() throws Exception {
+        UUID studentId = UUID.randomUUID();
+        Assignment assignment = saveAssignment(UUID.randomUUID(), AssignmentStatus.PUBLISHED, UUID.randomUUID());
+        Submission submission = saveSubmission(assignment.getId(), studentId, UUID.randomUUID());
+        SubmissionAttachment attachment = saveSubmissionAttachment(submission.getId(), submission.getFileId(), studentId, "Primary");
+        String requestId = "submission-preview-unavailable";
+
+        when(fileServiceInternalClient.download(attachment.getFileId(), true))
+                .thenThrow(new FileServiceUnavailableException("preview", attachment.getFileId()));
+
+        mockMvc.perform(get("/api/v1/submissions/{submissionId}/attachments/{attachmentId}/preview", submission.getId(), attachment.getId())
+                        .header("X-Request-Id", requestId)
+                        .with(jwtFor(studentId, "student", "ROLE_STUDENT")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.errorCode").value("FILE_SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.requestId").value(requestId));
     }
 
     @Test
@@ -509,6 +550,9 @@ class AttachmentControllerIntegrationTest {
         attachment.setFileId(fileId);
         attachment.setUploadedByUserId(uploadedByUserId);
         attachment.setDisplayName(displayName);
+        attachment.setOriginalFileName("file.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(2048L);
         return assignmentAttachmentRepository.save(attachment);
     }
 
@@ -526,6 +570,9 @@ class AttachmentControllerIntegrationTest {
         attachment.setFileId(fileId);
         attachment.setUploadedByUserId(uploadedByUserId);
         attachment.setDisplayName(displayName);
+        attachment.setOriginalFileName("file.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(2048L);
         return submissionAttachmentRepository.save(attachment);
     }
 

@@ -146,6 +146,10 @@
       "analytics": "Аналітика",
       "education": "Навчання",
       "teachers": "Викладачі",
+      "specialties": "Спеціальності",
+      "streams": "Потоки",
+      "curriculumPlans": "Навчальні плани",
+      "rooms": "Аудиторії",
       "search": "Пошук"
     },
     "student": {
@@ -317,10 +321,13 @@
     "disciplines": {
       "studentTitle": "Поточні предмети",
       "teacherTitle": "Призначені предмети",
+      "myDisciplines": "Мої дисципліни",
+      "assignedDisciplines": "Призначені дисципліни",
       "activeItems": "{{count}} активних елементів",
       "nearestDeadline": "Найближчий дедлайн",
       "nextLesson": "Наступна пара"
-    }
+    },
+    "academicManagement": "Академічне керування"
   },
   "analytics": {
     "title": "Аналітика",
@@ -365,8 +372,11 @@
     "deletePermanently": "Видалити назавжди",
     "deletePermanentConfirm": "Видалити це завдання назавжди? Дію неможливо скасувати.",
     "backToAssignments": "Назад до завдань",
+    "backToCourse": "Назад до курсу",
     "comment": "Коментар",
     "createAssignment": "Створити завдання",
+    "createFromCourseOnly": "Створення завдання доступне зі сторінки курсу.",
+    "globalCreateUnavailable": "Глобальне створення завдань недоступне",
     "empty": "У поточному контексті немає доступних завдань.",
     "feedback": "Фідбек",
     "file": "Файл",
@@ -618,6 +628,8 @@
     "groupId": "ID групи",
     "groupLookupHint": "Вкажіть user ID для membership-ів або group ID для перегляду конкретної групи.",
     "noSubjects": "У поточному контексті немає доступних предметів.",
+    "noSubjectsForGroup": "Для вашої групи ще немає доступних предметів.",
+    "notAssignedToGroup": "Вас ще не призначено до групи.",
     "orderIndex": "Порядок",
     "studentSubjectsDescription": "Предмети, доступні через ваші поточні навчальні групи.",
     "subjectId": "ID предмета",
@@ -632,6 +644,8 @@
     "studentGroupsDescription": "Групи, у межах яких організовано ваш поточний навчальний план.",
     "noGroups": "У поточному контексті немає доступних груп.",
     "subject": "Предмет",
+    "groupLoadFailed": "Не вдалося завантажити дані групи.",
+    "academicStructureLoadFailed": "Не вдалося завантажити академічну структуру. Перевірте міграцію схеми бекенду й повторіть.",
     "subjectDescriptionFallback": "Деталі предмета з’являться тут у міру наповнення курсу.",
     "topicPlural": "Теми",
     "educationLandingDescription": "Організовуйте предмети, групи та навчальну структуру з одного центру.",
@@ -803,7 +817,6 @@
     "subjectGroupsCountShort": "{{count}} груп",
     "groupsLabel": "груп",
     "teacherLabel": "Викладач",
-    "subjectId": "ID предмета",
     "subjectGroupsHubDescription": "Тримайте групи предмета та склад викладачів на одній сторінці.",
     "groupCardDescription": "Навчальний склад і учасники групи.",
     "groupStudentCountSummary": "Студентів зараз у цій групі",
@@ -1034,7 +1047,9 @@
         "subgroup": "Підгрупа:"
       },
       "actions": {
-        "manageSubjects": "Перейти до керування предметами",
+        "manageCurriculum": "Керувати навчальним планом",
+        "manageSubjectBindings": "Керувати прив'язками предметів",
+        "manageSubjects": "Керувати предметами",
         "manageSubjectTeachers": "Керувати викладачами предмета"
       },
       "emptyPairs": "Вільні пари",
@@ -1133,6 +1148,8 @@
       "semesterUpdatedSuccess": "Семестр успішно оновлено.",
       "semesterHistoryDescription": "Минулі семестри залишаються доступними як історія лише для перегляду.",
       "semesterLabel": "Семестр",
+      "semesterNumber": "Номер семестру",
+      "semesterNumberMissing": "Номер семестру не налаштовано. Предмети визначаються без фільтрації за семестром.",
       "slotId": "ID слоту",
       "slotCreatedSuccess": "Пару успішно збережено.",
       "slotLabel": "Пара",
@@ -1170,6 +1187,7 @@
       "copyLesson": "Копіювати пару",
       "dragLesson": "Перетягніть, щоб перемістити",
       "dropHere": "Скиньте тут",
+      "validDropTarget": "Коректна ціль для переміщення",
       "invalidDropTarget": "Недійсна ціль переміщення",
       "pasteLesson": "Вставити пару",
       "moveLesson": "Перемістити пару",
@@ -1357,7 +1375,20 @@
       "noRooms": "Поки що не додано жодної аудиторії.",
       "noSlots": "Поки що не додано жодної пари.",
       "emptyGroup": "Для цієї групи у вибраному діапазоні занять не знайдено.",
-      "emptySubject": "Для цього предмета у вибраному діапазоні занять не знайдено."
+      "emptySubject": "Для цього предмета у вибраному діапазоні занять не знайдено.",
+      "directBindingsFallback": "У цієї групи не налаштовано спеціальність або рік навчання. Використовуються прямі прив'язки предметів.",
+      "subjectLoadCounts": "Лекції: {{lecture}} · Практики: {{practice}} · Лабораторні: {{lab}}",
+      "streamLectureSupported": "Підтримує потокову лекцію",
+      "streamLectureNote": "Цей предмет надалі можна запланувати як потокову лекцію.",
+      "requiresSubgroupsForLabs": "Для лабораторних потрібні підгрупи",
+      "roomFitSupported": "Сумісність аудиторії: підтримується.",
+      "roomFitUnsupported": "Ця аудиторія не позначена як така, що підтримує цей тип заняття.",
+      "roomCapabilityPriority": "Пріоритет: {{priority}}",
+      "subjectSource": {
+        "CURRICULUM_PLAN": "Навчальний план",
+        "DIRECT_BINDING": "Пряма прив'язка",
+        "GROUP_OVERRIDE": "Override"
+      }
     },
     "adminSystem": {
       "description": "Керуйте доступом, історією змін і платформеними інструментами пошуку з одного місця.",
@@ -1378,6 +1409,367 @@
           "description": "Швидко знаходьте предмети, групи, теми, завдання та тести без перемикання між модулями."
         }
       }
+    },
+    "academic": {
+      "filters": {
+        "activeOnly": "Лише активні",
+        "archivedOnly": "Лише архівні",
+        "all": "Усі",
+        "allSpecialties": "Усі спеціальності",
+        "allStudyYears": "Усі роки навчання",
+        "allSemesters": "Усі семестри",
+        "allSubjects": "Усі предмети"
+      },
+      "common": {
+        "archive": "Архівувати",
+        "restore": "Відновити"
+      },
+      "subject": "Предмет",
+      "studyYear": "Рік навчання",
+      "studyYearValue": "{{year}} рік",
+      "readOnlyOverviewDescription": "Лише перегляд академічного огляду.",
+      "selectSpecialtyToContinueStreams": "Оберіть спеціальність, щоб керувати потоками.",
+      "selectSpecialtyToContinueCurriculum": "Оберіть спеціальність, щоб керувати навчальними планами.",
+      "nestedManagementHint": "Керуйте потоками, групами й навчальними планами через контекст спеціальності та року.",
+      "studyYears": {
+        "empty": "Ще немає років навчання з академічними даними.",
+        "allYears": "Усі роки навчання"
+      },
+      "sections": {
+        "overview": "Огляд",
+        "studyYears": "Роки навчання",
+        "streams": "Потоки",
+        "curriculum": "Навчальні плани",
+        "groups": "Групи"
+      },
+      "actions": {
+        "viewSpecialties": "Переглянути спеціальності",
+        "viewSpecialty": "Переглянути спеціальність",
+        "viewGroups": "Переглянути групи",
+        "viewStreams": "Переглянути потоки",
+        "viewCurriculum": "Переглянути навчальний план",
+        "viewResolvedSubjects": "Переглянути розраховані предмети",
+        "createStreamInSpecialty": "Додати потік для цього року",
+        "createCurriculumInSpecialty": "Додати навчальний план для цього року",
+        "assignToStream": "Призначити до потоку"
+      },
+      "specialties": {
+        "hubDescription": "Керуйте спеціальностями для груп і навчальних планів.",
+        "description": "Спеціальність визначає академічний напрям груп і планів.",
+        "detailTitle": "Деталі спеціальності",
+        "detailDescription": "Огляд, роки навчання, потоки, навчальні плани та групи цієї спеціальності.",
+        "searchPlaceholder": "Пошук спеціальностей",
+        "add": "Додати спеціальність",
+        "edit": "Редагувати спеціальність",
+        "createDescription": "Створіть код і назву спеціальності для академічного планування.",
+        "editDescription": "Оновіть код і назву спеціальності.",
+        "code": "Код спеціальності",
+        "name": "Назва спеціальності",
+        "specialty": "Спеціальність",
+        "specialtyUnknown": "Спеціальність не знайдено",
+        "noDescription": "Опис відсутній",
+        "empty": "Спеціальностей не знайдено"
+      },
+      "streams": {
+        "hubDescription": "Групуйте групи в потоки для спільних лекцій.",
+        "description": "Потоки об’єднують сумісні групи за спеціальністю та роком.",
+        "forSpecialtyTitle": "Потоки спеціальності",
+        "searchPlaceholder": "Пошук потоків",
+        "add": "Додати потік",
+        "edit": "Редагувати потік",
+        "stream": "Потік",
+        "createDescription": "Вкажіть назву потоку, спеціальність і рік навчання.",
+        "editDescription": "Оновіть параметри потоку.",
+        "groupCount": "Груп: {{count}}",
+        "emptyForSpecialty": "Для цієї спеціальності немає потоків."
+      },
+      "subgroupMode": {
+        "label": "Режим підгруп",
+        "NONE": "Без підгруп",
+        "TWO_SUBGROUPS": "Дві підгрупи"
+      },
+      "groupSettings": {
+        "title": "Академічні налаштування групи",
+        "description": "Призначте спеціальність, рік, потік і режим підгруп для групи.",
+        "incompleteContextWarning": "Ця група не має налаштованих спеціальності/року навчання. Предмети навчального плану неможливо повністю розрахувати.",
+        "streamHint": "Спочатку оберіть спеціальність і рік навчання.",
+        "noSpecialty": "Без спеціальності",
+        "noStudyYear": "Без року навчання",
+        "noStream": "Без потоку",
+        "saveSuccess": "Академічні налаштування групи збережено."
+      },
+      "curriculum": {
+        "hubDescription": "Керуйте плановими предметами та навантаженням за семестрами.",
+        "description": "Навчальний план задає базове навантаження предмета за спеціальністю, роком і семестром.",
+        "forSpecialtyTitle": "Навчальні плани спеціальності",
+        "searchPlaceholder": "Пошук навчальних планів",
+        "add": "Додати навчальний план",
+        "edit": "Редагувати навчальний план",
+        "createDescription": "Вкажіть навантаження предмета і параметри проведення.",
+        "editDescription": "Оновіть навантаження, семестр і параметри.",
+        "semester": "Семестр",
+        "semesterValue": "{{semester}} семестр",
+        "lectureCount": "Кількість лекцій",
+        "practiceCount": "Кількість практик",
+        "labCount": "Кількість лабораторних",
+        "supportsStreamLecture": "Підтримує потокові лекції",
+        "requiresSubgroupsForLabs": "Потребує підгруп для лабораторних",
+        "subjectUnknown": "Невідомий предмет",
+        "empty": "Навчальних планів не знайдено",
+        "emptyForSpecialty": "Для цієї спеціальності немає навчальних планів."
+      },
+      "groups": {
+        "hubDescription": "Переглядайте групи за спеціальністю і роком навчання.",
+        "forSpecialtyTitle": "Групи спеціальності {{specialty}} · {{studyYear}}",
+        "forSpecialtyDescription": "Групи в контексті цієї спеціальності.",
+        "specialtyContextHint": "Для призначення потоку та академічних полів відкрийте налаштування групи.",
+        "emptyForSpecialty": "У цій спеціальності немає груп.",
+        "unassignedTitle": "Нерозподілені групи",
+        "unassignedDescription": "Тут показано групи без спеціальності або року навчання.",
+        "unassignedEmpty": "Нерозподілених груп немає."
+      },
+      "resolvedSubjects": {
+        "title": "Розраховані предмети",
+        "description": "Подання поєднує навчальні плани, override-и та прямі прив’язки.",
+        "currentSemester": "Поточний семестр",
+        "directFallback": "Для групи не задано спеціальність або рік. Використовуються прямі прив’язки предметів.",
+        "empty": "Для цієї групи предметів не знайдено.",
+        "teacherCount": "Викладачів: {{count}}",
+        "streamLectureNotEnabled": "Потокові лекції не увімкнені",
+        "subgroupsNotRequired": "Підгрупи для лабораторних не потрібні",
+        "source": {
+          "DIRECT_BINDING": "Пряма прив’язка",
+          "CURRICULUM_PLAN": "Навчальний план",
+          "GROUP_OVERRIDE": "Override"
+        }
+      },
+      "overrides": {
+        "title": "Override-и навчального плану",
+        "description": "Override дозволяє змінити або вимкнути предмет для конкретної групи.",
+        "add": "Додати override",
+        "empty": "Override-и для групи відсутні.",
+        "createSuccess": "Override створено.",
+        "updateSuccess": "Override оновлено.",
+        "deleteSuccess": "Override видалено.",
+        "disableSubjectForGroup": "Вимкнути предмет для групи",
+        "enabledForGroup": "Увімкнено для групи",
+        "disabledByOverride": "Вимкнено override-ом",
+        "lectureCountOverride": "Override лекцій",
+        "practiceCountOverride": "Override практик",
+        "labCountOverride": "Override лабораторних"
+      },
+      "roomCapabilities": {
+        "title": "Можливості аудиторії",
+        "description": "Визначте підтримувані типи занять і їх пріоритет.",
+        "hubDescription": "Керуйте пріоритетами типів занять для аудиторій.",
+        "priority": "Пріоритет",
+        "priorityHint": "Вищий пріоритет означає кращу відповідність.",
+        "saveSuccess": "Можливості аудиторії оновлено."
+      },
+      "validation": {
+        "specialtyCodeRequired": "Вкажіть код спеціальності.",
+        "specialtyNameRequired": "Вкажіть назву спеціальності.",
+        "streamNameRequired": "Вкажіть назву потоку.",
+        "selectSpecialty": "Оберіть спеціальність.",
+        "selectStudyYear": "Оберіть рік навчання.",
+        "selectSpecialtyForStudyYear": "Оберіть спеціальність, якщо вказано рік навчання.",
+        "enterStudyYearForSpecialty": "Вкажіть рік навчання, якщо обрано спеціальність.",
+        "specialtyRequiredForStream": "Перед створенням потоку потрібно обрати спеціальність.",
+        "specialtyRequiredForGroup": "Перед оновленням академічних налаштувань групи потрібно обрати спеціальність.",
+        "specialtyRequiredForCurriculumPlan": "Перед створенням навчального плану потрібно обрати спеціальність.",
+        "selectSubject": "Оберіть предмет.",
+        "selectSemester": "Оберіть семестр.",
+        "enterStudyYear": "Вкажіть коректний рік навчання.",
+        "countsNonNegative": "Кількість занять не може бути від’ємною.",
+        "atLeastOneLessonCount": "Хоча б один тип занять має бути більше нуля.",
+        "enableAtLeastOneCapability": "Увімкніть хоча б одну можливість аудиторії.",
+        "priorityPositive": "Пріоритет має бути додатнім."
+      }
     }
+  },
+  "academic": {
+    "filters": {
+      "activeOnly": "Лише активні",
+      "archivedOnly": "Лише архівні",
+      "all": "Усі",
+      "allSpecialties": "Усі спеціальності",
+      "allStudyYears": "Усі роки навчання",
+      "allSemesters": "Усі семестри",
+      "allSubjects": "Усі предмети"
+    },
+    "common": {
+      "archive": "Архівувати",
+      "restore": "Відновити"
+    },
+    "subject": "Предмет",
+    "studyYear": "Рік навчання",
+    "studyYearValue": "{{year}} рік",
+    "readOnlyOverviewDescription": "Лише перегляд академічного огляду.",
+    "selectSpecialtyToContinueStreams": "Оберіть спеціальність, щоб керувати потоками.",
+    "selectSpecialtyToContinueCurriculum": "Оберіть спеціальність, щоб керувати навчальними планами.",
+    "nestedManagementHint": "Керуйте потоками, групами й навчальними планами через контекст спеціальності та року.",
+    "studyYears": {
+      "empty": "Ще немає років навчання з академічними даними.",
+      "allYears": "Усі роки навчання"
+    },
+    "sections": {
+      "overview": "Огляд",
+      "studyYears": "Роки навчання",
+      "streams": "Потоки",
+      "curriculum": "Навчальні плани",
+      "groups": "Групи"
+    },
+    "actions": {
+      "viewSpecialties": "Переглянути спеціальності",
+      "viewSpecialty": "Переглянути спеціальність",
+      "viewGroups": "Переглянути групи",
+      "viewStreams": "Переглянути потоки",
+      "viewCurriculum": "Переглянути навчальний план",
+      "viewResolvedSubjects": "Переглянути розраховані предмети",
+      "createStreamInSpecialty": "Додати потік для цього року",
+      "createCurriculumInSpecialty": "Додати навчальний план для цього року",
+      "assignToStream": "Призначити до потоку"
+    },
+    "specialties": {
+      "hubDescription": "Керуйте спеціальностями для груп і навчальних планів.",
+      "description": "Спеціальність визначає академічний напрям груп і планів.",
+      "detailTitle": "Деталі спеціальності",
+      "detailDescription": "Огляд, роки навчання, потоки, навчальні плани та групи цієї спеціальності.",
+      "searchPlaceholder": "Пошук спеціальностей",
+      "add": "Додати спеціальність",
+      "edit": "Редагувати спеціальність",
+      "createDescription": "Створіть код і назву спеціальності для академічного планування.",
+      "editDescription": "Оновіть код і назву спеціальності.",
+      "code": "Код спеціальності",
+      "name": "Назва спеціальності",
+      "specialty": "Спеціальність",
+      "specialtyUnknown": "Спеціальність не знайдено",
+      "noDescription": "Опис відсутній",
+      "empty": "Спеціальностей не знайдено"
+    },
+    "streams": {
+      "hubDescription": "Групуйте групи в потоки для спільних лекцій.",
+      "description": "Потоки об’єднують сумісні групи за спеціальністю та роком.",
+      "forSpecialtyTitle": "Потоки спеціальності",
+      "searchPlaceholder": "Пошук потоків",
+      "add": "Додати потік",
+      "edit": "Редагувати потік",
+      "stream": "Потік",
+      "createDescription": "Вкажіть назву потоку, спеціальність і рік навчання.",
+      "editDescription": "Оновіть параметри потоку.",
+      "groupCount": "Груп: {{count}}",
+      "emptyForSpecialty": "Для цієї спеціальності немає потоків."
+    },
+    "subgroupMode": {
+      "label": "Режим підгруп",
+      "NONE": "Без підгруп",
+      "TWO_SUBGROUPS": "Дві підгрупи"
+    },
+    "groupSettings": {
+      "title": "Академічні налаштування групи",
+      "description": "Призначте спеціальність, рік, потік і режим підгруп для групи.",
+      "incompleteContextWarning": "Ця група не має налаштованих спеціальності/року навчання. Предмети навчального плану неможливо повністю розрахувати.",
+      "streamHint": "Спочатку оберіть спеціальність і рік навчання.",
+      "noSpecialty": "Без спеціальності",
+      "noStudyYear": "Без року навчання",
+      "noStream": "Без потоку",
+      "saveSuccess": "Академічні налаштування групи збережено."
+    },
+    "curriculum": {
+      "hubDescription": "Керуйте плановими предметами та навантаженням за семестрами.",
+      "description": "Навчальний план задає базове навантаження предмета за спеціальністю, роком і семестром.",
+      "forSpecialtyTitle": "Навчальні плани спеціальності",
+      "searchPlaceholder": "Пошук навчальних планів",
+      "add": "Додати навчальний план",
+      "edit": "Редагувати навчальний план",
+      "createDescription": "Вкажіть навантаження предмета і параметри проведення.",
+      "editDescription": "Оновіть навантаження, семестр і параметри.",
+      "semester": "Семестр",
+      "semesterValue": "{{semester}} семестр",
+      "lectureCount": "Кількість лекцій",
+      "practiceCount": "Кількість практик",
+      "labCount": "Кількість лабораторних",
+      "supportsStreamLecture": "Підтримує потокові лекції",
+      "requiresSubgroupsForLabs": "Потребує підгруп для лабораторних",
+      "subjectUnknown": "Невідомий предмет",
+      "empty": "Навчальних планів не знайдено",
+      "emptyForSpecialty": "Для цієї спеціальності немає навчальних планів."
+    },
+    "groups": {
+      "hubDescription": "Переглядайте групи за спеціальністю і роком навчання.",
+      "forSpecialtyTitle": "Групи спеціальності {{specialty}} · {{studyYear}}",
+      "forSpecialtyDescription": "Групи в контексті цієї спеціальності.",
+      "specialtyContextHint": "Для призначення потоку та академічних полів відкрийте налаштування групи.",
+      "emptyForSpecialty": "У цій спеціальності немає груп.",
+      "unassignedTitle": "Нерозподілені групи",
+      "unassignedDescription": "Тут показано групи без спеціальності або року навчання.",
+      "unassignedEmpty": "Нерозподілених груп немає."
+    },
+    "resolvedSubjects": {
+      "title": "Розраховані предмети",
+      "description": "Подання поєднує навчальні плани, override-и та прямі прив’язки.",
+      "currentSemester": "Поточний семестр",
+      "directFallback": "Для групи не задано спеціальність або рік. Використовуються прямі прив’язки предметів.",
+      "empty": "Для цієї групи предметів не знайдено.",
+      "teacherCount": "Викладачів: {{count}}",
+      "streamLectureNotEnabled": "Потокові лекції не увімкнені",
+      "subgroupsNotRequired": "Підгрупи для лабораторних не потрібні",
+      "source": {
+        "DIRECT_BINDING": "Пряма прив’язка",
+        "CURRICULUM_PLAN": "Навчальний план",
+        "GROUP_OVERRIDE": "Override"
+      }
+    },
+    "overrides": {
+      "title": "Override-и навчального плану",
+      "description": "Override дозволяє змінити або вимкнути предмет для конкретної групи.",
+      "add": "Додати override",
+      "empty": "Override-и для групи відсутні.",
+      "createSuccess": "Override створено.",
+      "updateSuccess": "Override оновлено.",
+      "deleteSuccess": "Override видалено.",
+      "disableSubjectForGroup": "Вимкнути предмет для групи",
+      "enabledForGroup": "Увімкнено для групи",
+      "disabledByOverride": "Вимкнено override-ом",
+      "lectureCountOverride": "Override лекцій",
+      "practiceCountOverride": "Override практик",
+      "labCountOverride": "Override лабораторних"
+    },
+    "roomCapabilities": {
+      "title": "Можливості аудиторії",
+      "description": "Визначте підтримувані типи занять і їх пріоритет.",
+      "hubDescription": "Керуйте пріоритетами типів занять для аудиторій.",
+      "priority": "Пріоритет",
+      "priorityHint": "Вищий пріоритет означає кращу відповідність.",
+      "saveSuccess": "Можливості аудиторії оновлено."
+    },
+    "validation": {
+      "specialtyCodeRequired": "Вкажіть код спеціальності.",
+      "specialtyNameRequired": "Вкажіть назву спеціальності.",
+      "streamNameRequired": "Вкажіть назву потоку.",
+      "selectSpecialty": "Оберіть спеціальність.",
+      "selectStudyYear": "Оберіть рік навчання.",
+      "selectSpecialtyForStudyYear": "Оберіть спеціальність, якщо вказано рік навчання.",
+      "enterStudyYearForSpecialty": "Вкажіть рік навчання, якщо обрано спеціальність.",
+      "specialtyRequiredForStream": "Перед створенням потоку потрібно обрати спеціальність.",
+      "specialtyRequiredForGroup": "Перед оновленням академічних налаштувань групи потрібно обрати спеціальність.",
+      "specialtyRequiredForCurriculumPlan": "Перед створенням навчального плану потрібно обрати спеціальність.",
+      "selectSubject": "Оберіть предмет.",
+      "selectSemester": "Оберіть семестр.",
+      "enterStudyYear": "Вкажіть коректний рік навчання.",
+      "countsNonNegative": "Кількість занять не може бути від’ємною.",
+      "atLeastOneLessonCount": "Хоча б один тип занять має бути більше нуля.",
+      "enableAtLeastOneCapability": "Увімкніть хоча б одну можливість аудиторії.",
+      "priorityPositive": "Пріоритет має бути додатнім."
+    }
+  },
+  "schedule": {
+    "routeCards": {
+      "roomsTitle": "Аудиторії"
+    },
+    "roomDirectoryDescription": "Шукайте аудиторії й відкривайте їхній тижневий розклад зайнятості.",
+    "roomSearchPlaceholder": "Шукати аудиторії",
+    "roomDirectoryEmpty": "За поточним пошуком аудиторій не знайдено.",
+    "roomCardDescription": "У цій конфігурації аудиторії доступно {{count}} місць."
   }
 }

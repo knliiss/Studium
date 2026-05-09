@@ -1,3 +1,17 @@
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -21,7 +35,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ErrorInfo, ReactNode } from 'react'
+import type { CSSProperties, ErrorInfo, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Link,
@@ -37,12 +51,14 @@ import { loadAccessibleGroups, loadSubjectScope } from '@/pages/education/helper
 import {
   adminUserService,
   educationService,
+  roomCapabilityService,
   scheduleService,
   userDirectoryService,
 } from '@/shared/api/services'
 import { getConflictStatusClasses } from '@/features/schedule/lib/conflictStatusUi'
 import {
-  resolveDragMoveTargetState,
+  getDragMoveBlockedReasonKey,
+  getScheduleMoveTargetState,
   type DragMoveBlockReason,
   type DragMoveTargetState,
 } from '@/features/schedule/lib/moveTarget'
@@ -51,7 +67,7 @@ import {
   getScheduleSaveDisabledReasonKey,
 } from '@/features/schedule/lib/scheduleDisabledReasons'
 import { moveScheduleDraft } from '@/features/schedule/lib/scheduleMoveDraft'
-import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
+import { getLocalizedApiErrorMessage, getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { cn } from '@/shared/lib/cn'
 import { getDayOfWeekLabel, getLessonFormatLabel, getLessonTypeLabel } from '@/shared/lib/enum-labels'
 import { formatDate } from '@/shared/lib/format'
@@ -62,6 +78,7 @@ import type {
   AdminUserResponse,
   LessonSlotResponse,
   ResolvedLessonResponse,
+  RoomCapabilityResponse,
   RoomResponse,
   ScheduleConflictItemResponse,
   ScheduleTemplateResponse,
@@ -186,6 +203,45 @@ interface FeedbackState {
   tone: 'error' | 'success'
 }
 
+interface ScheduleDragLessonData {
+  dayOfWeek: DayOfWeekValue
+  deleted: boolean
+  groupId: string
+  lessonFormat: ScheduleLessonFormat
+  lessonType: ScheduleLessonType
+  localId: string
+  onlineMeetingUrl: string | null
+  roomId: string | null
+  slotId: string
+  subgroup: SubgroupValue
+  subjectId: string
+  teacherId: string
+  weekType: EditableWeekType
+}
+
+interface ScheduleDropTargetData {
+  dayOfWeek: DayOfWeekValue
+  pairNumber: number
+}
+
+interface RoomCapabilityDraft {
+  lessonType: 'LECTURE' | 'PRACTICAL' | 'LABORATORY'
+  priority: string
+  active: boolean
+}
+
+interface GroupScheduleSubjectOption {
+  id: string
+  name: string
+  teacherIds: string[]
+  lectureCount: number | null
+  practiceCount: number | null
+  labCount: number | null
+  supportsStreamLecture: boolean
+  requiresSubgroupsForLabs: boolean
+  source: 'CURRICULUM_PLAN' | 'DIRECT_BINDING' | 'GROUP_OVERRIDE' | null
+}
+
 interface ScheduleDetailHeader {
   backLabel: string
   backTo: string
@@ -214,6 +270,10 @@ const orderedDays: DayOfWeekValue[] = [
   'SATURDAY',
   'SUNDAY',
 ]
+
+function buildDropTargetId(dayOfWeek: DayOfWeekValue, pairNumber: number) {
+  return `schedule-drop:${dayOfWeek}:${pairNumber}`
+}
 
 interface ScheduleErrorBoundaryState {
   failed: boolean
@@ -729,6 +789,15 @@ function ScheduleDetailPage({
   const [hoverDropTargetKey, setHoverDropTargetKey] = useState<string | null>(null)
   const [copiedDay, setCopiedDay] = useState<{ dayOfWeek: DayOfWeekValue; drafts: ScheduleTemplateDraft[] } | null>(null)
   const [initializedDraftSignature, setInitializedDraftSignature] = useState('')
+  const [roomCapabilityDrafts, setRoomCapabilityDrafts] = useState<RoomCapabilityDraft[]>([])
+  const [roomCapabilitiesTouched, setRoomCapabilitiesTouched] = useState(false)
+  const [roomCapabilitiesError, setRoomCapabilitiesError] = useState<string | null>(null)
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+    useSensor(KeyboardSensor),
+  )
   const studentMembershipsQuery = useQuery({
     queryKey: ['schedule', 'student-memberships', session?.user.id],
     queryFn: () => educationService.getGroupsByUser(session?.user.id ?? ''),
@@ -782,12 +851,18 @@ function ScheduleDetailPage({
     () => (roomsQuery.data ?? []).find((room) => room.id === entityId) ?? null,
     [entityId, roomsQuery.data],
   )
+  const roomCapabilitiesQuery = useQuery({
+    queryKey: ['schedule', 'room-capabilities', entityId],
+    queryFn: () => roomCapabilityService.listByRoom(entityId ?? '', true),
+    enabled: scope === 'room' && Boolean(entityId),
+  })
 
   const semesterOptions = useMemo(
     () => buildScheduleSemesterOptions(activeSemesterQuery.data, semestersQuery.data ?? [], t),
     [activeSemesterQuery.data, semestersQuery.data, t],
   )
   const selectedSemester = semesterOptions.find((option) => option.key === selectedSemesterKey)?.semester ?? activeSemesterQuery.data
+  const selectedSemesterNumber = selectedSemester?.semesterNumber ?? null
   const today = useMemo(() => new Date(), [])
   const baseWeekStart = useMemo(
     () => getBaseWeekStart(selectedSemester, today),
@@ -843,8 +918,17 @@ function ScheduleDetailPage({
     [selectedWeekStart],
   )
 
-  const subjectsForGroupQuery = useQuery({
-    queryKey: ['schedule', 'group-subjects', entityId],
+  const resolvedSubjectsQuery = useQuery({
+    queryKey: ['schedule', 'group-resolved-subjects', entityId, selectedSemesterNumber],
+    queryFn: () => educationService.getResolvedGroupSubjects(
+      entityId ?? '',
+      typeof selectedSemesterNumber === 'number' ? selectedSemesterNumber : undefined,
+    ),
+    enabled: scope === 'group' && Boolean(entityId),
+    staleTime: 60_000,
+  })
+  const directSubjectsForGroupQuery = useQuery({
+    queryKey: ['schedule', 'group-subjects-direct', entityId],
     queryFn: () => educationService.getSubjectsByGroup(entityId ?? '', {
       page: 0,
       size: 100,
@@ -852,7 +936,46 @@ function ScheduleDetailPage({
       direction: 'asc',
     }),
     enabled: scope === 'group' && Boolean(entityId),
+    staleTime: 60_000,
   })
+  const usesDirectBindingFallback = scope === 'group'
+    && Boolean(groupQuery.data)
+    && (!groupQuery.data?.specialtyId || !groupQuery.data?.studyYear)
+  const scheduleSubjects = useMemo<GroupScheduleSubjectOption[]>(() => {
+    const byId = new Map<string, GroupScheduleSubjectOption>()
+    for (const row of resolvedSubjectsQuery.data ?? []) {
+      if (row.disabledByOverride) {
+        continue
+      }
+      byId.set(row.subjectId, {
+        id: row.subjectId,
+        name: row.subjectName,
+        teacherIds: row.teacherIds,
+        lectureCount: row.lectureCount,
+        practiceCount: row.practiceCount,
+        labCount: row.labCount,
+        supportsStreamLecture: row.supportsStreamLecture,
+        requiresSubgroupsForLabs: row.requiresSubgroupsForLabs,
+        source: row.source,
+      })
+    }
+    for (const row of directSubjectsForGroupQuery.data?.items ?? []) {
+      if (!byId.has(row.id)) {
+        byId.set(row.id, {
+          id: row.id,
+          name: row.name,
+          teacherIds: row.teacherIds,
+          lectureCount: null,
+          practiceCount: null,
+          labCount: null,
+          supportsStreamLecture: false,
+          requiresSubgroupsForLabs: false,
+          source: 'DIRECT_BINDING',
+        })
+      }
+    }
+    return Array.from(byId.values()).sort((left, right) => left.name.localeCompare(right.name))
+  }, [directSubjectsForGroupQuery.data?.items, resolvedSubjectsQuery.data])
 
   const templatesQuery = useQuery({
     queryKey: ['schedule', 'templates', selectedSemester?.id, entityId],
@@ -898,9 +1021,9 @@ function ScheduleDetailPage({
     () => uniqueIds([
       ...(scheduleQuery.data ?? []).map((lesson) => lesson.teacherId),
       ...drafts.filter((draft) => !draft.deleted).map((draft) => draft.teacherId),
-      ...((subjectsForGroupQuery.data?.items ?? []).flatMap((subject) => subject.teacherIds)),
+      ...(scheduleSubjects.flatMap((subject) => subject.teacherIds)),
     ]),
-    [drafts, scheduleQuery.data, subjectsForGroupQuery.data?.items],
+    [drafts, scheduleQuery.data, scheduleSubjects],
   )
   const relatedSubjectsQuery = useQuery({
     queryKey: ['schedule', 'subjects-by-id', relatedSubjectIds.join(',')],
@@ -1207,6 +1330,27 @@ function ScheduleDetailPage({
       setFeedback({ tone: 'error', message: getLocalizedRequestErrorMessage(error, t) })
     },
   })
+  const updateRoomCapabilitiesMutation = useMutation({
+    mutationFn: async () => roomCapabilityService.updateByRoom(
+      entityId ?? '',
+      effectiveRoomCapabilityDrafts.map((item) => ({
+        lessonType: item.lessonType,
+        priority: Number(item.priority),
+        active: item.active,
+      })),
+    ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['schedule', 'room-capabilities', entityId] })
+      setRoomCapabilitiesTouched(false)
+      setRoomCapabilitiesError(null)
+      setFeedback({ tone: 'success', message: t('academic.roomCapabilities.saveSuccess') })
+    },
+    onError: (error) => {
+      const normalized = normalizeApiError(error)
+      setRoomCapabilitiesError(getLocalizedApiErrorMessage(normalized, t))
+      setFeedback({ tone: 'error', message: getLocalizedRequestErrorMessage(error, t) })
+    },
+  })
 
   const filteredLessons = useMemo(
     () => (scheduleQuery.data ?? []).filter((lesson) => {
@@ -1280,7 +1424,7 @@ function ScheduleDetailPage({
     const resolvedSourceDraftId = sourceDraftId ?? movingLessonId
     const sourceDraft = drafts.find((draft) => draft.localId === resolvedSourceDraftId) ?? null
     const slotId = canonicalSlotByPairNumber.get(pairNumber)?.id ?? null
-    return resolveDragMoveTargetState({
+    return getScheduleMoveTargetState({
       canEditTemplates,
       hasActiveSemester: Boolean(activeSemesterQuery.data),
       sourceDraft: sourceDraft ? {
@@ -1347,6 +1491,45 @@ function ScheduleDetailPage({
     }
   }, [movingLessonId])
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const localId = String(event.active.id)
+    handleDraftDragStart(localId)
+  }, [handleDraftDragStart])
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const activeLocalId = String(event.active.id)
+    const overData = event.over?.data.current as ScheduleDropTargetData | undefined
+    if (!overData) {
+      setHoverDropTargetKey(null)
+      return
+    }
+    const targetState = resolveMoveTargetState(overData.dayOfWeek, overData.pairNumber, activeLocalId)
+    if (!targetState.valid) {
+      setHoverDropTargetKey(null)
+      return
+    }
+    setHoverDropTargetKey(buildDropTargetId(overData.dayOfWeek, overData.pairNumber))
+  }, [resolveMoveTargetState])
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const sourceDraftId = String(event.active.id)
+    const overData = event.over?.data.current as ScheduleDropTargetData | undefined
+    if (!overData) {
+      handleDraftDragEnd(sourceDraftId)
+      setFeedback({ tone: 'error', message: t('schedule.moveCancelled') })
+      return
+    }
+    applyMoveTarget(overData.dayOfWeek, overData.pairNumber, 'drag', sourceDraftId)
+    handleDraftDragEnd(sourceDraftId)
+  }, [applyMoveTarget, handleDraftDragEnd, t])
+
+  const handleDragCancel = useCallback(() => {
+    if (movingLessonId) {
+      handleDraftDragEnd(movingLessonId)
+    }
+    setFeedback({ tone: 'error', message: t('schedule.moveCancelled') })
+  }, [handleDraftDragEnd, movingLessonId, t])
+
   const detailHeader = useMemo(() => {
     if (scope === 'group' && groupQuery.data) {
       return {
@@ -1406,12 +1589,21 @@ function ScheduleDetailPage({
   const visibleSummaryLessons = filteredLessons.length
   const onlineLessons = filteredLessons.filter((lesson) => lesson.lessonFormat === 'ONLINE').length
   const offlineLessons = filteredLessons.filter((lesson) => lesson.lessonFormat === 'OFFLINE').length
+  const effectiveRoomCapabilityDrafts = roomCapabilitiesTouched
+    ? roomCapabilityDrafts
+    : (roomCapabilitiesQuery.data ?? []).map((capability) => ({
+        lessonType: capability.lessonType,
+        priority: String(capability.priority),
+        active: capability.active,
+      }))
+  const roomCapabilityDisabledReason = resolveRoomCapabilitiesDisabledReason(effectiveRoomCapabilityDrafts, t)
 
   const isLoading = activeSemesterQuery.isLoading
     || slotsQuery.isLoading
     || roomsQuery.isLoading
     || (scope === 'group' && groupQuery.isLoading)
     || (scope === 'teacher' && teacherQuery.isLoading)
+    || (scope === 'room' && roomCapabilitiesQuery.isLoading)
     || (scope === 'me' && isStudent && studentMembershipsQuery.isLoading)
     || (canEditTemplates && templatesQuery.isLoading)
 
@@ -1429,6 +1621,7 @@ function ScheduleDetailPage({
     || roomsQuery.isError
     || (scope === 'group' && groupQuery.isError)
     || (scope === 'teacher' && teacherQuery.isError)
+    || (scope === 'room' && roomCapabilitiesQuery.isError)
     || (scope === 'me' && isStudent && studentMembershipsQuery.isError)
     || (canEditTemplates && templatesQuery.isError)
   ) {
@@ -1591,6 +1784,94 @@ function ScheduleDetailPage({
         <MetricCard title={t('schedule.summary.activeSemester')} value={selectedSemester?.name ?? '—'} />
       </div>
 
+      {scope === 'room' ? (
+        <Card className="space-y-4">
+          <PageHeader
+            className="mb-0"
+            description={t('academic.roomCapabilities.description')}
+            title={t('academic.roomCapabilities.title')}
+          />
+          <p className="text-sm text-text-secondary">{t('academic.roomCapabilities.priorityHint')}</p>
+          <div className="grid gap-3">
+            {(['LECTURE', 'PRACTICAL', 'LABORATORY'] as const).map((lessonType) => {
+              const row = effectiveRoomCapabilityDrafts.find((item) => item.lessonType === lessonType) ?? {
+                lessonType,
+                priority: '',
+                active: false,
+              }
+              return (
+                <div key={lessonType} className="grid gap-3 rounded-[16px] border border-border bg-surface-muted px-4 py-3 md:grid-cols-[1fr_180px_140px] md:items-center">
+                  <p className="text-sm font-semibold text-text-primary">{getLessonTypeLabel(lessonType)}</p>
+                  <FormField className="mb-0" label={t('academic.roomCapabilities.priority')}>
+                    <Input
+                      disabled={!canManageTemplates}
+                      min={1}
+                      type="number"
+                      value={row.priority}
+                      onChange={(event) => {
+                        setRoomCapabilitiesTouched(true)
+                        setRoomCapabilitiesError(null)
+                        setRoomCapabilityDrafts(upsertRoomCapabilityDraft(effectiveRoomCapabilityDrafts, {
+                          lessonType,
+                          priority: event.target.value,
+                          active: row.active,
+                        }))
+                      }}
+                    />
+                  </FormField>
+                  <label className="flex min-h-11 items-center justify-center gap-2 rounded-[12px] border border-border bg-surface px-3 text-sm text-text-primary">
+                    <input
+                      checked={row.active}
+                      disabled={!canManageTemplates}
+                      type="checkbox"
+                      onChange={(event) => {
+                        setRoomCapabilitiesTouched(true)
+                        setRoomCapabilitiesError(null)
+                        setRoomCapabilityDrafts(upsertRoomCapabilityDraft(effectiveRoomCapabilityDrafts, {
+                          lessonType,
+                          priority: row.priority || '1',
+                          active: event.target.checked,
+                        }))
+                      }}
+                    />
+                    {row.active ? t('common.status.ACTIVE') : t('common.status.DISABLED')}
+                  </label>
+                </div>
+              )
+            })}
+          </div>
+          {roomCapabilitiesError ? (
+            <div className="rounded-[14px] border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-text-primary">
+              {roomCapabilitiesError}
+            </div>
+          ) : null}
+          {roomCapabilityDisabledReason ? (
+            <p className="text-sm text-text-secondary">{roomCapabilityDisabledReason}</p>
+          ) : null}
+          {canManageTemplates ? (
+            <div className="flex flex-wrap gap-3">
+              <Button
+                disabled={Boolean(roomCapabilityDisabledReason) || updateRoomCapabilitiesMutation.isPending}
+                onClick={() => updateRoomCapabilitiesMutation.mutate()}
+              >
+                {t('common.actions.save')}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setRoomCapabilitiesTouched(false)
+                  setRoomCapabilityDrafts([])
+                  setRoomCapabilitiesError(null)
+                }}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                {t('common.actions.reset')}
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
       {canManageTemplates && scope !== 'group' ? (
         <Card className="space-y-2 border border-border bg-surface-muted">
           <p className="text-sm font-semibold text-text-primary">{t('schedule.editScopeInfoTitle')}</p>
@@ -1643,142 +1924,148 @@ function ScheduleDetailPage({
         ) : scheduleQuery.isError ? (
           <ErrorState description={t('common.states.error')} title={detailHeader.title} />
         ) : (
-          <div ref={carouselRef} className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
-            {weekDays.map((date) => {
-              const dayOfWeek = getDayOfWeekValue(date)
-              return viewMode === 'EDIT' && canEditTemplates ? (
-                <EditDayCard
-                  key={date}
-                  canonicalSlotByPairNumber={canonicalSlotByPairNumber}
-                  copiedDay={copiedDay}
-                  copiedLessonId={copiedLessonId}
-                  dayOfWeek={dayOfWeek}
-                  date={date}
-                  drafts={draftGroupsByDayAndPair}
-                  hoverDropTargetKey={hoverDropTargetKey}
-                  movingLessonId={movingLessonId}
-                  roomById={roomById}
-                  resolveMoveTargetState={resolveMoveTargetState}
-                  subjectNameById={subjectNameById}
-                  teacherById={teacherById}
-                  onAddLesson={(pairNumber, weekType, subgroupChoice) => {
-                    const slot = canonicalSlotByPairNumber.get(pairNumber)
-                    if (!slot) {
-                      setFeedback({ tone: 'error', message: t('schedule.slotSetupError') })
-                      return
-                    }
-                    setDrawer({
-                      dayOfWeek,
-                      forBothWeeks: false,
-                      forWholeGroup: false,
-                      lessonFormat: 'OFFLINE',
-                      lessonType: 'LECTURE',
-                      localId: null,
-                      notes: '',
-                      onlineMeetingUrl: '',
-                      pairNumber,
-                      roomId: '',
-                      slotId: slot.id,
-                      subgroupChoice,
-                      subjectId: '',
-                      teacherId: '',
-                      weekType,
-                    })
-                  }}
-                  onCopyDay={() => {
-                    const sourceDrafts = drafts
-                      .filter((draft) => !draft.deleted && draft.dayOfWeek === dayOfWeek)
-                      .map((draft) => ({ ...draft }))
-                    setCopiedDay({ dayOfWeek, drafts: sourceDrafts })
-                  }}
-                  onDeleteLesson={(localId) => setDeleteTargetId(localId)}
-                  onDragEndLesson={handleDraftDragEnd}
-                  onDragStartLesson={handleDraftDragStart}
-                  onEditLesson={(localId) => {
-                    const target = drafts.find((draft) => draft.localId === localId)
-                    if (!target) {
-                      return
-                    }
+          <DndContext
+            collisionDetection={closestCenter}
+            sensors={dndSensors}
+            onDragCancel={handleDragCancel}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDragStart={handleDragStart}
+          >
+            <div ref={carouselRef} className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
+              {weekDays.map((date) => {
+                const dayOfWeek = getDayOfWeekValue(date)
+                return viewMode === 'EDIT' && canEditTemplates ? (
+                  <EditDayCard
+                    key={date}
+                    canonicalSlotByPairNumber={canonicalSlotByPairNumber}
+                    copiedDay={copiedDay}
+                    copiedLessonId={copiedLessonId}
+                    dayOfWeek={dayOfWeek}
+                    date={date}
+                    drafts={draftGroupsByDayAndPair}
+                    hoverDropTargetKey={hoverDropTargetKey}
+                    movingLessonId={movingLessonId}
+                    roomById={roomById}
+                    resolveMoveTargetState={resolveMoveTargetState}
+                    subjectNameById={subjectNameById}
+                    teacherById={teacherById}
+                    onAddLesson={(pairNumber, weekType, subgroupChoice) => {
+                      const slot = canonicalSlotByPairNumber.get(pairNumber)
+                      if (!slot) {
+                        setFeedback({ tone: 'error', message: t('schedule.slotSetupError') })
+                        return
+                      }
+                      setDrawer({
+                        dayOfWeek,
+                        forBothWeeks: false,
+                        forWholeGroup: false,
+                        lessonFormat: 'OFFLINE',
+                        lessonType: 'LECTURE',
+                        localId: null,
+                        notes: '',
+                        onlineMeetingUrl: '',
+                        pairNumber,
+                        roomId: '',
+                        slotId: slot.id,
+                        subgroupChoice,
+                        subjectId: '',
+                        teacherId: '',
+                        weekType,
+                      })
+                    }}
+                    onCopyDay={() => {
+                      const sourceDrafts = drafts
+                        .filter((draft) => !draft.deleted && draft.dayOfWeek === dayOfWeek)
+                        .map((draft) => ({ ...draft }))
+                      setCopiedDay({ dayOfWeek, drafts: sourceDrafts })
+                    }}
+                    onDeleteLesson={(localId) => setDeleteTargetId(localId)}
+                    onEditLesson={(localId) => {
+                      const target = drafts.find((draft) => draft.localId === localId)
+                      if (!target) {
+                        return
+                      }
 
-                    const pairNumber = slotById.get(target.slotId)?.number ?? 1
-                    setDrawer({
-                      dayOfWeek: target.dayOfWeek,
-                      forBothWeeks: target.weekType === 'ALL',
-                      forWholeGroup: target.subgroup === 'ALL',
-                      lessonFormat: target.lessonFormat,
-                      lessonType: target.lessonType,
-                      localId: target.localId,
-                      notes: target.notes,
-                      onlineMeetingUrl: target.onlineMeetingUrl ?? '',
-                      pairNumber,
-                      roomId: target.roomId ?? '',
-                      slotId: target.slotId,
-                      subgroupChoice: target.subgroup === 'SECOND' ? 'SECOND' : 'FIRST',
-                      subjectId: target.subjectId,
-                      teacherId: target.teacherId,
-                      weekType: target.weekType === 'ALL' ? selectedWeekType : target.weekType,
-                    })
-                  }}
-                  onPasteDay={(targetDay) => {
-                    if (!copiedDay || copiedDay.dayOfWeek === targetDay) {
-                      return
-                    }
+                      const pairNumber = slotById.get(target.slotId)?.number ?? 1
+                      setDrawer({
+                        dayOfWeek: target.dayOfWeek,
+                        forBothWeeks: target.weekType === 'ALL',
+                        forWholeGroup: target.subgroup === 'ALL',
+                        lessonFormat: target.lessonFormat,
+                        lessonType: target.lessonType,
+                        localId: target.localId,
+                        notes: target.notes,
+                        onlineMeetingUrl: target.onlineMeetingUrl ?? '',
+                        pairNumber,
+                        roomId: target.roomId ?? '',
+                        slotId: target.slotId,
+                        subgroupChoice: target.subgroup === 'SECOND' ? 'SECOND' : 'FIRST',
+                        subjectId: target.subjectId,
+                        teacherId: target.teacherId,
+                        weekType: target.weekType === 'ALL' ? selectedWeekType : target.weekType,
+                      })
+                    }}
+                    onPasteDay={(targetDay) => {
+                      if (!copiedDay || copiedDay.dayOfWeek === targetDay) {
+                        return
+                      }
 
-                    const createdDrafts = copiedDay.drafts.map((draft) => ({
-                      ...cloneDraft(draft),
-                      dayOfWeek: targetDay,
-                      changeReason: 'COPY_DAY' as const,
-                      conflict: createIdleDraftConflict(),
-                    }))
-                    setDrafts((current) => [...current, ...createdDrafts])
-                  }}
-                  onPasteLesson={(targetDay, pairNumber) => {
-                    const source = drafts.find((draft) => draft.localId === copiedLessonId)
-                    const slot = canonicalSlotByPairNumber.get(pairNumber)
-                    if (!source || !slot) {
-                      return
-                    }
+                      const createdDrafts = copiedDay.drafts.map((draft) => ({
+                        ...cloneDraft(draft),
+                        dayOfWeek: targetDay,
+                        changeReason: 'COPY_DAY' as const,
+                        conflict: createIdleDraftConflict(),
+                      }))
+                      setDrafts((current) => [...current, ...createdDrafts])
+                    }}
+                    onPasteLesson={(targetDay, pairNumber) => {
+                      const source = drafts.find((draft) => draft.localId === copiedLessonId)
+                      const slot = canonicalSlotByPairNumber.get(pairNumber)
+                      if (!source || !slot) {
+                        return
+                      }
 
-                    const createdDraft = {
-                      ...cloneDraft(source),
-                      changeReason: 'COPY_TEMPLATE' as const,
-                      conflict: createIdleDraftConflict(),
-                      dayOfWeek: targetDay,
-                      slotId: slot.id,
-                    }
-                    setDrafts((current) => [...current, createdDraft])
-                  }}
-                  onRestoreLesson={(localId) => {
-                    updateDraft(localId, (draft) => ({
-                      ...draft,
-                      changeReason: null,
-                      conflict: createIdleDraftConflict(),
-                      deleted: false,
-                    }))
-                  }}
-                  onSetCopiedLesson={setCopiedLessonId}
-                  onSetMovingLesson={setMovingLessonId}
-                  onDragHoverTarget={setHoverDropTargetKey}
-                  onUseMoveTarget={(targetDay, pairNumber, source, sourceDraftId) => {
-                    applyMoveTarget(targetDay, pairNumber, source, sourceDraftId)
-                  }}
-                />
-              ) : (
-                <ViewDayCard
-                  key={date}
-                  date={date}
-                  lessons={lessonsByDate.get(date) ?? []}
-                  roomById={roomById}
-                  slotById={slotById}
-                  subjectNameById={subjectNameById}
-                  teacherById={teacherById}
-                  onCancelLesson={(lesson) => setCancelLesson(lesson)}
-                  showCancelAction={isTeacher}
-                  currentUserId={session?.user.id ?? ''}
-                />
-              )
-            })}
-          </div>
+                      const createdDraft = {
+                        ...cloneDraft(source),
+                        changeReason: 'COPY_TEMPLATE' as const,
+                        conflict: createIdleDraftConflict(),
+                        dayOfWeek: targetDay,
+                        slotId: slot.id,
+                      }
+                      setDrafts((current) => [...current, createdDraft])
+                    }}
+                    onRestoreLesson={(localId) => {
+                      updateDraft(localId, (draft) => ({
+                        ...draft,
+                        changeReason: null,
+                        conflict: createIdleDraftConflict(),
+                        deleted: false,
+                      }))
+                    }}
+                    onSetCopiedLesson={setCopiedLessonId}
+                    onSetMovingLesson={setMovingLessonId}
+                    onUseMoveTarget={(targetDay, pairNumber, source, sourceDraftId) => {
+                      applyMoveTarget(targetDay, pairNumber, source, sourceDraftId)
+                    }}
+                  />
+                ) : (
+                  <ViewDayCard
+                    key={date}
+                    currentUserId={session?.user.id ?? ''}
+                    date={date}
+                    lessons={lessonsByDate.get(date) ?? []}
+                    roomById={roomById}
+                    showCancelAction={isTeacher}
+                    slotById={slotById}
+                    subjectNameById={subjectNameById}
+                    teacherById={teacherById}
+                    onCancelLesson={(lesson) => setCancelLesson(lesson)}
+                  />
+                )
+              })}
+            </div>
+          </DndContext>
         )}
       </Card>
 
@@ -1835,11 +2122,14 @@ function ScheduleDetailPage({
           key={getDrawerKey(drawer)}
           allowManagementActions={canManageTemplates}
           drawer={drawer}
+          hasDirectBindingFallback={usesDirectBindingFallback}
+          hasMissingSemesterNumber={scope === 'group' && selectedSemesterNumber === null}
           rooms={roomsQuery.data ?? []}
-          subjects={subjectsForGroupQuery.data?.items ?? []}
+          roomCapabilitiesLookup={(roomId) => roomCapabilityService.listByRoom(roomId, false)}
+          subjects={scheduleSubjects}
           onClose={() => setDrawer(null)}
           onSave={(state) => {
-            const subject = (subjectsForGroupQuery.data?.items ?? []).find((item) => item.id === state.subjectId)
+            const subject = scheduleSubjects.find((item) => item.id === state.subjectId)
             const roomId = state.lessonFormat === 'OFFLINE' ? state.roomId || null : null
             const onlineMeetingUrl = state.lessonFormat === 'ONLINE'
               ? state.onlineMeetingUrl.trim() || null
@@ -2103,9 +2393,6 @@ function EditDayCard({
   movingLessonId,
   onAddLesson,
   onCopyDay,
-  onDragHoverTarget,
-  onDragEndLesson,
-  onDragStartLesson,
   onDeleteLesson,
   onEditLesson,
   onPasteDay,
@@ -2129,9 +2416,6 @@ function EditDayCard({
   movingLessonId: string | null
   onAddLesson: (pairNumber: number, weekType: ScheduleWeekType, subgroupChoice: 'FIRST' | 'SECOND') => void
   onCopyDay: () => void
-  onDragHoverTarget: (key: string | null) => void
-  onDragEndLesson: (localId: string) => void
-  onDragStartLesson: (localId: string) => void
   onDeleteLesson: (localId: string) => void
   onEditLesson: (localId: string) => void
   onPasteDay: (dayOfWeek: DayOfWeekValue) => void
@@ -2157,16 +2441,12 @@ function EditDayCard({
           teacherById={teacherById}
           onCopy={() => onSetCopiedLesson(draft.localId)}
           onDelete={() => onDeleteLesson(draft.localId)}
-          onDragEnd={() => onDragEndLesson(draft.localId)}
-          onDragStart={() => onDragStartLesson(draft.localId)}
           onEdit={() => onEditLesson(draft.localId)}
           onMove={() => {
-            onDragHoverTarget(null)
             onSetMovingLesson(draft.localId)
           }}
           onRestore={() => onRestoreLesson(draft.localId)}
           onStopMove={() => {
-            onDragHoverTarget(null)
             onSetMovingLesson(null)
           }}
           copied={copiedLessonId === draft.localId}
@@ -2201,170 +2481,207 @@ function EditDayCard({
         {canonicalPairs.map((pair) => {
           const slot = canonicalSlotByPairNumber.get(pair.pairNumber)
           const pairDrafts = drafts.get(`${dayOfWeek}:${pair.pairNumber}`) ?? []
-          const dropKey = `${dayOfWeek}:${pair.pairNumber}`
-          const dropActive = Boolean(movingLessonId)
-          const moveTargetState = resolveMoveTargetState(dayOfWeek, pair.pairNumber)
-          const validDropTarget = moveTargetState.canDrop
-          const invalidDropTarget = dropActive && !validDropTarget && moveTargetState.reason !== 'NO_SOURCE'
-          const isHoverDropTarget = hoverDropTargetKey === dropKey
-          const oddWeekDrafts = pairDrafts.filter((draft) => draft.weekType === 'ODD' || draft.weekType === 'ALL')
-          const evenWeekDrafts = pairDrafts.filter((draft) => draft.weekType === 'EVEN' || draft.weekType === 'ALL')
-          const weekSections = [
-            { drafts: oddWeekDrafts, weekType: 'ODD' as const },
-            { drafts: evenWeekDrafts, weekType: 'EVEN' as const },
-          ]
+          return (
+            <EditPairDropZone
+              key={`${dayOfWeek}-${pair.pairNumber}`}
+              copiedLessonId={copiedLessonId}
+              dayOfWeek={dayOfWeek}
+              hoverDropTargetKey={hoverDropTargetKey}
+              movingLessonId={movingLessonId}
+              pair={pair}
+              pairDrafts={pairDrafts}
+              renderDraftCards={renderDraftCards}
+              resolveMoveTargetState={resolveMoveTargetState}
+              slot={slot}
+              onAddLesson={onAddLesson}
+              onPasteLesson={onPasteLesson}
+              onUseMoveTarget={onUseMoveTarget}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function EditPairDropZone({
+  copiedLessonId,
+  dayOfWeek,
+  hoverDropTargetKey,
+  movingLessonId,
+  pair,
+  pairDrafts,
+  renderDraftCards,
+  resolveMoveTargetState,
+  slot,
+  onAddLesson,
+  onPasteLesson,
+  onUseMoveTarget,
+}: {
+  copiedLessonId: string | null
+  dayOfWeek: DayOfWeekValue
+  hoverDropTargetKey: string | null
+  movingLessonId: string | null
+  pair: CanonicalPair
+  pairDrafts: ScheduleTemplateDraft[]
+  renderDraftCards: (items: ScheduleTemplateDraft[]) => ReactNode
+  resolveMoveTargetState: (targetDay: DayOfWeekValue, pairNumber: number, sourceDraftId?: string | null) => DragMoveTargetState
+  slot: LessonSlotResponse | undefined
+  onAddLesson: (pairNumber: number, weekType: ScheduleWeekType, subgroupChoice: 'FIRST' | 'SECOND') => void
+  onPasteLesson: (dayOfWeek: DayOfWeekValue, pairNumber: number) => void
+  onUseMoveTarget: (dayOfWeek: DayOfWeekValue, pairNumber: number, source: 'action' | 'drag', sourceDraftId?: string | null) => void
+}) {
+  const { t } = useTranslation()
+  const dropTargetId = buildDropTargetId(dayOfWeek, pair.pairNumber)
+  const { isOver, setNodeRef } = useDroppable({
+    id: dropTargetId,
+    data: {
+      dayOfWeek,
+      pairNumber: pair.pairNumber,
+    } satisfies ScheduleDropTargetData,
+    disabled: !slot,
+  })
+  const dropActive = Boolean(movingLessonId)
+  const moveTargetState = resolveMoveTargetState(dayOfWeek, pair.pairNumber)
+  const validDropTarget = moveTargetState.valid
+  const invalidDropTarget = dropActive && !validDropTarget && moveTargetState.reason !== 'NO_SOURCE'
+  const isHoverDropTarget = hoverDropTargetKey === dropTargetId || (isOver && validDropTarget)
+  const oddWeekDrafts = pairDrafts.filter((draft) => draft.weekType === 'ODD' || draft.weekType === 'ALL')
+  const evenWeekDrafts = pairDrafts.filter((draft) => draft.weekType === 'EVEN' || draft.weekType === 'ALL')
+  const weekSections = [
+    { drafts: oddWeekDrafts, weekType: 'ODD' as const },
+    { drafts: evenWeekDrafts, weekType: 'EVEN' as const },
+  ]
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'rounded-[16px] border bg-surface p-3 transition',
+        dropActive && validDropTarget ? 'border-accent/60 bg-accent-muted/15' : 'border-border',
+        dropActive && validDropTarget && isHoverDropTarget ? 'border-success/50 bg-success/10 ring-2 ring-success/25' : '',
+        invalidDropTarget ? 'border-border-strong bg-surface-muted opacity-75' : '',
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border pb-2.5">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-text-primary">
+            {t('schedule.pairSummary', {
+              end: pair.endTime,
+              number: pair.pairNumber,
+              start: pair.startTime,
+            })}
+          </p>
+          {!slot ? (
+            <p className="text-sm text-danger">{t('schedule.slotSetupError')}</p>
+          ) : null}
+          {dropActive && validDropTarget ? (
+            <p className={cn(
+              'text-xs font-medium',
+              isHoverDropTarget ? 'text-success' : 'text-accent',
+            )}>
+              {isHoverDropTarget ? t('schedule.validDropTarget') : t('schedule.dropHere')}
+            </p>
+          ) : null}
+          {invalidDropTarget ? (
+            <p className="text-xs font-medium text-text-muted">
+              {t('schedule.invalidDropTarget')}
+            </p>
+          ) : null}
+        </div>
+        {slot ? (
+          <div className="flex flex-wrap gap-2">
+            {copiedLessonId ? (
+              <Button variant="ghost" onClick={() => onPasteLesson(dayOfWeek, pair.pairNumber)}>
+                <Copy className="mr-2 h-4 w-4" />
+                {t('schedule.pasteLesson')}
+              </Button>
+            ) : null}
+            {movingLessonId ? (
+              <Button
+                disabled={!validDropTarget}
+                title={!validDropTarget && moveTargetState.reason ? getDragMoveBlockedMessage(moveTargetState.reason, t) : undefined}
+                variant="ghost"
+                onClick={() => onUseMoveTarget(dayOfWeek, pair.pairNumber, 'action')}
+              >
+                <ArrowRight className="mr-2 h-4 w-4" />
+                {t('schedule.moveHere')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-2.5 space-y-2.5">
+        {weekSections.map((weekSection) => {
+          const sharedDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'ALL')
+          const firstDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'FIRST')
+          const secondDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'SECOND')
+          const hasSharedActive = sharedDrafts.some((draft) => !draft.deleted)
+          const hasFirstActive = firstDrafts.some((draft) => !draft.deleted)
+          const hasSecondActive = secondDrafts.some((draft) => !draft.deleted)
+          const sectionIsEmpty = !hasSharedActive && !hasFirstActive && !hasSecondActive
+          const showFirstAdd = !hasSharedActive && !hasFirstActive && hasSecondActive
+          const showSecondAdd = !hasSharedActive && hasFirstActive && !hasSecondActive
 
           return (
-            <div
-              key={`${dayOfWeek}-${pair.pairNumber}`}
-              className={cn(
-                'rounded-[16px] border bg-surface p-3 transition',
-                dropActive && validDropTarget ? 'border-accent/60 bg-accent-muted/15' : 'border-border',
-                dropActive && validDropTarget && isHoverDropTarget ? 'border-success/50 bg-success/10 ring-2 ring-success/25' : '',
-                invalidDropTarget ? 'border-border-strong bg-surface-muted opacity-75' : '',
-              )}
-              onDragOver={(event) => {
-                if (!slot) {
-                  onDragHoverTarget(null)
-                  return
-                }
-                event.preventDefault()
-                event.dataTransfer.dropEffect = validDropTarget ? 'move' : 'none'
-                if (!movingLessonId || !validDropTarget) {
-                  onDragHoverTarget(null)
-                  return
-                }
-                onDragHoverTarget(dropKey)
-              }}
-              onDrop={(event) => {
-                event.preventDefault()
-                const sourceDraftId = event.dataTransfer.getData('text/plain') || movingLessonId
-                onUseMoveTarget(dayOfWeek, pair.pairNumber, 'drag', sourceDraftId)
-              }}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border pb-2.5">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-text-primary">
-                    {t('schedule.pairSummary', {
-                      end: pair.endTime,
-                      number: pair.pairNumber,
-                      start: pair.startTime,
-                    })}
-                  </p>
-                  {!slot ? (
-                    <p className="text-sm text-danger">{t('schedule.slotSetupError')}</p>
-                  ) : null}
-                  {dropActive && validDropTarget ? (
-                    <p className={cn(
-                      'text-xs font-medium',
-                      isHoverDropTarget ? 'text-success' : 'text-accent',
-                    )}>
-                      {t('schedule.dropHere')}
-                    </p>
-                  ) : null}
-                  {invalidDropTarget ? (
-                    <p className="text-xs font-medium text-text-muted">
-                      {t('schedule.invalidDropTarget')}
-                    </p>
-                  ) : null}
+            <div key={`${pair.pairNumber}-${weekSection.weekType}`} className="space-y-2 rounded-[12px] border border-border bg-surface-muted/70 p-2.5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                {t(`schedule.weekType.${weekSection.weekType}`)}
+              </p>
+
+              {sharedDrafts.length > 0 ? (
+                renderDraftCards(sharedDrafts)
+              ) : null}
+
+              {sectionIsEmpty ? (
+                <div className="rounded-[10px] border border-dashed border-border-strong bg-surface p-2">
+                  {slot ? (
+                    <Button variant="ghost" onClick={() => onAddLesson(pair.pairNumber, weekSection.weekType, 'FIRST')}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      {t('schedule.addLesson')}
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-danger">{t('schedule.slotSetupError')}</p>
+                  )}
                 </div>
-                {slot ? (
-                  <div className="flex flex-wrap gap-2">
-                    {copiedLessonId ? (
-                      <Button variant="ghost" onClick={() => onPasteLesson(dayOfWeek, pair.pairNumber)}>
-                        <Copy className="mr-2 h-4 w-4" />
-                        {t('schedule.pasteLesson')}
-                      </Button>
-                    ) : null}
-                    {movingLessonId ? (
-                      <Button
-                        disabled={!validDropTarget}
-                        title={!validDropTarget && moveTargetState.reason ? getDragMoveBlockedMessage(moveTargetState.reason, t) : undefined}
-                        variant="ghost"
-                        onClick={() => onUseMoveTarget(dayOfWeek, pair.pairNumber, 'action')}
-                      >
-                        <ArrowRight className="mr-2 h-4 w-4" />
-                        {t('schedule.moveHere')}
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-2.5 space-y-2.5">
-                {weekSections.map((weekSection) => {
-                  const sharedDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'ALL')
-                  const firstDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'FIRST')
-                  const secondDrafts = weekSection.drafts.filter((draft) => draft.subgroup === 'SECOND')
-                  const hasSharedActive = sharedDrafts.some((draft) => !draft.deleted)
-                  const hasFirstActive = firstDrafts.some((draft) => !draft.deleted)
-                  const hasSecondActive = secondDrafts.some((draft) => !draft.deleted)
-                  const sectionIsEmpty = !hasSharedActive && !hasFirstActive && !hasSecondActive
-                  const showFirstAdd = !hasSharedActive && !hasFirstActive && hasSecondActive
-                  const showSecondAdd = !hasSharedActive && hasFirstActive && !hasSecondActive
-
-                  return (
-                    <div key={`${pair.pairNumber}-${weekSection.weekType}`} className="space-y-2 rounded-[12px] border border-border bg-surface-muted/70 p-2.5">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
-                        {t(`schedule.weekType.${weekSection.weekType}`)}
-                      </p>
-
-                      {sharedDrafts.length > 0 ? (
-                        renderDraftCards(sharedDrafts)
-                      ) : null}
-
-                      {sectionIsEmpty ? (
-                        <div className="rounded-[10px] border border-dashed border-border-strong bg-surface p-2">
-                          {slot ? (
-                            <Button variant="ghost" onClick={() => onAddLesson(pair.pairNumber, weekSection.weekType, 'FIRST')}>
-                              <Plus className="mr-2 h-4 w-4" />
-                              {t('schedule.addLesson')}
-                            </Button>
-                          ) : (
-                            <p className="text-xs text-danger">{t('schedule.slotSetupError')}</p>
-                          )}
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {([
+                    { drafts: firstDrafts, showAdd: showFirstAdd, subgroup: 'FIRST' as const },
+                    { drafts: secondDrafts, showAdd: showSecondAdd, subgroup: 'SECOND' as const },
+                  ]).map((subgroupSection) => (
+                    <div
+                      key={`${pair.pairNumber}-${weekSection.weekType}-${subgroupSection.subgroup}`}
+                      className={cn(
+                        'space-y-2 rounded-[10px] border bg-surface p-2',
+                        subgroupSection.drafts.length > 0 ? 'border-border-strong' : 'border-border',
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-text-muted">
+                          {t(`schedule.subgroupChoice.${subgroupSection.subgroup}`)}
+                        </p>
+                        {subgroupSection.showAdd && slot ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() => onAddLesson(pair.pairNumber, weekSection.weekType, subgroupSection.subgroup)}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                      {subgroupSection.drafts.length === 0 ? (
+                        <div className="rounded-[8px] border border-dashed border-border-strong px-2 py-1.5 text-xs text-text-secondary">
+                          {t('schedule.editSlotEmpty')}
                         </div>
                       ) : (
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {([
-                            { drafts: firstDrafts, showAdd: showFirstAdd, subgroup: 'FIRST' as const },
-                            { drafts: secondDrafts, showAdd: showSecondAdd, subgroup: 'SECOND' as const },
-                          ]).map((subgroupSection) => (
-                            <div
-                              key={`${pair.pairNumber}-${weekSection.weekType}-${subgroupSection.subgroup}`}
-                              className={cn(
-                                'space-y-2 rounded-[10px] border bg-surface p-2',
-                                subgroupSection.drafts.length > 0 ? 'border-border-strong' : 'border-border',
-                              )}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-xs font-semibold text-text-muted">
-                                  {t(`schedule.subgroupChoice.${subgroupSection.subgroup}`)}
-                                </p>
-                                {subgroupSection.showAdd && slot ? (
-                                  <Button
-                                    variant="ghost"
-                                    onClick={() => onAddLesson(pair.pairNumber, weekSection.weekType, subgroupSection.subgroup)}
-                                  >
-                                    <Plus className="h-4 w-4" />
-                                  </Button>
-                                ) : null}
-                              </div>
-                              {subgroupSection.drafts.length === 0 ? (
-                                <div className="rounded-[8px] border border-dashed border-border-strong px-2 py-1.5 text-xs text-text-secondary">
-                                  {t('schedule.editSlotEmpty')}
-                                </div>
-                              ) : (
-                                renderDraftCards(subgroupSection.drafts)
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                        renderDraftCards(subgroupSection.drafts)
                       )}
                     </div>
-                  )
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
@@ -2379,8 +2696,6 @@ function DraftLessonCard({
   moving,
   onCopy,
   onDelete,
-  onDragEnd,
-  onDragStart,
   onEdit,
   onMove,
   onRestore,
@@ -2394,8 +2709,6 @@ function DraftLessonCard({
   moving: boolean
   onCopy: () => void
   onDelete: () => void
-  onDragEnd: () => void
-  onDragStart: () => void
   onEdit: () => void
   onMove: () => void
   onRestore: () => void
@@ -2405,6 +2718,35 @@ function DraftLessonCard({
   teacherById: Map<string, TeacherUser>
 }) {
   const { t } = useTranslation()
+  const dragData: ScheduleDragLessonData = useMemo(() => ({
+    dayOfWeek: draft.dayOfWeek,
+    deleted: draft.deleted,
+    groupId: draft.groupId,
+    lessonFormat: draft.lessonFormat,
+    lessonType: draft.lessonType,
+    localId: draft.localId,
+    onlineMeetingUrl: draft.onlineMeetingUrl,
+    roomId: draft.roomId,
+    slotId: draft.slotId,
+    subgroup: draft.subgroup,
+    subjectId: draft.subjectId,
+    teacherId: draft.teacherId,
+    weekType: draft.weekType,
+  }), [draft.dayOfWeek, draft.deleted, draft.groupId, draft.lessonFormat, draft.lessonType, draft.localId, draft.onlineMeetingUrl, draft.roomId, draft.slotId, draft.subgroup, draft.subjectId, draft.teacherId, draft.weekType])
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+  } = useDraggable({
+    id: draft.localId,
+    data: dragData,
+    disabled: draft.deleted,
+  })
+  const dragTransform = CSS.Translate.toString(transform)
+  const dragStyle: CSSProperties = dragTransform ? { transform: dragTransform } : {}
   const room = draft.roomId ? roomById.get(draft.roomId) : null
   const teacher = teacherById.get(draft.teacherId)
   const localChangeLabel = draft.changeReason ? t(`schedule.localChangeType.${draft.changeReason}`) : null
@@ -2421,6 +2763,7 @@ function DraftLessonCard({
 
   return (
     <div
+      ref={setNodeRef}
       className={cn(
         'rounded-[14px] border p-3 transition',
         draft.deleted
@@ -2433,25 +2776,24 @@ function DraftLessonCard({
                 ? 'border-warning/30 bg-warning/5'
                 : 'border-border bg-surface',
         moving && 'ring-4 ring-accent/15',
+        isDragging && 'shadow-[var(--shadow-soft)] opacity-85',
       )}
+      style={dragStyle}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           {!draft.deleted ? (
-            <span
+            <button
+              type="button"
               aria-label={t('schedule.dragLesson')}
-              className="mt-1 inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-[10px] border border-border bg-surface-muted text-text-muted active:cursor-grabbing"
-              draggable
+              className="mt-1 inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-[10px] border border-border bg-surface-muted text-text-muted active:cursor-grabbing touch-none"
               title={t('schedule.dragLesson')}
-              onDragEnd={onDragEnd}
-              onDragStart={(event) => {
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setData('text/plain', draft.localId)
-                onDragStart()
-              }}
+              ref={setActivatorNodeRef}
+              {...attributes}
+              {...(listeners ?? {})}
             >
               <GripVertical className="h-4 w-4" />
-            </span>
+            </button>
           ) : null}
           <div className="min-w-0 space-y-2">
             <p className="text-base font-semibold text-text-primary">
@@ -2568,17 +2910,23 @@ function DraftLessonCard({
 function LessonDrawer({
   allowManagementActions,
   drawer,
+  hasDirectBindingFallback,
+  hasMissingSemesterNumber,
   onClose,
   onSave,
   rooms,
+  roomCapabilitiesLookup,
   subjects,
 }: {
   allowManagementActions: boolean
   drawer: DraftEditorState
+  hasDirectBindingFallback: boolean
+  hasMissingSemesterNumber: boolean
   onClose: () => void
   onSave: (state: DraftEditorState) => void
   rooms: RoomResponse[]
-  subjects: SubjectResponse[]
+  roomCapabilitiesLookup: (roomId: string) => Promise<RoomCapabilityResponse[]>
+  subjects: GroupScheduleSubjectOption[]
 }) {
   const { t } = useTranslation()
   const [state, setState] = useState(drawer)
@@ -2610,6 +2958,50 @@ function LessonDrawer({
   const teacherChoices = teachersQuery.data ?? []
   const teachersLookupError = teachersQuery.isError
   const teachersLookupLoading = teachersQuery.isLoading
+  const roomCapabilitiesByRoomQuery = useQuery({
+    queryKey: ['schedule', 'drawer-room-capabilities', rooms.map((room) => room.id).join(',')],
+    queryFn: async () => {
+      const rows = await Promise.all(
+        rooms.map(async (room) => {
+          try {
+            const capabilities = await roomCapabilitiesLookup(room.id)
+            return [room.id, capabilities] as const
+          } catch {
+            return [room.id, [] as RoomCapabilityResponse[]] as const
+          }
+        }),
+      )
+      return new Map(rows)
+    },
+    enabled: state.lessonFormat === 'OFFLINE' && rooms.length > 0,
+    staleTime: 60_000,
+  })
+  const roomCapabilitiesByRoom = useMemo(
+    () => roomCapabilitiesByRoomQuery.data ?? new Map<string, RoomCapabilityResponse[]>(),
+    [roomCapabilitiesByRoomQuery.data],
+  )
+  const sortedRooms = useMemo(() => {
+    if (state.lessonFormat !== 'OFFLINE') {
+      return rooms
+    }
+    return rooms
+      .map((room) => {
+        const capability = (roomCapabilitiesByRoom.get(room.id) ?? [])
+          .find((item) => item.lessonType === state.lessonType && item.active)
+        return { capability, room }
+      })
+      .sort((left, right) => {
+        const leftPriority = left.capability?.priority ?? -1
+        const rightPriority = right.capability?.priority ?? -1
+        return rightPriority - leftPriority || left.room.code.localeCompare(right.room.code)
+      })
+      .map((item) => item.room)
+  }, [roomCapabilitiesByRoom, rooms, state.lessonFormat, state.lessonType])
+  const selectedRoomCapability = useMemo(
+    () => (state.roomId ? (roomCapabilitiesByRoom.get(state.roomId) ?? [])
+      .find((item) => item.lessonType === state.lessonType && item.active) : null),
+    [roomCapabilitiesByRoom, state.lessonType, state.roomId],
+  )
   const saveBlockedReason = getDrawerValidationReason(state, t)
 
   return (
@@ -2637,11 +3029,24 @@ function LessonDrawer({
             {subjects.length === 0 ? (
               <div className="md:col-span-2 rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
                 <p className="text-sm font-semibold text-text-primary">{t('schedule.emptySubjectsForGroup')}</p>
-                {allowManagementActions ? (
-                  <Link className="mt-2 inline-flex text-sm font-medium text-accent" to="/subjects">
-                    {t('schedule.actions.manageSubjects')}
-                  </Link>
+                {hasDirectBindingFallback ? (
+                  <p className="mt-1 text-sm text-text-secondary">{t('schedule.directBindingsFallback')}</p>
                 ) : null}
+                {allowManagementActions ? (
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    <Link className="inline-flex text-sm font-medium text-accent" to="/academic/specialties">
+                      {t('schedule.actions.manageCurriculum')}
+                    </Link>
+                    <Link className="inline-flex text-sm font-medium text-accent" to="/subjects">
+                      {t('schedule.actions.manageSubjectBindings')}
+                    </Link>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {hasMissingSemesterNumber ? (
+              <div className="md:col-span-2 rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
+                <p className="text-sm text-text-primary">{t('schedule.semesterNumberMissing')}</p>
               </div>
             ) : null}
             <FormField label={t('education.subject')}>
@@ -2661,10 +3066,39 @@ function LessonDrawer({
                 {subjects.map((subjectOption) => (
                   <option key={subjectOption.id} value={subjectOption.id}>
                     {subjectOption.name}
+                    {subjectOption.source ? ` · ${t(`schedule.subjectSource.${subjectOption.source}`)}` : ''}
                   </option>
                 ))}
               </Select>
             </FormField>
+            {state.subjectId ? (
+              <Card className="md:col-span-2 border-border bg-surface-muted px-4 py-3">
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {subject?.source ? (
+                    <span className="rounded-full border border-border px-2 py-1 font-medium text-text-secondary">
+                      {t(`schedule.subjectSource.${subject.source}`)}
+                    </span>
+                  ) : null}
+                  {subject?.supportsStreamLecture ? (
+                    <span className="rounded-full border border-success/30 bg-success/5 px-2 py-1 font-medium text-text-primary">
+                      {t('schedule.streamLectureSupported')}
+                    </span>
+                  ) : null}
+                  {subject?.requiresSubgroupsForLabs ? (
+                    <span className="rounded-full border border-warning/30 bg-warning/5 px-2 py-1 font-medium text-text-primary">
+                      {t('schedule.requiresSubgroupsForLabs')}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-sm text-text-secondary">
+                  {t('schedule.subjectLoadCounts', {
+                    lab: subject?.labCount ?? 0,
+                    lecture: subject?.lectureCount ?? 0,
+                    practice: subject?.practiceCount ?? 0,
+                  })}
+                </p>
+              </Card>
+            ) : null}
 
             <FormField label={t('schedule.teacherLabel')}>
               <Select
@@ -2825,7 +3259,7 @@ function LessonDrawer({
                 }}
               >
                 <option value="">{t('schedule.selectRoom')}</option>
-                {rooms.map((room) => (
+                {sortedRooms.map((room) => (
                   <option key={room.id} value={room.id}>
                     {formatRoomLabel(room)}
                   </option>
@@ -2842,6 +3276,29 @@ function LessonDrawer({
               />
             </FormField>
           )}
+          {state.lessonFormat === 'OFFLINE' && state.roomId ? (
+            <Card className={cn(
+              'border px-4 py-3',
+              selectedRoomCapability
+                ? 'border-success/30 bg-success/5'
+                : 'border-warning/30 bg-warning/5',
+            )}>
+              {selectedRoomCapability ? (
+                <p className="text-sm text-text-primary">
+                  {t('schedule.roomFitSupported')}
+                  {' '}
+                  {t('schedule.roomCapabilityPriority', { priority: selectedRoomCapability.priority })}
+                </p>
+              ) : (
+                <p className="text-sm text-text-primary">{t('schedule.roomFitUnsupported')}</p>
+              )}
+            </Card>
+          ) : null}
+          {state.lessonType === 'LECTURE' && subject?.supportsStreamLecture ? (
+            <Card className="border-info/30 bg-info/5 px-4 py-3">
+              <p className="text-sm text-text-primary">{t('schedule.streamLectureNote')}</p>
+            </Card>
+          ) : null}
 
           <FormField label={t('common.labels.notes')}>
             <Textarea
@@ -3152,20 +3609,7 @@ function getDragMoveBlockedMessage(
   reason: DragMoveBlockReason,
   t: (key: string) => string,
 ) {
-  switch (reason) {
-    case 'SLOT_UNAVAILABLE':
-      return t('schedule.cannotMoveSlotUnavailable')
-    case 'NO_EDIT_PERMISSION':
-      return t('schedule.cannotMoveNoEditPermission')
-    case 'ACTIVE_SEMESTER_MISSING':
-      return t('schedule.cannotMoveActiveSemesterMissing')
-    case 'SAME_POSITION':
-      return t('schedule.cannotMoveSamePosition')
-    case 'NO_SOURCE':
-      return t('schedule.cannotMoveNoDragSource')
-    default:
-      return t('schedule.moveCancelled')
-  }
+  return t(getDragMoveBlockedReasonKey(reason))
 }
 
 function buildConflictDetail(
@@ -3219,6 +3663,37 @@ function getTeacherDisplayName(teacher: TeacherUser | null | undefined) {
     return teacher.displayName
   }
   return teacher.username
+}
+
+function upsertRoomCapabilityDraft(
+  items: RoomCapabilityDraft[],
+  nextItem: RoomCapabilityDraft,
+) {
+  const index = items.findIndex((item) => item.lessonType === nextItem.lessonType)
+  if (index < 0) {
+    return [...items, nextItem]
+  }
+
+  return items.map((item, currentIndex) => (currentIndex === index ? nextItem : item))
+}
+
+function resolveRoomCapabilitiesDisabledReason(
+  items: RoomCapabilityDraft[],
+  t: (key: string, values?: Record<string, unknown>) => string,
+) {
+  const activeItems = items.filter((item) => item.active)
+  if (activeItems.length === 0) {
+    return t('academic.validation.enableAtLeastOneCapability')
+  }
+
+  for (const item of activeItems) {
+    const priority = Number(item.priority)
+    if (!Number.isInteger(priority) || priority <= 0) {
+      return t('academic.validation.priorityPositive')
+    }
+  }
+
+  return null
 }
 
 function formatRoomLabel(room: RoomResponse) {

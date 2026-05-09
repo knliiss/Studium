@@ -57,7 +57,7 @@ public class AssignmentAttachmentService {
         Assignment assignment = requireAssignment(assignmentId);
         ensureCanReadAssignment(assignment, currentUserId, privilegedAccess, teacherAccess);
         return assignmentAttachmentRepository.findAllByAssignmentIdOrderByCreatedAtAsc(assignmentId).stream()
-                .map(attachment -> toResponse(attachment, fileServiceInternalClient.getMetadata(attachment.getFileId())))
+                .map(this::toResponse)
                 .toList();
     }
 
@@ -83,9 +83,12 @@ public class AssignmentAttachmentService {
         attachment.setAssignmentId(assignmentId);
         attachment.setFileId(request.fileId());
         attachment.setDisplayName(normalizeDisplayName(request.displayName()));
+        attachment.setOriginalFileName(file.originalFileName());
+        attachment.setContentType(file.contentType());
+        attachment.setSizeBytes(file.sizeBytes());
         attachment.setUploadedByUserId(currentUserId);
         AssignmentAttachment savedAttachment = assignmentAttachmentRepository.save(attachment);
-        return toResponse(savedAttachment, file);
+        return toResponse(savedAttachment);
     }
 
     @Transactional
@@ -175,16 +178,16 @@ public class AssignmentAttachmentService {
                 && assignmentGroupAvailabilityRepository.existsAvailableForGroups(assignmentId, groupIds, Instant.now());
     }
 
-    private AssignmentAttachmentResponse toResponse(AssignmentAttachment attachment, RemoteStoredFileResponse file) {
+    private AssignmentAttachmentResponse toResponse(AssignmentAttachment attachment) {
         return new AssignmentAttachmentResponse(
                 attachment.getId(),
                 attachment.getAssignmentId(),
                 attachment.getFileId(),
                 attachment.getDisplayName(),
-                file.originalFileName(),
-                file.contentType(),
-                file.sizeBytes(),
-                isPreviewAvailable(file.contentType()),
+                attachment.getOriginalFileName(),
+                attachment.getContentType(),
+                attachment.getSizeBytes(),
+                isPreviewAvailable(attachment.getContentType()),
                 attachment.getUploadedByUserId(),
                 attachment.getCreatedAt()
         );

@@ -10,6 +10,7 @@ public record AcademicSemesterResponse(
         LocalDate startDate,
         LocalDate endDate,
         LocalDate weekOneStartDate,
+        Integer semesterNumber,
         boolean active,
         boolean published,
         Instant createdAt,

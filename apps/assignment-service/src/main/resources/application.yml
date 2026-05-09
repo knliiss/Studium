@@ -11,10 +11,19 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    schemas: ${ASSIGNMENT_DB_SCHEMA:assignment}
+    default-schema: ${ASSIGNMENT_DB_SCHEMA:assignment}
+    create-schemas: true
+
   sql:
     init:
-      continue-on-error: true
-      mode: always
+      mode: never
 
   data:
     redis:
@@ -25,7 +34,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:

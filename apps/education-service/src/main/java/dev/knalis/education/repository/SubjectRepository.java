@@ -37,6 +37,18 @@ public interface SubjectRepository extends JpaRepository<Subject, UUID> {
 
     Page<Subject> findAllByNameContainingIgnoreCaseOrderByNameAsc(String name, Pageable pageable);
 
+    @Query("""
+            select subject
+            from Subject subject
+            where lower(subject.name) like lower(concat('%', :name, '%'))
+              and subject.id in :subjectIds
+            """)
+    Page<Subject> findAllByIdInAndNameContainingIgnoreCase(
+            @Param("subjectIds") Collection<UUID> subjectIds,
+            @Param("name") String name,
+            Pageable pageable
+    );
+
     boolean existsByNameIgnoreCase(String name);
 
     @Query("""
@@ -148,4 +160,6 @@ public interface SubjectRepository extends JpaRepository<Subject, UUID> {
             order by subject.createdAt asc
             """)
     List<Subject> findAllByBoundGroupId(@Param("groupId") UUID groupId);
+
+    List<Subject> findAllByIdInOrderByNameAsc(Collection<UUID> ids);
 }

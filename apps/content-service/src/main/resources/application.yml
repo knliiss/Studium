@@ -11,14 +11,23 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    schemas: ${CONTENT_DB_SCHEMA:content}
+    default-schema: ${CONTENT_DB_SCHEMA:content}
+    create-schemas: true
+
   sql:
     init:
-      continue-on-error: true
-      mode: always
+      mode: never
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
@@ -57,4 +66,3 @@ app:
       connect-timeout: ${CONTENT_EDUCATION_SERVICE_CONNECT_TIMEOUT:2s}
       read-timeout: ${CONTENT_EDUCATION_SERVICE_READ_TIMEOUT:5s}
       shared-secret: ${EDUCATION_INTERNAL_SHARED_SECRET}
-

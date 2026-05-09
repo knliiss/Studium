@@ -228,6 +228,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
       EDUCATION_AUDIT_SERVICE_BASE_URL: http://audit-service:8090
+      EDUCATION_FILE_SERVICE_BASE_URL: http://service-lb:18083
       AUDIT_INTERNAL_SHARED_SECRET: ${AUDIT_INTERNAL_SHARED_SECRET:-change-me-audit-internal}
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:

@@ -2,6 +2,7 @@ package dev.knalis.education.service.group;
 
 import dev.knalis.education.dto.request.CreateGroupStudentRequest;
 import dev.knalis.education.dto.request.CreateGroupRequest;
+import dev.knalis.education.dto.request.UpdateGroupRequest;
 import dev.knalis.education.dto.request.UpdateGroupStudentRequest;
 import dev.knalis.education.dto.response.GroupPageResponse;
 import dev.knalis.education.dto.response.GroupMembershipResponse;
@@ -9,15 +10,25 @@ import dev.knalis.education.dto.response.GroupStudentMembershipResponse;
 import dev.knalis.education.dto.response.GroupStudentUserResponse;
 import dev.knalis.education.dto.response.GroupResponse;
 import dev.knalis.education.entity.Group;
+import dev.knalis.education.entity.GroupSubgroupMode;
 import dev.knalis.education.entity.GroupStudent;
+import dev.knalis.education.entity.Specialty;
+import dev.knalis.education.entity.Stream;
 import dev.knalis.education.exception.GroupNotFoundException;
 import dev.knalis.education.exception.GroupStudentAlreadyExistsException;
 import dev.knalis.education.exception.GroupStudentNotFoundException;
+import dev.knalis.education.exception.SpecialtyNotActiveException;
+import dev.knalis.education.exception.SpecialtyNotFoundException;
+import dev.knalis.education.exception.StreamNotActiveException;
+import dev.knalis.education.exception.StreamNotFoundException;
+import dev.knalis.education.exception.StreamSpecialtyYearMismatchException;
 import dev.knalis.education.factory.group.GroupFactory;
 import dev.knalis.education.factory.groupstudent.GroupStudentFactory;
 import dev.knalis.education.mapper.GroupMapper;
 import dev.knalis.education.repository.GroupRepository;
 import dev.knalis.education.repository.GroupStudentRepository;
+import dev.knalis.education.repository.SpecialtyRepository;
+import dev.knalis.education.repository.StreamRepository;
 import dev.knalis.education.service.common.EducationAuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -44,6 +55,8 @@ public class GroupService {
     
     private final GroupRepository groupRepository;
     private final GroupStudentRepository groupStudentRepository;
+    private final SpecialtyRepository specialtyRepository;
+    private final StreamRepository streamRepository;
     private final GroupFactory groupFactory;
     private final GroupStudentFactory groupStudentFactory;
     private final GroupMapper groupMapper;
@@ -51,9 +64,46 @@ public class GroupService {
     
     @Transactional
     public GroupResponse createGroup(UUID currentUserId, CreateGroupRequest request) {
-        Group group = groupFactory.newGroup(request.name());
+        if (request.specialtyId() != null) {
+            Specialty specialty = specialtyRepository.findById(request.specialtyId())
+                    .orElseThrow(() -> new SpecialtyNotFoundException(request.specialtyId()));
+            if (!specialty.isActive()) {
+                throw new SpecialtyNotActiveException(request.specialtyId());
+            }
+        }
+        Stream stream = requireCompatibleStream(request.streamId(), request.specialtyId(), request.studyYear());
+        Group group = groupFactory.newGroup(
+                request.name(),
+                request.specialtyId(),
+                request.studyYear(),
+                stream == null ? null : stream.getId(),
+                request.subgroupMode()
+        );
         GroupResponse response = groupMapper.toResponse(groupRepository.save(group));
         educationAuditService.record(currentUserId, "GROUP_CREATED", "GROUP", response.id(), null, response);
+        return response;
+    }
+
+    @Transactional
+    public GroupResponse updateGroup(UUID currentUserId, UUID groupId, UpdateGroupRequest request) {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupNotFoundException(groupId));
+        GroupResponse oldValue = groupMapper.toResponse(group);
+        if (request.specialtyId() != null) {
+            Specialty specialty = specialtyRepository.findById(request.specialtyId())
+                    .orElseThrow(() -> new SpecialtyNotFoundException(request.specialtyId()));
+            if (!specialty.isActive()) {
+                throw new SpecialtyNotActiveException(request.specialtyId());
+            }
+        }
+        Stream stream = requireCompatibleStream(request.streamId(), request.specialtyId(), request.studyYear());
+        group.setName(request.name().trim());
+        group.setSpecialtyId(request.specialtyId());
+        group.setStudyYear(request.studyYear());
+        group.setStreamId(stream == null ? null : stream.getId());
+        group.setSubgroupMode(request.subgroupMode() == null ? GroupSubgroupMode.NONE : request.subgroupMode());
+        GroupResponse response = groupMapper.toResponse(groupRepository.save(group));
+        educationAuditService.record(currentUserId, "GROUP_UPDATED", "GROUP", response.id(), oldValue, response);
         return response;
     }
     
@@ -192,6 +242,22 @@ public class GroupService {
         if (!groupRepository.existsById(groupId)) {
             throw new GroupNotFoundException(groupId);
         }
+    }
+
+    private Stream requireCompatibleStream(UUID streamId, UUID specialtyId, Integer studyYear) {
+        if (streamId == null) {
+            return null;
+        }
+        Stream stream = streamRepository.findById(streamId)
+                .orElseThrow(() -> new StreamNotFoundException(streamId));
+        if (!stream.isActive()) {
+            throw new StreamNotActiveException(streamId);
+        }
+        if ((specialtyId != null && !specialtyId.equals(stream.getSpecialtyId()))
+                || (studyYear != null && !studyYear.equals(stream.getStudyYear()))) {
+            throw new StreamSpecialtyYearMismatchException(streamId, specialtyId, studyYear);
+        }
+        return stream;
     }
 
     private GroupStudentMembershipResponse toMembershipResponse(

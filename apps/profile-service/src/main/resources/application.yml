@@ -11,6 +11,16 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    schemas: ${PROFILE_DB_SCHEMA:profile}
+    default-schema: ${PROFILE_DB_SCHEMA:profile}
+    create-schemas: true
+
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -20,7 +30,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:

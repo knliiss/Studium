@@ -276,7 +276,7 @@ export function LecturePage() {
                         {attachment.displayName?.trim() || attachment.originalFileName}
                       </div>
                       <div className="text-xs text-text-secondary">
-                        {attachment.originalFileName} · {formatBytes(attachment.sizeBytes)}
+                        {attachment.originalFileName} · {attachment.contentType ?? 'application/octet-stream'} · {formatBytes(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">

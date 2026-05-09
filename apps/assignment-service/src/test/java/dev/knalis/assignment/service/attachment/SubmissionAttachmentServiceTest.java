@@ -15,6 +15,7 @@ import dev.knalis.assignment.entity.AssignmentStatus;
 import dev.knalis.assignment.entity.Submission;
 import dev.knalis.assignment.entity.SubmissionAttachment;
 import dev.knalis.assignment.exception.AssignmentClosedException;
+import dev.knalis.assignment.exception.FileServiceUnavailableException;
 import dev.knalis.assignment.exception.SubmissionAttachmentNotFoundException;
 import dev.knalis.assignment.exception.SubmissionFileAccessDeniedException;
 import dev.knalis.assignment.exception.SubmissionNotAccessibleException;
@@ -38,6 +39,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -98,6 +100,9 @@ class SubmissionAttachmentServiceTest {
         savedAttachment.setId(UUID.randomUUID());
         savedAttachment.setSubmissionId(submissionId);
         savedAttachment.setFileId(fileId);
+        savedAttachment.setOriginalFileName("solution.pdf");
+        savedAttachment.setContentType("application/pdf");
+        savedAttachment.setSizeBytes(4096L);
         savedAttachment.setUploadedByUserId(studentId);
         savedAttachment.setCreatedAt(Instant.now());
         when(submissionRepository.findById(submissionId)).thenReturn(Optional.of(submission));
@@ -118,7 +123,41 @@ class SubmissionAttachmentServiceTest {
         );
 
         assertEquals(fileId, response.fileId());
+        assertEquals("solution.pdf", response.originalFileName());
         verify(fileServiceClient).markFileActive("token", fileId);
+    }
+
+    @Test
+    void ownerListsSubmissionAttachmentsFromPersistedMetadataWithoutFileServiceCall() {
+        UUID studentId = UUID.randomUUID();
+        UUID submissionId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Submission submission = submission(submissionId, assignmentId, studentId, fileId);
+        Assignment assignment = assignment(assignmentId, AssignmentStatus.PUBLISHED);
+        SubmissionAttachment attachment = new SubmissionAttachment();
+        attachment.setId(UUID.randomUUID());
+        attachment.setSubmissionId(submissionId);
+        attachment.setFileId(fileId);
+        attachment.setOriginalFileName("solution.pdf");
+        attachment.setContentType("application/pdf");
+        attachment.setSizeBytes(4096L);
+        attachment.setUploadedByUserId(studentId);
+        attachment.setCreatedAt(Instant.now());
+        when(submissionRepository.findById(submissionId)).thenReturn(Optional.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+        when(submissionAttachmentRepository.findAllBySubmissionIdOrderByCreatedAtAsc(submissionId)).thenReturn(List.of(attachment));
+
+        List<SubmissionAttachmentResponse> response = submissionAttachmentService.listAttachments(
+                studentId,
+                false,
+                false,
+                submissionId
+        );
+
+        assertEquals(1, response.size());
+        assertEquals("solution.pdf", response.get(0).originalFileName());
+        verify(fileServiceInternalClient, never()).getMetadata(any());
     }
 
     @Test
@@ -221,6 +260,56 @@ class SubmissionAttachmentServiceTest {
                         false
                 )
         );
+    }
+
+    @Test
+    void unauthorizedListDoesNotCallFileService() {
+        UUID studentId = UUID.randomUUID();
+        UUID submissionId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Submission submission = submission(submissionId, assignmentId, ownerId, UUID.randomUUID());
+        Assignment assignment = assignment(assignmentId, AssignmentStatus.PUBLISHED);
+        when(submissionRepository.findById(submissionId)).thenReturn(Optional.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+
+        assertThrows(
+                SubmissionNotAccessibleException.class,
+                () -> submissionAttachmentService.listAttachments(studentId, false, false, submissionId)
+        );
+        verify(fileServiceInternalClient, never()).getMetadata(any());
+    }
+
+    @Test
+    void attachFailsWhenFileServiceUnavailable() {
+        UUID studentId = UUID.randomUUID();
+        UUID submissionId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID fileId = UUID.randomUUID();
+        Submission submission = submission(submissionId, assignmentId, studentId, UUID.randomUUID());
+        Assignment assignment = assignment(assignmentId, AssignmentStatus.PUBLISHED);
+        AssignmentGroupAvailability availability = availability(assignmentId, groupId);
+        when(submissionRepository.findById(submissionId)).thenReturn(Optional.of(submission));
+        when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment));
+        when(gradeRepository.findBySubmissionId(submissionId)).thenReturn(Optional.empty());
+        when(educationServiceClient.getGroupsByUser(studentId)).thenReturn(List.of(new GroupMembershipResponse(groupId)));
+        when(assignmentGroupAvailabilityRepository.findAvailableForAssignmentsAndGroups(any(), any(), any())).thenReturn(List.of(availability));
+        when(fileServiceClient.getMyFile("token", fileId)).thenThrow(new FileServiceUnavailableException("metadata", fileId));
+
+        assertThrows(
+                FileServiceUnavailableException.class,
+                () -> submissionAttachmentService.addAttachment(
+                        studentId,
+                        "token",
+                        false,
+                        false,
+                        submissionId,
+                        new CreateSubmissionAttachmentRequest(fileId, "Solution")
+                )
+        );
+        verify(submissionAttachmentRepository, never()).save(any());
+        verify(fileServiceClient, never()).markFileActive(any(), any());
     }
 
     @Test

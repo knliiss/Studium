@@ -36,14 +36,8 @@ export interface GroupCardSummary {
 
 export async function loadAccessibleSubjects(role: Role, userId: string) {
   if (role === 'STUDENT') {
-    const memberships = await educationService.getGroupsByUser(userId)
-    const pages = await Promise.all(
-      memberships.map((membership) =>
-        educationService.getSubjectsByGroup(membership.groupId, { page: 0, size: 100 }),
-      ),
-    )
-
-    return dedupeById(pages.flatMap((page) => page.items))
+    const scoped = await loadStudentScopedSubjects(userId)
+    return scoped.subjects
   }
 
   if (role === 'TEACHER') {
@@ -52,6 +46,53 @@ export async function loadAccessibleSubjects(role: Role, userId: string) {
   }
 
   return [] as SubjectResponse[]
+}
+
+export async function loadStudentScopedSubjects(userId: string) {
+  const memberships = await educationService.getGroupsByUser(userId)
+  if (memberships.length === 0) {
+    return { hasGroup: false, subjects: [] as SubjectResponse[] }
+  }
+
+  const resolvedRows = await Promise.all(
+    memberships.map((membership) =>
+      educationService.getResolvedGroupSubjects(membership.groupId).catch(() => []),
+    ),
+  )
+  const resolvedSubjectIds = uniqueIds(
+    resolvedRows.flatMap((rows) =>
+      rows
+        .filter((row) => !row.disabledByOverride)
+        .map((row) => row.subjectId),
+    ),
+  )
+
+  if (resolvedSubjectIds.length > 0) {
+    const subjects = await Promise.all(
+      resolvedSubjectIds.map(async (subjectId) => {
+        try {
+          return await educationService.getSubject(subjectId)
+        } catch {
+          return null
+        }
+      }),
+    )
+    return {
+      hasGroup: true,
+      subjects: dedupeById(subjects.filter((subject): subject is SubjectResponse => Boolean(subject))),
+    }
+  }
+
+  const pages = await Promise.all(
+    memberships.map((membership) =>
+      educationService.getSubjectsByGroup(membership.groupId, { page: 0, size: 100 }),
+    ),
+  )
+
+  return {
+    hasGroup: true,
+    subjects: dedupeById(pages.flatMap((page) => page.items)),
+  }
 }
 
 export async function loadManagedSubjects() {
@@ -232,4 +273,8 @@ function resolveGroupRiskLevel(value: {
   }
 
   return null
+}
+
+function uniqueIds(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)))
 }

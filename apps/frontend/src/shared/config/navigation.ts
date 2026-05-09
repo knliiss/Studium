@@ -227,11 +227,39 @@ export const navigationGroups: NavigationGroup[] = [
     roles: ['ADMIN', 'OWNER'],
     items: [
       {
-        to: '/education',
+        to: '/academic',
         labelKey: 'navigation.shared.education',
         icon: BookOpen,
         roles: ['ADMIN', 'OWNER'],
-        matchPrefixes: ['/education', '/subjects', '/groups', '/teachers'],
+        matchPrefixes: ['/academic', '/education'],
+      },
+      {
+        to: '/subjects',
+        labelKey: 'navigation.shared.subjects',
+        icon: FileSearch,
+        roles: ['ADMIN', 'OWNER'],
+        matchPrefixes: ['/subjects'],
+      },
+      {
+        to: '/groups',
+        labelKey: 'navigation.shared.groups',
+        icon: Users,
+        roles: ['ADMIN', 'OWNER'],
+        matchPrefixes: ['/groups', '/academic/groups'],
+      },
+      {
+        to: '/teachers',
+        labelKey: 'navigation.shared.teachers',
+        icon: GraduationCap,
+        roles: ['ADMIN', 'OWNER'],
+        matchPrefixes: ['/teachers'],
+      },
+      {
+        to: '/academic/specialties',
+        labelKey: 'navigation.shared.specialties',
+        icon: BookOpen,
+        roles: ['ADMIN', 'OWNER'],
+        matchPrefixes: ['/academic/specialties', '/specialties', '/streams', '/curriculum-plans'],
       },
       {
         to: '/schedule',

@@ -1,7 +1,5 @@
 package dev.knalis.analytics.service;
 
-import dev.knalis.analytics.entity.PerformanceTrend;
-import dev.knalis.analytics.entity.RiskLevel;
 import dev.knalis.analytics.entity.StudentProgressSnapshot;
 import dev.knalis.analytics.repository.StudentProgressSnapshotRepository;
 import lombok.RequiredArgsConstructor;
@@ -110,23 +108,15 @@ public class StudentProgressSnapshotService {
     
     private List<StudentProgressSnapshot> getTargetSnapshots(UUID userId, UUID groupId) {
         List<StudentProgressSnapshot> snapshots = new ArrayList<>();
-        snapshots.add(studentProgressSnapshotRepository.findByUserIdAndGroupIdIsNull(userId)
-                .orElseGet(() -> newSnapshot(userId, null)));
+        studentProgressSnapshotRepository.insertUserSnapshotIfAbsent(UUID.randomUUID(), userId);
+        snapshots.add(studentProgressSnapshotRepository.findFirstByUserIdAndGroupIdIsNullOrderByUpdatedAtDesc(userId)
+                .orElseThrow());
         if (groupId != null) {
-            snapshots.add(studentProgressSnapshotRepository.findByUserIdAndGroupId(userId, groupId)
-                    .orElseGet(() -> newSnapshot(userId, groupId)));
+            studentProgressSnapshotRepository.insertGroupSnapshotIfAbsent(UUID.randomUUID(), userId, groupId);
+            snapshots.add(studentProgressSnapshotRepository.findFirstByUserIdAndGroupIdOrderByUpdatedAtDesc(userId, groupId)
+                    .orElseThrow());
         }
         return snapshots;
-    }
-    
-    private StudentProgressSnapshot newSnapshot(UUID userId, UUID groupId) {
-        StudentProgressSnapshot snapshot = new StudentProgressSnapshot();
-        snapshot.setUserId(userId);
-        snapshot.setGroupId(groupId);
-        snapshot.setRiskLevel(RiskLevel.LOW);
-        snapshot.setPerformanceTrend(PerformanceTrend.UNKNOWN);
-        snapshot.setDisciplineScore(100);
-        return snapshot;
     }
     
     private void refreshDerivedMetrics(StudentProgressSnapshot snapshot, boolean recalculateTrend) {

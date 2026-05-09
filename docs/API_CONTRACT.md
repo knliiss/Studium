@@ -74,9 +74,24 @@ Common domain codes already in use include:
 - `ASSIGNMENT_NOT_ACCESSIBLE`
 - `SUBMISSION_NOT_ACCESSIBLE`
 - `FILE_ACCESS_DENIED`
+- `FILE_SERVICE_UNAVAILABLE`
 - `FILE_ATTACHMENT_NOT_ALLOWED`
 - `INVALID_DATE_RANGE`
 - `AUDIT_EVENT_NOT_FOUND`
+- `SPECIALTY_NOT_FOUND`
+- `SPECIALTY_CODE_ALREADY_EXISTS`
+- `SPECIALTY_HAS_DEPENDENCIES`
+- `STREAM_NOT_FOUND`
+- `STREAM_HAS_GROUPS`
+- `STREAM_SPECIALTY_YEAR_MISMATCH`
+- `CURRICULUM_PLAN_NOT_FOUND`
+- `CURRICULUM_PLAN_ALREADY_EXISTS`
+- `CURRICULUM_PLAN_INVALID_COUNTS`
+- `GROUP_CURRICULUM_OVERRIDE_NOT_FOUND`
+- `GROUP_CURRICULUM_OVERRIDE_ALREADY_EXISTS`
+- `ROOM_CAPABILITY_NOT_FOUND`
+- `ROOM_CAPABILITY_ALREADY_EXISTS`
+- `ROOM_CAPABILITY_INVALID_PRIORITY`
 
 ## Public Endpoints
 
@@ -236,6 +251,95 @@ Common domain codes already in use include:
 - `GET /api/v1/education/groups/{id}`
   Role access: authenticated
   Response DTO: `GroupResponse`
+- `PUT /api/v1/education/groups/{id}`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `UpdateGroupRequest`
+  Response DTO: `GroupResponse`
+  Notes: supports `specialtyId`, `studyYear`, `streamId`, `subgroupMode`; stream specialty/year must match group specialty/year when both are set
+- `GET /api/v1/education/groups/{groupId}/resolved-subjects`
+  Role access: authenticated (scoped by group membership/teacher subject assignment/admin ownership)
+  Query: optional `semesterNumber`
+  Response DTO: `ResolvedGroupSubjectResponse[]`
+  Notes: response merges active curriculum plans, group overrides, and direct subject-group bindings
+- `GET /api/v1/education/groups/{groupId}/curriculum-overrides`
+  Role access: authenticated (read scope applies)
+  Response DTO: `GroupCurriculumOverrideResponse[]`
+- `POST /api/v1/education/groups/{groupId}/curriculum-overrides`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `CreateGroupCurriculumOverrideRequest`
+  Response DTO: `GroupCurriculumOverrideResponse`
+- `PUT /api/v1/education/groups/{groupId}/curriculum-overrides/{overrideId}`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `UpdateGroupCurriculumOverrideRequest`
+  Response DTO: `GroupCurriculumOverrideResponse`
+- `DELETE /api/v1/education/groups/{groupId}/curriculum-overrides/{overrideId}`
+  Role access: `OWNER`, `ADMIN`
+- `GET /api/v1/education/specialties`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Query: optional `active`
+  Response DTO: `SpecialtyResponse[]`
+- `GET /api/v1/education/specialties/{id}`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: `SpecialtyResponse`
+- `POST /api/v1/education/specialties`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `CreateSpecialtyRequest`
+  Response DTO: `SpecialtyResponse`
+- `PUT /api/v1/education/specialties/{id}`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `UpdateSpecialtyRequest`
+  Response DTO: `SpecialtyResponse`
+- `POST /api/v1/education/specialties/{id}/archive`
+  Role access: `OWNER`, `ADMIN`
+  Response DTO: `SpecialtyResponse`
+- `POST /api/v1/education/specialties/{id}/restore`
+  Role access: `OWNER`, `ADMIN`
+  Response DTO: `SpecialtyResponse`
+- `GET /api/v1/education/streams`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Query: optional `specialtyId`, `studyYear`, `active`
+  Response DTO: `StreamResponse[]`
+- `GET /api/v1/education/streams/{id}`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: `StreamResponse`
+- `POST /api/v1/education/streams`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `CreateStreamRequest`
+  Response DTO: `StreamResponse`
+- `PUT /api/v1/education/streams/{id}`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `UpdateStreamRequest`
+  Response DTO: `StreamResponse`
+- `POST /api/v1/education/streams/{id}/archive`
+  Role access: `OWNER`, `ADMIN`
+  Response DTO: `StreamResponse`
+- `POST /api/v1/education/streams/{id}/restore`
+  Role access: `OWNER`, `ADMIN`
+  Response DTO: `StreamResponse`
+- `GET /api/v1/education/streams/{id}/groups`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: `GroupResponse[]`
+- `GET /api/v1/education/curriculum-plans`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Query: optional `specialtyId`, `studyYear`, `semesterNumber`, `subjectId`, `active`
+  Response DTO: `CurriculumPlanResponse[]`
+- `GET /api/v1/education/curriculum-plans/{id}`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Response DTO: `CurriculumPlanResponse`
+- `POST /api/v1/education/curriculum-plans`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `CreateCurriculumPlanRequest`
+  Response DTO: `CurriculumPlanResponse`
+- `PUT /api/v1/education/curriculum-plans/{id}`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `UpdateCurriculumPlanRequest`
+  Response DTO: `CurriculumPlanResponse`
+- `POST /api/v1/education/curriculum-plans/{id}/archive`
+  Role access: `OWNER`, `ADMIN`
+  Response DTO: `CurriculumPlanResponse`
+- `POST /api/v1/education/curriculum-plans/{id}/restore`
+  Role access: `OWNER`, `ADMIN`
+  Response DTO: `CurriculumPlanResponse`
 - `GET /api/v1/education/groups/by-user/{userId}`
   Role access: `OWNER`, `ADMIN`, or self
   Response DTO: `GroupMembershipResponse[]`
@@ -334,7 +438,7 @@ Common domain codes already in use include:
 - `GET /api/v1/education/lectures/{lectureId}/attachments`
   Role access: authenticated
   Response DTO: `LectureAttachmentResponse[]`
-  Notes: same lecture read access rules apply as for lecture details (`PUBLISHED`/`CLOSED` for students, assigned teacher or admin/owner for management roles)
+  Notes: same lecture read access rules apply as for lecture details (`PUBLISHED`/`CLOSED` for students, assigned teacher or admin/owner for management roles); response metadata (`originalFileName`, `contentType`, `sizeBytes`, `createdAt`, `uploadedByUserId`) is persisted in education-service at attach time, so list reads do not require live metadata lookups from file-service
 - `POST /api/v1/education/lectures/{lectureId}/attachments`
   Role access: `OWNER`, `ADMIN`, assigned `TEACHER`
   Request DTO: `CreateLectureAttachmentRequest`
@@ -345,7 +449,7 @@ Common domain codes already in use include:
 - `GET /api/v1/education/lectures/{lectureId}/attachments/{attachmentId}/download`
   Role access: authenticated
   Response DTO: binary stream
-  Notes: server verifies lecture access before file download; `attachmentId` must belong to `lectureId`; student access is limited to accessible subjects and lecture statuses `PUBLISHED`/`CLOSED`
+  Notes: server verifies lecture access before file download; `attachmentId` must belong to `lectureId`; student access is limited to accessible subjects and lecture statuses `PUBLISHED`/`CLOSED`; endpoint still depends on file-service availability
 - `GET /api/v1/education/lectures/{lectureId}/attachments/{attachmentId}/preview`
   Role access: authenticated
   Response DTO: binary stream
@@ -413,6 +517,14 @@ Foundation behavior:
   Role access: `OWNER`, `ADMIN`
   Request DTO: `UpdateRoomRequest`
   Response DTO: `RoomResponse`
+- `GET /api/v1/schedule/rooms/{id}/capabilities`
+  Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
+  Query: optional `includeInactive` (default `false`)
+  Response DTO: `RoomCapabilityResponse[]`
+- `PUT /api/v1/schedule/rooms/{id}/capabilities`
+  Role access: `OWNER`, `ADMIN`
+  Request DTO: `UpdateRoomCapabilitiesRequest`
+  Response DTO: `RoomCapabilityResponse[]`
 - `POST /api/v1/schedule/templates`
   Role access: `OWNER`, `ADMIN`
   Request DTO: `CreateScheduleTemplateRequest`
@@ -541,7 +653,7 @@ Foundation behavior:
 - `GET /api/v1/assignments/{id}/attachments`
   Role access: authenticated
   Response DTO: `AssignmentAttachmentResponse[]`
-  Notes: students can read only when assignment is accessible and in `PUBLISHED` or `CLOSED`; `DRAFT` and `ARCHIVED` are hidden from students; teachers can read managed assignments; `OWNER` and `ADMIN` can read all
+  Notes: students can read only when assignment is accessible and in `PUBLISHED` or `CLOSED`; `DRAFT` and `ARCHIVED` are hidden from students; teachers can read managed assignments; `OWNER` and `ADMIN` can read all; response metadata is persisted in assignment-service at attach time, so list reads do not require live metadata lookups from file-service
 - `POST /api/v1/assignments/{id}/attachments`
   Role access: `OWNER`, `ADMIN`, `TEACHER`
   Request DTO: `CreateAssignmentAttachmentRequest`
@@ -554,7 +666,7 @@ Foundation behavior:
 - `GET /api/v1/assignments/{id}/attachments/{attachmentId}/download`
   Role access: authenticated
   Response DTO: streamed file
-  Notes: assignment-service validates assignment visibility and ownership binding before delegating to file-service internal API
+  Notes: assignment-service validates assignment visibility and ownership binding before delegating to file-service internal API; endpoint still depends on file-service availability
 - `GET /api/v1/assignments/{id}/attachments/{attachmentId}/preview`
   Role access: authenticated
   Response DTO: streamed file
@@ -590,7 +702,7 @@ Foundation behavior:
 - `GET /api/v1/submissions/{submissionId}/attachments`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Response DTO: `SubmissionAttachmentResponse[]`
-  Notes: visible only to submission owner, assigned teacher for assignment scope, and `OWNER`/`ADMIN`
+  Notes: visible only to submission owner, assigned teacher for assignment scope, and `OWNER`/`ADMIN`; response metadata is persisted in assignment-service at attach time, so list reads do not require live metadata lookups from file-service
 - `POST /api/v1/submissions/{submissionId}/attachments`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Request DTO: `CreateSubmissionAttachmentRequest`
@@ -603,7 +715,7 @@ Foundation behavior:
 - `GET /api/v1/submissions/{submissionId}/attachments/{attachmentId}/download`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Response DTO: streamed file
-  Notes: assignment-service validates submission scope before delegating to file-service internal API
+  Notes: assignment-service validates submission scope before delegating to file-service internal API; endpoint still depends on file-service availability
 - `GET /api/v1/submissions/{submissionId}/attachments/{attachmentId}/preview`
   Role access: `OWNER`, `ADMIN`, `TEACHER`, `STUDENT`
   Response DTO: streamed file

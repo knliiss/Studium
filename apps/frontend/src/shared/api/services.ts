@@ -12,21 +12,27 @@ import type {
   AuditEventResponse,
   DashboardOverviewResponse,
   GradeResponse,
+  GroupCurriculumOverrideResponse,
   GroupMembershipResponse,
   GroupOverviewResponse,
   GroupResponse,
   GroupStudentMembershipResponse,
+  CurriculumPlanResponse,
   LessonSlotResponse,
   NotificationPageResponse,
   NotificationResponse,
   QuestionResponse,
   ResolvedLessonResponse,
+  ResolvedGroupSubjectResponse,
+  RoomCapabilityResponse,
   RoomResponse,
   ScheduleConflictCheckResponse,
   ScheduleOverrideResponse,
   ScheduleTemplateResponse,
   SearchPageResponse,
+  SpecialtyResponse,
   StoredFileResponse,
+  StreamResponse,
   StudentAnalyticsResponse,
   StudentDashboardResponse,
   StudentGroupProgressResponse,
@@ -84,7 +90,13 @@ export const userDirectoryService = {
 }
 
 export const educationService = {
-  async createGroup(payload: { name: string }) {
+  async createGroup(payload: {
+    name: string
+    specialtyId?: string | null
+    studyYear?: number | null
+    streamId?: string | null
+    subgroupMode?: 'NONE' | 'TWO_SUBGROUPS' | null
+  }) {
     const response = await apiClient.post<GroupResponse>('/api/v1/education/groups', payload)
     return response.data
   },
@@ -96,8 +108,160 @@ export const educationService = {
     const response = await apiClient.get<GroupResponse>(`/api/v1/education/groups/${id}`)
     return response.data
   },
+  async updateGroup(id: string, payload: {
+    name: string
+    specialtyId?: string | null
+    studyYear?: number | null
+    streamId?: string | null
+    subgroupMode?: 'NONE' | 'TWO_SUBGROUPS' | null
+  }) {
+    const response = await apiClient.put<GroupResponse>(`/api/v1/education/groups/${id}`, payload)
+    return response.data
+  },
   async getGroupsByUser(userId: string) {
     const response = await apiClient.get<GroupMembershipResponse[]>(`/api/v1/education/groups/by-user/${userId}`)
+    return response.data
+  },
+  async getResolvedGroupSubjects(groupId: string, semesterNumber?: number) {
+    const response = await apiClient.get<ResolvedGroupSubjectResponse[]>(`/api/v1/education/groups/${groupId}/resolved-subjects`, {
+      params: {
+        semesterNumber: typeof semesterNumber === 'number' ? semesterNumber : undefined,
+      },
+    })
+    return response.data
+  },
+  async listGroupCurriculumOverrides(groupId: string) {
+    const response = await apiClient.get<GroupCurriculumOverrideResponse[]>(`/api/v1/education/groups/${groupId}/curriculum-overrides`)
+    return response.data
+  },
+  async createGroupCurriculumOverride(groupId: string, payload: {
+    subjectId: string
+    enabled: boolean
+    lectureCountOverride?: number | null
+    practiceCountOverride?: number | null
+    labCountOverride?: number | null
+    notes?: string | null
+  }) {
+    const response = await apiClient.post<GroupCurriculumOverrideResponse>(`/api/v1/education/groups/${groupId}/curriculum-overrides`, payload)
+    return response.data
+  },
+  async updateGroupCurriculumOverride(groupId: string, overrideId: string, payload: {
+    enabled: boolean
+    lectureCountOverride?: number | null
+    practiceCountOverride?: number | null
+    labCountOverride?: number | null
+    notes?: string | null
+  }) {
+    const response = await apiClient.put<GroupCurriculumOverrideResponse>(`/api/v1/education/groups/${groupId}/curriculum-overrides/${overrideId}`, payload)
+    return response.data
+  },
+  async deleteGroupCurriculumOverride(groupId: string, overrideId: string) {
+    await apiClient.delete(`/api/v1/education/groups/${groupId}/curriculum-overrides/${overrideId}`)
+  },
+  async listSpecialties(params: { active?: boolean } = {}) {
+    const response = await apiClient.get<SpecialtyResponse[]>('/api/v1/education/specialties', { params })
+    return response.data
+  },
+  async getSpecialty(id: string) {
+    const response = await apiClient.get<SpecialtyResponse>(`/api/v1/education/specialties/${id}`)
+    return response.data
+  },
+  async createSpecialty(payload: { code: string; name: string; description?: string | null }) {
+    const response = await apiClient.post<SpecialtyResponse>('/api/v1/education/specialties', payload)
+    return response.data
+  },
+  async updateSpecialty(id: string, payload: { code: string; name: string; description?: string | null }) {
+    const response = await apiClient.put<SpecialtyResponse>(`/api/v1/education/specialties/${id}`, payload)
+    return response.data
+  },
+  async archiveSpecialty(id: string) {
+    const response = await apiClient.post<SpecialtyResponse>(`/api/v1/education/specialties/${id}/archive`)
+    return response.data
+  },
+  async restoreSpecialty(id: string) {
+    const response = await apiClient.post<SpecialtyResponse>(`/api/v1/education/specialties/${id}/restore`)
+    return response.data
+  },
+  async listStreams(params: {
+    specialtyId?: string
+    studyYear?: number
+    active?: boolean
+  } = {}) {
+    const response = await apiClient.get<StreamResponse[]>('/api/v1/education/streams', { params })
+    return response.data
+  },
+  async getStream(id: string) {
+    const response = await apiClient.get<StreamResponse>(`/api/v1/education/streams/${id}`)
+    return response.data
+  },
+  async getStreamGroups(id: string) {
+    const response = await apiClient.get<GroupResponse[]>(`/api/v1/education/streams/${id}/groups`)
+    return response.data
+  },
+  async createStream(payload: { name: string; specialtyId: string; studyYear: number }) {
+    const response = await apiClient.post<StreamResponse>('/api/v1/education/streams', payload)
+    return response.data
+  },
+  async updateStream(id: string, payload: { name: string; specialtyId: string; studyYear: number }) {
+    const response = await apiClient.put<StreamResponse>(`/api/v1/education/streams/${id}`, payload)
+    return response.data
+  },
+  async archiveStream(id: string) {
+    const response = await apiClient.post<StreamResponse>(`/api/v1/education/streams/${id}/archive`)
+    return response.data
+  },
+  async restoreStream(id: string) {
+    const response = await apiClient.post<StreamResponse>(`/api/v1/education/streams/${id}/restore`)
+    return response.data
+  },
+  async listCurriculumPlans(params: {
+    specialtyId?: string
+    studyYear?: number
+    semesterNumber?: number
+    subjectId?: string
+    active?: boolean
+  } = {}) {
+    const response = await apiClient.get<CurriculumPlanResponse[]>('/api/v1/education/curriculum-plans', { params })
+    return response.data
+  },
+  async getCurriculumPlan(id: string) {
+    const response = await apiClient.get<CurriculumPlanResponse>(`/api/v1/education/curriculum-plans/${id}`)
+    return response.data
+  },
+  async createCurriculumPlan(payload: {
+    specialtyId: string
+    studyYear: number
+    semesterNumber: number
+    subjectId: string
+    lectureCount: number
+    practiceCount: number
+    labCount: number
+    supportsStreamLecture: boolean
+    requiresSubgroupsForLabs: boolean
+  }) {
+    const response = await apiClient.post<CurriculumPlanResponse>('/api/v1/education/curriculum-plans', payload)
+    return response.data
+  },
+  async updateCurriculumPlan(id: string, payload: {
+    specialtyId: string
+    studyYear: number
+    semesterNumber: number
+    subjectId: string
+    lectureCount: number
+    practiceCount: number
+    labCount: number
+    supportsStreamLecture: boolean
+    requiresSubgroupsForLabs: boolean
+  }) {
+    const response = await apiClient.put<CurriculumPlanResponse>(`/api/v1/education/curriculum-plans/${id}`, payload)
+    return response.data
+  },
+  async archiveCurriculumPlan(id: string) {
+    const response = await apiClient.post<CurriculumPlanResponse>(`/api/v1/education/curriculum-plans/${id}/archive`)
+    return response.data
+  },
+  async restoreCurriculumPlan(id: string) {
+    const response = await apiClient.post<CurriculumPlanResponse>(`/api/v1/education/curriculum-plans/${id}/restore`)
     return response.data
   },
   async listGroupStudents(groupId: string) {
@@ -339,6 +503,7 @@ export const scheduleService = {
     startDate: string
     endDate: string
     weekOneStartDate: string
+    semesterNumber: number
     active: boolean
   }) {
     const response = await apiClient.post<AcademicSemesterResponse>('/api/v1/schedule/semesters', payload)
@@ -349,6 +514,7 @@ export const scheduleService = {
     startDate: string
     endDate: string
     weekOneStartDate: string
+    semesterNumber: number
     active: boolean
   }) {
     const response = await apiClient.put<AcademicSemesterResponse>(`/api/v1/schedule/semesters/${id}`, payload)
@@ -376,6 +542,20 @@ export const scheduleService = {
   },
   async updateRoom(id: string, payload: { code: string; building: string; floor: number; capacity: number; active: boolean }) {
     const response = await apiClient.put<RoomResponse>(`/api/v1/schedule/rooms/${id}`, payload)
+    return response.data
+  },
+  async getRoomCapabilities(roomId: string, includeInactive = false) {
+    const response = await apiClient.get<RoomCapabilityResponse[]>(`/api/v1/schedule/rooms/${roomId}/capabilities`, {
+      params: { includeInactive },
+    })
+    return response.data
+  },
+  async updateRoomCapabilities(roomId: string, capabilities: Array<{
+    lessonType: 'LECTURE' | 'PRACTICAL' | 'LABORATORY'
+    priority: number
+    active: boolean
+  }>) {
+    const response = await apiClient.put<RoomCapabilityResponse[]>(`/api/v1/schedule/rooms/${roomId}/capabilities`, { capabilities })
     return response.data
   },
   async createTemplate(payload: Record<string, unknown>) {
@@ -851,6 +1031,50 @@ export const adminUserService = {
   async revokeSessions(userId: string) {
     await apiClient.post(`/api/admin/users/${userId}/revoke-sessions`)
   },
+}
+
+export const specialtyService = {
+  list: educationService.listSpecialties,
+  getById: educationService.getSpecialty,
+  create: educationService.createSpecialty,
+  update: educationService.updateSpecialty,
+  archive: educationService.archiveSpecialty,
+  restore: educationService.restoreSpecialty,
+}
+
+export const streamService = {
+  list: educationService.listStreams,
+  getById: educationService.getStream,
+  listGroups: educationService.getStreamGroups,
+  create: educationService.createStream,
+  update: educationService.updateStream,
+  archive: educationService.archiveStream,
+  restore: educationService.restoreStream,
+}
+
+export const curriculumPlanService = {
+  list: educationService.listCurriculumPlans,
+  getById: educationService.getCurriculumPlan,
+  create: educationService.createCurriculumPlan,
+  update: educationService.updateCurriculumPlan,
+  archive: educationService.archiveCurriculumPlan,
+  restore: educationService.restoreCurriculumPlan,
+}
+
+export const groupCurriculumOverrideService = {
+  list: educationService.listGroupCurriculumOverrides,
+  create: educationService.createGroupCurriculumOverride,
+  update: educationService.updateGroupCurriculumOverride,
+  remove: educationService.deleteGroupCurriculumOverride,
+}
+
+export const resolvedSubjectsService = {
+  listByGroup: educationService.getResolvedGroupSubjects,
+}
+
+export const roomCapabilityService = {
+  listByRoom: scheduleService.getRoomCapabilities,
+  updateByRoom: scheduleService.updateRoomCapabilities,
 }
 
 function normalizePage<T>(data: unknown) {

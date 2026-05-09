@@ -2,6 +2,7 @@ package dev.knalis.analytics.service;
 
 import dev.knalis.analytics.dto.response.DashboardOverviewResponse;
 import dev.knalis.analytics.dto.response.GroupOverviewResponse;
+import dev.knalis.analytics.dto.response.StudentRiskResponse;
 import dev.knalis.analytics.entity.RiskLevel;
 import dev.knalis.analytics.entity.StudentProgressSnapshot;
 import dev.knalis.analytics.mapper.AnalyticsReadMapper;
@@ -17,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -114,5 +116,43 @@ class AnalyticsReadServiceTest {
         assertEquals(1, response.mediumRiskStudentsCount());
         assertEquals(1, response.highRiskStudentsCount());
         assertEquals(4, response.totalMissedDeadlines());
+    }
+
+    @Test
+    void getStudentRiskReturnsStableDefaultWhenSnapshotMissing() {
+        UUID userId = UUID.randomUUID();
+        when(studentProgressSnapshotRepository.findFirstByUserIdAndGroupIdIsNullOrderByUpdatedAtDesc(userId))
+                .thenReturn(Optional.empty());
+
+        StudentRiskResponse response = analyticsReadService.getStudentRisk(userId);
+
+        assertEquals(userId, response.userId());
+        assertEquals(RiskLevel.LOW, response.riskLevel());
+        assertEquals(0, response.activityScore());
+        assertEquals(100, response.disciplineScore());
+    }
+
+    @Test
+    void getStudentRiskUsesLatestSnapshot() {
+        UUID userId = UUID.randomUUID();
+        StudentProgressSnapshot snapshot = new StudentProgressSnapshot();
+        snapshot.setUserId(userId);
+        snapshot.setRiskLevel(RiskLevel.HIGH);
+        snapshot.setActivityScore(35);
+        snapshot.setDisciplineScore(40);
+        snapshot.setMissedDeadlinesCount(3);
+        snapshot.setAverageScore(52.0);
+        snapshot.setUpdatedAt(Instant.now());
+
+        when(studentProgressSnapshotRepository.findFirstByUserIdAndGroupIdIsNullOrderByUpdatedAtDesc(userId))
+                .thenReturn(Optional.of(snapshot));
+
+        StudentRiskResponse response = analyticsReadService.getStudentRisk(userId);
+
+        assertEquals(RiskLevel.HIGH, response.riskLevel());
+        assertEquals(35, response.activityScore());
+        assertEquals(40, response.disciplineScore());
+        assertEquals(3, response.missedDeadlinesCount());
+        assertEquals(52.0, response.averageScore());
     }
 }

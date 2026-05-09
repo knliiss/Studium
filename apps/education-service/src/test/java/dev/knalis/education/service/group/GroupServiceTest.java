@@ -1,18 +1,25 @@
 package dev.knalis.education.service.group;
 
 import dev.knalis.education.dto.request.CreateGroupRequest;
+import dev.knalis.education.dto.request.UpdateGroupRequest;
 import dev.knalis.education.dto.response.GroupMembershipResponse;
 import dev.knalis.education.dto.response.GroupResponse;
 import dev.knalis.education.entity.Group;
+import dev.knalis.education.entity.GroupSubgroupMode;
 import dev.knalis.education.entity.GroupMemberRole;
 import dev.knalis.education.entity.GroupStudent;
+import dev.knalis.education.entity.Specialty;
+import dev.knalis.education.entity.Stream;
 import dev.knalis.education.entity.Subgroup;
 import dev.knalis.education.exception.GroupNotFoundException;
+import dev.knalis.education.exception.StreamSpecialtyYearMismatchException;
 import dev.knalis.education.factory.group.GroupFactory;
 import dev.knalis.education.factory.groupstudent.GroupStudentFactory;
 import dev.knalis.education.mapper.GroupMapper;
 import dev.knalis.education.repository.GroupRepository;
 import dev.knalis.education.repository.GroupStudentRepository;
+import dev.knalis.education.repository.SpecialtyRepository;
+import dev.knalis.education.repository.StreamRepository;
 import dev.knalis.education.service.common.EducationAuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +47,12 @@ class GroupServiceTest {
     
     @Mock
     private GroupStudentRepository groupStudentRepository;
+
+    @Mock
+    private SpecialtyRepository specialtyRepository;
+
+    @Mock
+    private StreamRepository streamRepository;
     
     @Mock
     private GroupMapper groupMapper;
@@ -54,6 +67,8 @@ class GroupServiceTest {
         groupService = new GroupService(
                 groupRepository,
                 groupStudentRepository,
+                specialtyRepository,
+                streamRepository,
                 new GroupFactory(),
                 new GroupStudentFactory(),
                 groupMapper,
@@ -68,15 +83,19 @@ class GroupServiceTest {
         Group savedGroup = new Group();
         savedGroup.setId(groupId);
         savedGroup.setName("Backend A");
+        savedGroup.setSubgroupMode(GroupSubgroupMode.NONE);
         savedGroup.setCreatedAt(now);
         savedGroup.setUpdatedAt(now);
         
-        GroupResponse response = new GroupResponse(groupId, "Backend A", now, now);
+        GroupResponse response = new GroupResponse(groupId, "Backend A", null, null, null, GroupSubgroupMode.NONE, now, now);
         
         when(groupRepository.save(any(Group.class))).thenReturn(savedGroup);
         when(groupMapper.toResponse(savedGroup)).thenReturn(response);
         
-        GroupResponse result = groupService.createGroup(UUID.randomUUID(), new CreateGroupRequest("  Backend A  "));
+        GroupResponse result = groupService.createGroup(
+                UUID.randomUUID(),
+                new CreateGroupRequest("  Backend A  ", null, null, null, null)
+        );
         
         ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
         verify(groupRepository).save(groupCaptor.capture());
@@ -125,5 +144,39 @@ class GroupServiceTest {
                 new GroupMembershipResponse(firstGroupId, GroupMemberRole.STUDENT, Subgroup.ALL, now, now),
                 new GroupMembershipResponse(secondGroupId, GroupMemberRole.STUDENT, Subgroup.ALL, now, now)
         ), result);
+    }
+
+    @Test
+    void updateGroupRejectsStreamSpecialtyYearMismatch() {
+        UUID groupId = UUID.randomUUID();
+        UUID streamId = UUID.randomUUID();
+        UUID requestedSpecialtyId = UUID.randomUUID();
+        UUID streamSpecialtyId = UUID.randomUUID();
+        Group group = new Group();
+        group.setId(groupId);
+        group.setName("G-1");
+        group.setSubgroupMode(GroupSubgroupMode.NONE);
+
+        Stream stream = new Stream();
+        stream.setId(streamId);
+        stream.setSpecialtyId(streamSpecialtyId);
+        stream.setStudyYear(2);
+        stream.setActive(true);
+        Specialty specialty = new Specialty();
+        specialty.setId(requestedSpecialtyId);
+        specialty.setActive(true);
+
+        when(groupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(specialtyRepository.findById(requestedSpecialtyId)).thenReturn(Optional.of(specialty));
+        when(streamRepository.findById(streamId)).thenReturn(Optional.of(stream));
+
+        assertThrows(
+                StreamSpecialtyYearMismatchException.class,
+                () -> groupService.updateGroup(
+                        UUID.randomUUID(),
+                        groupId,
+                        new UpdateGroupRequest("G-1", requestedSpecialtyId, 3, streamId, GroupSubgroupMode.NONE)
+                )
+        );
     }
 }
