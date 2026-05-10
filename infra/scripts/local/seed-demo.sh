@@ -259,12 +259,20 @@ sync_subject_binding() {
   local token="$1"
   local subject_id="$2"
   local name="$3"
-  local primary_group_id="$4"
+  local _primary_group_id="$4"
   local group_ids_json="$5"
   local teacher_ids_json="$6"
   local description="$7"
   api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects/${subject_id}" "$token" "$(cat <<JSON
-{"name":"${name}","groupId":"${primary_group_id}","groupIds":${group_ids_json},"teacherIds":${teacher_ids_json},"description":"${description}"}
+{"name":"${name}","description":"${description}"}
+JSON
+)" >/dev/null
+  api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects/${subject_id}/groups" "$token" "$(cat <<JSON
+{"groupIds":${group_ids_json}}
+JSON
+)" >/dev/null
+  api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects/${subject_id}/teachers" "$token" "$(cat <<JSON
+{"teacherIds":${teacher_ids_json}}
 JSON
 )" >/dev/null
 }
@@ -631,6 +639,164 @@ ensure_entity() {
   fi
 }
 
+ensure_specialty() {
+  local token="$1"
+  local code="$2"
+  local name="$3"
+  local description="$4"
+  local existing_id
+
+  existing_id="$(sql_scalar "select id::text from ${EDUCATION_DB_SCHEMA:-education}.specialties where upper(code) = upper('${code}') limit 1;" 2>/dev/null || true)"
+  if [[ -z "$existing_id" ]]; then
+    existing_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/specialties" "$token" "$(cat <<JSON
+{"code":"${code}","name":"${name}","description":"${description}"}
+JSON
+)")" | json_get id)"
+  else
+    api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/specialties/${existing_id}" "$token" "$(cat <<JSON
+{"code":"${code}","name":"${name}","description":"${description}"}
+JSON
+)" >/dev/null
+  fi
+  best_effort_api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/specialties/${existing_id}/restore" "$token" ""
+  printf '%s' "$existing_id"
+}
+
+ensure_stream() {
+  local token="$1"
+  local name="$2"
+  local specialty_id="$3"
+  local study_year="$4"
+  local existing_id
+
+  existing_id="$(sql_scalar "select id::text from ${EDUCATION_DB_SCHEMA:-education}.streams where specialty_id = '${specialty_id}' and study_year = ${study_year} and name = '${name}' limit 1;" 2>/dev/null || true)"
+  if [[ -z "$existing_id" ]]; then
+    existing_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/streams" "$token" "$(cat <<JSON
+{"name":"${name}","specialtyId":"${specialty_id}","studyYear":${study_year}}
+JSON
+)")" | json_get id)"
+  else
+    api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/streams/${existing_id}" "$token" "$(cat <<JSON
+{"name":"${name}","specialtyId":"${specialty_id}","studyYear":${study_year}}
+JSON
+)" >/dev/null
+  fi
+  best_effort_api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/streams/${existing_id}/restore" "$token" ""
+  printf '%s' "$existing_id"
+}
+
+ensure_group_profile() {
+  local token="$1"
+  local name="$2"
+  local specialty_id="${3:-}"
+  local study_year="${4:-}"
+  local stream_id="${5:-}"
+  local subgroup_mode="${6:-NONE}"
+  local existing_id
+  local specialty_json="null"
+  local study_year_json="null"
+  local stream_json="null"
+
+  if [[ -n "$specialty_id" ]]; then
+    specialty_json="\"${specialty_id}\""
+  fi
+  if [[ -n "$study_year" ]]; then
+    study_year_json="${study_year}"
+  fi
+  if [[ -n "$stream_id" ]]; then
+    stream_json="\"${stream_id}\""
+  fi
+
+  existing_id="$(sql_scalar "select id::text from ${EDUCATION_DB_SCHEMA:-education}.groups where name = '${name}' limit 1;" 2>/dev/null || true)"
+  if [[ -z "$existing_id" ]]; then
+    existing_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/groups" "$token" "$(cat <<JSON
+{"name":"${name}","specialtyId":${specialty_json},"studyYear":${study_year_json},"streamId":${stream_json},"subgroupMode":"${subgroup_mode}"}
+JSON
+)")" | json_get id)"
+  else
+    api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/groups/${existing_id}" "$token" "$(cat <<JSON
+{"name":"${name}","specialtyId":${specialty_json},"studyYear":${study_year_json},"streamId":${stream_json},"subgroupMode":"${subgroup_mode}"}
+JSON
+)" >/dev/null
+  fi
+  printf '%s' "$existing_id"
+}
+
+ensure_curriculum_plan() {
+  local token="$1"
+  local specialty_id="$2"
+  local study_year="$3"
+  local semester_number="$4"
+  local subject_id="$5"
+  local lecture_count="$6"
+  local practice_count="$7"
+  local lab_count="$8"
+  local supports_stream_lecture="$9"
+  local requires_subgroups_for_labs="${10}"
+  local existing_id
+  local active_flag
+
+  existing_id="$(sql_scalar "select id::text from ${EDUCATION_DB_SCHEMA:-education}.curriculum_plans where specialty_id = '${specialty_id}' and study_year = ${study_year} and semester_number = ${semester_number} and subject_id = '${subject_id}' order by active desc, created_at asc limit 1;" 2>/dev/null || true)"
+  if [[ -z "$existing_id" ]]; then
+    existing_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/curriculum-plans" "$token" "$(cat <<JSON
+{"specialtyId":"${specialty_id}","studyYear":${study_year},"semesterNumber":${semester_number},"subjectId":"${subject_id}","lectureCount":${lecture_count},"practiceCount":${practice_count},"labCount":${lab_count},"supportsStreamLecture":${supports_stream_lecture},"requiresSubgroupsForLabs":${requires_subgroups_for_labs}}
+JSON
+)")" | json_get id)"
+  else
+    api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/curriculum-plans/${existing_id}" "$token" "$(cat <<JSON
+{"specialtyId":"${specialty_id}","studyYear":${study_year},"semesterNumber":${semester_number},"subjectId":"${subject_id}","lectureCount":${lecture_count},"practiceCount":${practice_count},"labCount":${lab_count},"supportsStreamLecture":${supports_stream_lecture},"requiresSubgroupsForLabs":${requires_subgroups_for_labs}}
+JSON
+)" >/dev/null
+  fi
+
+  active_flag="$(sql_scalar "select active::text from ${EDUCATION_DB_SCHEMA:-education}.curriculum_plans where id = '${existing_id}' limit 1;" 2>/dev/null || true)"
+  if [[ "$active_flag" != "t" ]]; then
+    best_effort_api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/curriculum-plans/${existing_id}/restore" "$token" ""
+  fi
+  printf '%s' "$existing_id"
+}
+
+ensure_group_curriculum_override() {
+  local token="$1"
+  local group_id="$2"
+  local subject_id="$3"
+  local enabled="$4"
+  local lecture_override="$5"
+  local practice_override="$6"
+  local lab_override="$7"
+  local notes="${8:-}"
+  local notes_json="null"
+  local existing_id
+
+  if [[ -n "$notes" ]]; then
+    notes_json="\"${notes}\""
+  fi
+
+  existing_id="$(sql_scalar "select id::text from ${EDUCATION_DB_SCHEMA:-education}.group_curriculum_overrides where group_id = '${group_id}' and subject_id = '${subject_id}' limit 1;" 2>/dev/null || true)"
+  if [[ -z "$existing_id" ]]; then
+    existing_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/groups/${group_id}/curriculum-overrides" "$token" "$(cat <<JSON
+{"subjectId":"${subject_id}","enabled":${enabled},"lectureCountOverride":${lecture_override},"practiceCountOverride":${practice_override},"labCountOverride":${lab_override},"notes":${notes_json}}
+JSON
+)")" | json_get id)"
+  else
+    api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/groups/${group_id}/curriculum-overrides/${existing_id}" "$token" "$(cat <<JSON
+{"enabled":${enabled},"lectureCountOverride":${lecture_override},"practiceCountOverride":${practice_override},"labCountOverride":${lab_override},"notes":${notes_json}}
+JSON
+)" >/dev/null
+  fi
+  printf '%s' "$existing_id"
+}
+
+ensure_room_capabilities() {
+  local token="$1"
+  local room_id="$2"
+  local capabilities_json="$3"
+  api_json "PUT" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms/${room_id}/capabilities" "$token" "$(cat <<JSON
+{"capabilities":${capabilities_json}}
+JSON
+)" >/dev/null
+}
+
 ensure_topic() {
   local token="$1"
   local subject_id="$2"
@@ -799,8 +965,13 @@ student_three_token="$(printf '%s' "$(login_user "student.three" "DemoPass123!" 
 student_four_token="$(printf '%s' "$(login_user "student.four" "DemoPass123!" "10.0.1.16")" | json_get accessToken)"
 student_five_token="$(printf '%s' "$(login_user "student.five" "DemoPass123!" "10.0.1.17")" | json_get accessToken)"
 
-group_one_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.groups" "name" "CS-101" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/groups" "$admin_token" '{"name":"CS-101"}')" | json_get id)"
-group_two_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.groups" "name" "CS-102" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/groups" "$admin_token" '{"name":"CS-102"}')" | json_get id)"
+se_specialty_id="$(ensure_specialty "$admin_token" "SE" "Software Engineering / Інженерія програмного забезпечення" "Deterministic academic QA specialty for local curriculum and group management flows.")"
+se_year_two_stream_id="$(ensure_stream "$admin_token" "SE-2Y-STREAM-A" "$se_specialty_id" "2")"
+se_year_three_stream_id="$(ensure_stream "$admin_token" "SE-3Y-STREAM-B" "$se_specialty_id" "3")"
+
+group_one_id="$(ensure_group_profile "$admin_token" "SE-21" "$se_specialty_id" "2" "$se_year_two_stream_id" "NONE")"
+group_two_id="$(ensure_group_profile "$admin_token" "SE-22" "$se_specialty_id" "2" "$se_year_two_stream_id" "NONE")"
+qa_unassigned_group_id="$(ensure_group_profile "$admin_token" "TEST-00" "" "" "" "NONE")"
 
 sql_exec "$(cat <<SQL
 insert into ${EDUCATION_DB_SCHEMA:-education}.group_students (id, group_id, user_id, role, subgroup, created_at, updated_at) values
@@ -813,25 +984,32 @@ on conflict (group_id, user_id) do nothing;
 SQL
 )"
 
-algorithms_subject_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.subjects" "name" "Algorithms" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects" "$admin_token" "$(cat <<JSON
-{"name":"Algorithms","groupId":"${group_one_id}","description":"Core algorithmic thinking for frontend demos."}
+programming_subject_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.subjects" "name" "Programming" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects" "$admin_token" "$(cat <<JSON
+{"name":"Programming","description":"Core programming foundations for deterministic academic QA."}
 JSON
 )")" | json_get id)"
 databases_subject_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.subjects" "name" "Databases" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects" "$admin_token" "$(cat <<JSON
-{"name":"Databases","groupId":"${group_one_id}","description":"Relational data modeling and SQL practice."}
+{"name":"Databases","description":"Relational data modeling and SQL practice."}
 JSON
 )")" | json_get id)"
-networks_subject_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.subjects" "name" "Networks" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects" "$admin_token" "$(cat <<JSON
-{"name":"Networks","groupId":"${group_two_id}","description":"Networking fundamentals and routing basics."}
+networks_subject_id="$(printf '%s' "$(ensure_entity "${EDUCATION_DB_SCHEMA:-education}.subjects" "name" "Computer Networks" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/education/subjects" "$admin_token" "$(cat <<JSON
+{"name":"Computer Networks","description":"Networking fundamentals and routing basics."}
 JSON
 )")" | json_get id)"
 
-sync_subject_binding "$admin_token" "$algorithms_subject_id" "Algorithms" "$group_one_id" "[\"${group_one_id}\"]" "[\"${teacher_alpha_id}\"]" "Core algorithmic thinking for frontend demos."
-sync_subject_binding "$admin_token" "$databases_subject_id" "Databases" "$group_one_id" "[\"${group_one_id}\"]" "[\"${teacher_alpha_id}\"]" "Relational data modeling and SQL practice."
-sync_subject_binding "$admin_token" "$networks_subject_id" "Networks" "$group_two_id" "[\"${group_two_id}\"]" "[\"${teacher_beta_id}\"]" "Networking fundamentals and routing basics."
+sync_subject_binding "$admin_token" "$programming_subject_id" "Programming" "$group_one_id" "[\"${group_one_id}\",\"${group_two_id}\"]" "[\"${teacher_alpha_id}\"]" "Core programming foundations for deterministic academic QA."
+sync_subject_binding "$admin_token" "$databases_subject_id" "Databases" "$group_one_id" "[\"${group_one_id}\",\"${group_two_id}\"]" "[\"${teacher_alpha_id}\"]" "Relational data modeling and SQL practice."
+sync_subject_binding "$admin_token" "$networks_subject_id" "Computer Networks" "$group_two_id" "[\"${group_one_id}\",\"${group_two_id}\"]" "[\"${teacher_alpha_id}\",\"${teacher_beta_id}\"]" "Networking fundamentals and routing basics."
 
-sorting_topic_id="$(ensure_topic "$admin_token" "$algorithms_subject_id" "Sorting Basics" "0")"
-graphs_topic_id="$(ensure_topic "$admin_token" "$algorithms_subject_id" "Graph Traversal" "1")"
+ensure_curriculum_plan "$admin_token" "$se_specialty_id" "2" "1" "$programming_subject_id" "28" "18" "12" "true" "true" >/dev/null
+ensure_curriculum_plan "$admin_token" "$se_specialty_id" "2" "1" "$databases_subject_id" "24" "20" "14" "true" "true" >/dev/null
+ensure_curriculum_plan "$admin_token" "$se_specialty_id" "2" "1" "$networks_subject_id" "20" "16" "10" "false" "true" >/dev/null
+ensure_curriculum_plan "$admin_token" "$se_specialty_id" "3" "1" "$programming_subject_id" "18" "14" "10" "true" "true" >/dev/null
+
+ensure_group_curriculum_override "$admin_token" "$group_two_id" "$networks_subject_id" "false" "null" "null" "null" "Disabled for SE-22 QA override scenario." >/dev/null
+
+sorting_topic_id="$(ensure_topic "$admin_token" "$programming_subject_id" "Sorting Basics" "0")"
+graphs_topic_id="$(ensure_topic "$admin_token" "$programming_subject_id" "Graph Traversal" "1")"
 sql_topic_id="$(ensure_topic "$admin_token" "$databases_subject_id" "SQL Foundations" "0")"
 transactions_topic_id="$(ensure_topic "$admin_token" "$databases_subject_id" "Transactions" "1")"
 osi_topic_id="$(ensure_topic "$admin_token" "$networks_subject_id" "OSI Model" "0")"
@@ -856,12 +1034,17 @@ slot_seven_id="$(ensure_schedule_slot 7 "18:00:00" "19:20:00")"
 slot_eight_id="$(ensure_schedule_slot 8 "19:35:00" "20:55:00")"
 room_one_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "A-101" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"A-101","building":"North Campus","floor":1,"capacity":32,"active":true}')" | json_get id)"
 room_two_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "B-202" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"B-202","building":"South Campus","floor":2,"capacity":28,"active":true}')" | json_get id)"
+room_three_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "C-303" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"C-303","building":"South Campus","floor":3,"capacity":26,"active":true}')" | json_get id)"
 
-ensure_schedule_template "$admin_token" "$semester_id" "$group_one_id" "$algorithms_subject_id" "$teacher_alpha_id" "MONDAY" "$slot_one_id" "ODD" "ALL" "LECTURE" "OFFLINE" "$room_one_id" "" "Odd week in-person lecture." >/dev/null
+ensure_room_capabilities "$admin_token" "$room_one_id" '[{"lessonType":"LECTURE","priority":100,"active":true},{"lessonType":"PRACTICAL","priority":40,"active":true}]'
+ensure_room_capabilities "$admin_token" "$room_two_id" '[{"lessonType":"LABORATORY","priority":100,"active":true},{"lessonType":"PRACTICAL","priority":60,"active":true}]'
+ensure_room_capabilities "$admin_token" "$room_three_id" '[{"lessonType":"LECTURE","priority":60,"active":true},{"lessonType":"PRACTICAL","priority":80,"active":true},{"lessonType":"LABORATORY","priority":30,"active":true}]'
+
+ensure_schedule_template "$admin_token" "$semester_id" "$group_one_id" "$programming_subject_id" "$teacher_alpha_id" "MONDAY" "$slot_one_id" "ODD" "ALL" "LECTURE" "OFFLINE" "$room_one_id" "" "Odd week in-person lecture." >/dev/null
 ensure_schedule_template "$admin_token" "$semester_id" "$group_one_id" "$databases_subject_id" "$teacher_alpha_id" "TUESDAY" "$slot_two_id" "EVEN" "ALL" "PRACTICAL" "ONLINE" "" "https://meet.studium.local/sql-demo" "Even week online practical." >/dev/null
 ensure_schedule_template "$admin_token" "$semester_id" "$group_two_id" "$networks_subject_id" "$teacher_beta_id" "WEDNESDAY" "$slot_three_id" "ALL" "ALL" "LABORATORY" "OFFLINE" "$room_two_id" "" "Weekly lab for second group." >/dev/null
 
-ensure_schedule_extra_override "$admin_token" "$semester_id" "$TODAY" "$group_one_id" "$algorithms_subject_id" "$teacher_alpha_id" "$slot_one_id" "ALL" "LECTURE" "ONLINE" "https://meet.studium.local/extra-lecture" "Extra live dashboard lesson." >/dev/null
+ensure_schedule_extra_override "$admin_token" "$semester_id" "$TODAY" "$group_one_id" "$programming_subject_id" "$teacher_alpha_id" "$slot_one_id" "ALL" "LECTURE" "ONLINE" "https://meet.studium.local/extra-lecture" "Extra live dashboard lesson." >/dev/null
 
 published_assignment_deadline="$(instant_shift 3)"
 graded_assignment_deadline="$(instant_shift 5)"

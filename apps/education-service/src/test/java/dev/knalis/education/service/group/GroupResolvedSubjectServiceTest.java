@@ -113,6 +113,35 @@ class GroupResolvedSubjectServiceTest {
     }
 
     @Test
+    void disabledOverrideIsNotReplacedByDirectBinding() {
+        UUID groupId = UUID.randomUUID();
+        UUID specialtyId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        Group group = group(groupId, specialtyId, 1);
+        CurriculumPlan plan = plan(specialtyId, 1, 1, subjectId, 8, 4, 2);
+        Subject subject = subject(subjectId, "Math");
+        GroupCurriculumOverride override = new GroupCurriculumOverride();
+        override.setGroupId(groupId);
+        override.setSubjectId(subjectId);
+        override.setEnabled(false);
+
+        when(groupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(groupStudentRepository.existsByUserIdAndGroupId(groupId, groupId)).thenReturn(true);
+        when(curriculumPlanRepository.findAllBySpecialtyIdAndStudyYearAndSemesterNumberAndActiveTrue(specialtyId, 1, 1))
+                .thenReturn(List.of(plan));
+        when(subjectRepository.findById(subjectId)).thenReturn(Optional.of(subject));
+        when(overrideRepository.findAllByGroupIdAndSubjectIdIn(groupId, Set.of(subjectId))).thenReturn(List.of(override));
+        when(subjectRepository.findAllByBoundGroupId(groupId)).thenReturn(List.of(subject));
+        when(subjectTeacherRepository.findAllBySubjectIdOrderByCreatedAtAsc(subjectId)).thenReturn(List.of());
+
+        var result = service.getResolvedGroupSubjects(groupId, Set.of("ROLE_STUDENT"), groupId, 1);
+
+        assertEquals(1, result.size());
+        assertEquals(ResolvedGroupSubjectSource.GROUP_OVERRIDE, result.getFirst().source());
+        assertEquals(true, result.getFirst().disabledByOverride());
+    }
+
+    @Test
     void resolvedSubjectsIncludeDirectBindingsWithoutSpecialty() {
         UUID groupId = UUID.randomUUID();
         UUID subjectId = UUID.randomUUID();

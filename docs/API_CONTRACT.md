@@ -981,5 +981,17 @@ Foundation behavior:
   groups, subjects, topics, group memberships
   current, future, and past semesters; canonical lesson slots `1..8`; rooms; odd/even templates; online/offline lessons; and a schedule override for the current day
   draft/published/archived assignments, graded and late submissions, draft/published/closed tests, notifications, analytics-driving interactions, and audit-producing actions
+- Deterministic academic QA profile includes:
+  specialty `SE` (`Software Engineering / Інженерія програмного забезпечення`)
+  streams `SE-2Y-STREAM-A` (year 2) and `SE-3Y-STREAM-B` (year 3)
+  groups `SE-21`, `SE-22` (specialty/year-bound) and `TEST-00` (unassigned)
+  curriculum plans for `Programming`, `Databases`, `Computer Networks`
+  group override that disables `Computer Networks` for `SE-22`
+  room capabilities:
+  `A-101` (`LECTURE=100`, `PRACTICAL=40`)
+  `B-202` (`LABORATORY=100`, `PRACTICAL=60`)
+  `C-303` (`LECTURE=60`, `PRACTICAL=80`, `LABORATORY=30`)
+- Seed can be rerun safely on an existing local stack:
+  `./infra/scripts/local/seed-demo.sh`
 - The schedule foundation bootstrap means `GET /api/v1/schedule/semesters/active` should return `200` in local/demo setup.
 - Demo data remains disabled unless `DEMO_SEED_ENABLED=true`; schedule foundation bootstrap can be disabled separately with `SCHEDULE_BOOTSTRAP_ENABLED=false`.

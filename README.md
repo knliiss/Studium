@@ -542,6 +542,20 @@ This command:
 
 On Windows, automatic demo seed uses the same `seed-demo.sh` flow and therefore requires `bash` in `PATH` (for example Git Bash or WSL). Without `bash`, the stack still starts and the script prints that the seed step was skipped.
 
+Deterministic academic QA seed highlights:
+
+- specialty `SE` with streams `SE-2Y-STREAM-A` (year 2) and `SE-3Y-STREAM-B` (year 3)
+- groups `SE-21`, `SE-22` (bound to `SE` year 2) and `TEST-00` (unassigned)
+- curriculum plans for `Programming`, `Databases`, and `Computer Networks`
+- group override on `SE-22` (disables `Computer Networks`)
+- room capabilities on `A-101`, `B-202`, `C-303` for lecture/practice/lab QA
+
+To rerun seed safely on an already-running local stack:
+
+```bash
+./infra/scripts/local/seed-demo.sh
+```
+
 Skip the Gradle build phase when you already have up-to-date artifacts:
 
 ```bash

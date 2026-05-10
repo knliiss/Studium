@@ -175,7 +175,7 @@ public class GroupResolvedSubjectService {
         for (Subject subject : directSubjects) {
             subjectById.put(subject.getId(), subject);
             ResolvedGroupSubjectResponse current = resolved.get(subject.getId());
-            if (current == null || current.disabledByOverride()) {
+            if (current == null) {
                 resolved.put(subject.getId(), new ResolvedGroupSubjectResponse(
                         subject.getId(),
                         subject.getName(),

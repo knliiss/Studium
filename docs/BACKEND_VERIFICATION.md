@@ -71,6 +71,24 @@ If a full rebuild is unnecessary and you only want to rerun the verification aga
 
 - `./infra/scripts/local/start-local.sh --skip-build`
 
+## Deterministic Academic QA Seed
+
+The demo seed now includes deterministic academic management data for manual/browser QA:
+
+- Specialty: `SE` (`Software Engineering / Інженерія програмного забезпечення`)
+- Streams: `SE-2Y-STREAM-A` (year 2), `SE-3Y-STREAM-B` (year 3)
+- Groups: `SE-21`, `SE-22` (specialty/year-bound), `TEST-00` (unassigned fallback)
+- Curriculum plans: year-2 semester-1 plans for `Programming`, `Databases`, `Computer Networks`, plus one year-3 plan
+- Group override: `SE-22` disables `Computer Networks`
+- Rooms/capabilities:
+  - `A-101`: `LECTURE=100`, `PRACTICAL=40`
+  - `B-202`: `LABORATORY=100`, `PRACTICAL=60`
+  - `C-303`: `LECTURE=60`, `PRACTICAL=80`, `LABORATORY=30`
+
+You can rerun seed safely against an existing local DB without duplicate rows:
+
+- `./infra/scripts/local/seed-demo.sh`
+
 ## Flyway Baseline and Repair
 
 - Runtime schema evolution is Flyway-first across DB-owning services.
