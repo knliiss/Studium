@@ -28,6 +28,7 @@ import {
   assignmentService,
   dashboardService,
   educationService,
+  fileService,
   scheduleService,
   testingService,
   userDirectoryService,
@@ -41,6 +42,8 @@ import type {
   DashboardTestItemResponse,
   LectureResponse,
   TestResponse,
+  TopicMaterialResponse,
+  TopicMaterialType,
   TopicResponse,
   UserSummaryResponse,
 } from '@/shared/types/api'
@@ -62,6 +65,7 @@ type BuilderState =
   | { mode: 'topic' }
   | { mode: 'assignment'; topicId: string }
   | { mode: 'lecture'; topicId: string }
+  | { mode: 'material'; topicId: string }
   | { mode: 'test'; topicId: string }
 
 type CourseItem =
@@ -79,7 +83,7 @@ type CourseItem =
     }
   | {
       id: string
-      kind: 'assignment' | 'lecture' | 'test'
+      kind: 'assignment' | 'lecture' | 'material' | 'test'
       title: string
       description: string | null
       label: string
@@ -128,6 +132,14 @@ export function SubjectDetailPage() {
     title: '',
     content: '',
   })
+  const [materialForm, setMaterialForm] = useState({
+    title: '',
+    description: '',
+    type: 'TEXT' as TopicMaterialType,
+    url: '',
+    visible: true,
+  })
+  const [materialFile, setMaterialFile] = useState<File | null>(null)
   const [testForm, setTestForm] = useState({
     title: '',
     maxPoints: 100,
@@ -211,6 +223,22 @@ export function SubjectDetailPage() {
         })),
       )
 
+      return pages.flatMap((page) => page.items)
+    },
+    enabled: Boolean(topicsQuery.data),
+  })
+  const materialsQuery = useQuery({
+    queryKey: ['education', 'subject-materials', subjectId],
+    queryFn: async () => {
+      const topics = topicsQuery.data?.items ?? []
+      const pages = await Promise.all(
+        topics.map((topic) => educationService.getTopicMaterials(topic.id, {
+          page: 0,
+          size: 50,
+          sortBy: 'orderIndex',
+          direction: 'asc',
+        })),
+      )
       return pages.flatMap((page) => page.items)
     },
     enabled: Boolean(topicsQuery.data),
@@ -338,6 +366,7 @@ export function SubjectDetailPage() {
           assignmentsQuery.data ?? [],
           testsQuery.data ?? [],
           lecturesQuery.data ?? [],
+          materialsQuery.data ?? [],
         ),
       })
     },
@@ -368,6 +397,7 @@ export function SubjectDetailPage() {
           assignmentsQuery.data ?? [],
           testsQuery.data ?? [],
           lecturesQuery.data ?? [],
+          materialsQuery.data ?? [],
         ),
       })
     },
@@ -395,6 +425,7 @@ export function SubjectDetailPage() {
           assignmentsQuery.data ?? [],
           testsQuery.data ?? [],
           lecturesQuery.data ?? [],
+          materialsQuery.data ?? [],
         ),
       })
     },
@@ -407,6 +438,43 @@ export function SubjectDetailPage() {
         availableFrom: '',
         availableUntil: '',
       }))
+      setBuilder(null)
+      setOpenAddMenu(null)
+    },
+  })
+  const createMaterialMutation = useMutation({
+    mutationFn: async () => {
+      if (!builder || builder.mode !== 'material') {
+        throw new Error('missing-builder-context')
+      }
+      const payload: Record<string, unknown> = {
+        title: materialForm.title.trim(),
+        description: materialForm.description.trim() || undefined,
+        type: materialForm.type,
+        visible: materialForm.visible,
+        orderIndex: nextCourseItemOrderIndex(
+          builder.topicId,
+          assignmentsQuery.data ?? [],
+          testsQuery.data ?? [],
+          lecturesQuery.data ?? [],
+          materialsQuery.data ?? [],
+        ),
+      }
+      if (materialForm.type === 'FILE') {
+        if (!materialFile) {
+          throw new Error('file-required')
+        }
+        const uploaded = await fileService.uploadFile(materialFile, 'ATTACHMENT')
+        payload.fileId = uploaded.id
+      } else if (materialForm.type === 'LINK') {
+        payload.url = materialForm.url.trim()
+      }
+      return educationService.createTopicMaterial(builder.topicId, payload)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['education', 'subject-materials', subjectId] })
+      setMaterialForm({ title: '', description: '', type: 'TEXT', url: '', visible: true })
+      setMaterialFile(null)
       setBuilder(null)
       setOpenAddMenu(null)
     },
@@ -449,6 +517,7 @@ export function SubjectDetailPage() {
     || assignmentsQuery.isLoading
     || testsQuery.isLoading
     || lecturesQuery.isLoading
+    || materialsQuery.isLoading
     || groupsQuery.isLoading
   ) {
     return <LoadingState />
@@ -460,6 +529,7 @@ export function SubjectDetailPage() {
     || assignmentsQuery.isError
     || testsQuery.isError
     || lecturesQuery.isError
+    || materialsQuery.isError
     || groupsQuery.isError
   ) {
     if (
@@ -468,6 +538,7 @@ export function SubjectDetailPage() {
       || isAccessDeniedApiError(assignmentsQuery.error)
       || isAccessDeniedApiError(testsQuery.error)
       || isAccessDeniedApiError(lecturesQuery.error)
+      || isAccessDeniedApiError(materialsQuery.error)
     ) {
       return <AccessDeniedPage />
     }
@@ -484,6 +555,7 @@ export function SubjectDetailPage() {
   const topics = (topicsQuery.data?.items ?? []).slice().sort((left, right) => left.orderIndex - right.orderIndex)
   const assignments = assignmentsQuery.data ?? []
   const lectures = lecturesQuery.data ?? []
+  const materials = materialsQuery.data ?? []
   const tests = testsQuery.data ?? []
   const isAssignedTeacher = primaryRole === 'TEACHER' && currentSubject.teacherIds.includes(currentUserId)
   const canManageContent = isAdmin || isAssignedTeacher
@@ -527,6 +599,7 @@ export function SubjectDetailPage() {
     orderedItemsByTopicId.set(topic.id, buildTopicItems({
       assignments,
       lectures,
+      materials,
       pendingReviewByAssignmentId: teacherPendingReviewByAssignmentId,
       studentAvailableTests,
       studentPendingAssignments,
@@ -581,6 +654,11 @@ export function SubjectDetailPage() {
     setOpenAddMenu(topicId)
   }
 
+  function openMaterialBuilder(topicId: string) {
+    setBuilder({ mode: 'material', topicId })
+    setOpenAddMenu(topicId)
+  }
+
   function openTestBuilder(topicId: string) {
     setBuilder({ mode: 'test', topicId })
     setOpenAddMenu(topicId)
@@ -608,6 +686,8 @@ export function SubjectDetailPage() {
       await assignmentService.moveAssignment(item.id, { topicId, orderIndex })
     } else if (item.kind === 'lecture') {
       await educationService.moveLecture(item.id, { topicId, orderIndex })
+    } else if (item.kind === 'material') {
+      await educationService.moveTopicMaterial(item.id, { topicId, orderIndex })
     } else {
       await testingService.moveTest(item.id, { topicId, orderIndex })
     }
@@ -629,6 +709,7 @@ export function SubjectDetailPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-assignments', subjectId] }),
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-lectures', subjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['education', 'subject-materials', subjectId] }),
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-tests', subjectId] }),
     ])
   }
@@ -638,10 +719,11 @@ export function SubjectDetailPage() {
       return
     }
 
-    await moveCourseItem(item, topicId, nextCourseItemOrderIndex(topicId, assignments, tests, lectures))
+    await moveCourseItem(item, topicId, nextCourseItemOrderIndex(topicId, assignments, tests, lectures, materials))
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-assignments', subjectId] }),
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-lectures', subjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['education', 'subject-materials', subjectId] }),
       queryClient.invalidateQueries({ queryKey: ['education', 'subject-tests', subjectId] }),
     ])
   }
@@ -801,6 +883,7 @@ export function SubjectDetailPage() {
                     description={t('education.topicWorkloadSummary', {
                       assignments: assignments.filter((assignment) => assignment.topicId === topic.id).length,
                       lectures: lectures.filter((lecture) => lecture.topicId === topic.id).length,
+                      materials: materials.filter((material) => material.topicId === topic.id).length,
                       tests: tests.filter((test) => test.topicId === topic.id).length,
                     })}
                     emptyLabel={canManageContent ? t('education.emptyTopicTeacher') : t('education.noContentAvailable')}
@@ -813,6 +896,7 @@ export function SubjectDetailPage() {
                         title={t('education.addContent')}
                         onAddAssignment={() => openAssignmentBuilder(topic.id)}
                         onAddLecture={() => openLectureBuilder(topic.id)}
+                        onAddMaterial={() => openMaterialBuilder(topic.id)}
                         onAddTest={() => openTestBuilder(topic.id)}
                       />
                     ) : null}
@@ -889,6 +973,77 @@ export function SubjectDetailPage() {
                         {!lectureForm.title.trim() ? (
                           <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
                         ) : null}
+                      </BuilderPanel>
+                    ) : null}
+
+                    {builder?.mode === 'material' && builder.topicId === topic.id ? (
+                      <BuilderPanel
+                        title={t('education.addMaterial')}
+                        onCancel={() => setBuilder(null)}
+                      >
+                        <FormField label={t('education.materialTitle')}>
+                          <Input
+                            value={materialForm.title}
+                            onChange={(event) => setMaterialForm((current) => ({ ...current, title: event.target.value }))}
+                          />
+                        </FormField>
+                        <FormField label={t('education.materialType')}>
+                          <Select
+                            value={materialForm.type}
+                            onChange={(event) => setMaterialForm((current) => ({ ...current, type: event.target.value as TopicMaterialType }))}
+                          >
+                            <option value="TEXT">{t('education.textMaterial')}</option>
+                            <option value="LINK">{t('education.linkMaterial')}</option>
+                            <option value="FILE">{t('education.fileMaterial')}</option>
+                          </Select>
+                        </FormField>
+                        <FormField label={t('education.materialDescription')}>
+                          <Textarea
+                            value={materialForm.description}
+                            onChange={(event) => setMaterialForm((current) => ({ ...current, description: event.target.value }))}
+                          />
+                        </FormField>
+                        {materialForm.type === 'LINK' ? (
+                          <FormField label={t('education.materialUrl')}>
+                            <Input
+                              value={materialForm.url}
+                              onChange={(event) => setMaterialForm((current) => ({ ...current, url: event.target.value }))}
+                            />
+                          </FormField>
+                        ) : null}
+                        {materialForm.type === 'FILE' ? (
+                          <FormField label={t('education.uploadFile')}>
+                            <Input type="file" onChange={(event) => setMaterialFile(event.target.files?.[0] ?? null)} />
+                          </FormField>
+                        ) : null}
+                        <div className="flex items-center gap-2">
+                          <input
+                            id={`material-visible-${topic.id}`}
+                            checked={materialForm.visible}
+                            type="checkbox"
+                            onChange={(event) => setMaterialForm((current) => ({ ...current, visible: event.target.checked }))}
+                          />
+                          <label htmlFor={`material-visible-${topic.id}`} className="text-sm text-text-secondary">
+                            {t('education.visibleToStudents')}
+                          </label>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <Button
+                            disabled={
+                              !materialForm.title.trim()
+                              || (materialForm.type === 'FILE' && !materialFile)
+                              || (materialForm.type === 'LINK' && !materialForm.url.trim())
+                              || (materialForm.type === 'TEXT' && !materialForm.description.trim())
+                              || createMaterialMutation.isPending
+                            }
+                            onClick={() => createMaterialMutation.mutate()}
+                          >
+                            {t('common.actions.create')}
+                          </Button>
+                          <Button variant="secondary" onClick={() => setBuilder(null)}>
+                            {t('common.actions.cancel')}
+                          </Button>
+                        </div>
                       </BuilderPanel>
                     ) : null}
 
@@ -1336,6 +1491,7 @@ function AddContentPanel({
   allowSection,
   onAddAssignment,
   onAddLecture,
+  onAddMaterial,
   onAddSection,
   onAddTest,
   title,
@@ -1343,6 +1499,7 @@ function AddContentPanel({
   allowSection?: boolean
   onAddAssignment?: () => void
   onAddLecture?: () => void
+  onAddMaterial?: () => void
   onAddSection?: () => void
   onAddTest?: () => void
   title: string
@@ -1386,8 +1543,14 @@ function AddContentPanel({
         ) : (
           <DisabledContentAction icon={<FileText className="h-4 w-4" />} label={t('education.contentType.lecture')} />
         )}
-        <DisabledContentAction icon={<BookText className="h-4 w-4" />} label={t('education.contentType.textBlock')} />
-        <DisabledContentAction icon={<FileText className="h-4 w-4" />} label={t('education.contentType.material')} />
+        {onAddMaterial ? (
+          <Button variant="secondary" onClick={onAddMaterial}>
+            <BookText className="mr-2 h-4 w-4" />
+            {t('education.contentType.material')}
+          </Button>
+        ) : (
+          <DisabledContentAction icon={<FileText className="h-4 w-4" />} label={t('education.contentType.material')} />
+        )}
         <DisabledContentAction icon={<Link2 className="h-4 w-4" />} label={t('education.contentType.link')} />
       </div>
       <p className="mt-3 text-sm text-text-secondary">{t('education.unsupportedContentHint')}</p>
@@ -1428,6 +1591,7 @@ function SidebarLine({
 function buildTopicItems({
   assignments,
   lectures,
+  materials,
   pendingReviewByAssignmentId,
   studentAvailableTests,
   studentPendingAssignments,
@@ -1437,6 +1601,7 @@ function buildTopicItems({
 }: {
   assignments: AssignmentResponse[]
   lectures: LectureResponse[]
+  materials: TopicMaterialResponse[]
   pendingReviewByAssignmentId: Map<string, number>
   studentAvailableTests: Map<string, DashboardTestItemResponse>
   studentPendingAssignments: Map<string, DashboardAssignmentItemResponse>
@@ -1508,8 +1673,28 @@ function buildTopicItems({
         topicId,
       }
     })
+  const materialItems: CourseItem[] = materials
+    .filter((material) => material.topicId === topicId)
+    .map((material) => ({
+      id: material.id,
+      kind: 'material',
+      title: material.title,
+      description: material.description,
+      label: t('education.contentType.material'),
+      meta: [
+        t(`education.materialTypeLabels.${material.type}`),
+        ...(material.type === 'FILE' && material.originalFileName ? [material.originalFileName] : []),
+        ...(material.type === 'LINK' && material.url ? [material.url] : []),
+      ],
+      orderIndex: material.orderIndex,
+      status: material.archived
+        ? t('education.archivedStatus')
+        : (material.visible ? t('education.visibleToStudents') : t('education.hiddenFromStudents')),
+      to: `/materials/${material.id}`,
+      topicId,
+    }))
 
-  return [...assignmentItems, ...lectureItems, ...testItems].sort((left, right) => left.orderIndex - right.orderIndex)
+  return [...assignmentItems, ...lectureItems, ...materialItems, ...testItems].sort((left, right) => left.orderIndex - right.orderIndex)
 }
 
 function nextCourseItemOrderIndex(
@@ -1517,9 +1702,11 @@ function nextCourseItemOrderIndex(
   assignments: AssignmentResponse[],
   tests: TestResponse[],
   lectures: LectureResponse[],
+  materials: TopicMaterialResponse[],
 ) {
   return assignments.filter((assignment) => assignment.topicId === topicId).length
     + lectures.filter((lecture) => lecture.topicId === topicId).length
+    + materials.filter((material) => material.topicId === topicId).length
     + tests.filter((test) => test.topicId === topicId).length
 }
 

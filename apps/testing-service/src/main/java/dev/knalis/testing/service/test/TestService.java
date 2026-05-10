@@ -1,5 +1,9 @@
 package dev.knalis.testing.service.test;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.knalis.testing.client.education.EducationServiceClient;
 import dev.knalis.testing.dto.request.CreateTestRequest;
 import dev.knalis.testing.dto.request.MoveTestRequest;
@@ -8,6 +12,9 @@ import dev.knalis.testing.dto.response.SearchItemResponse;
 import dev.knalis.testing.dto.response.SearchPageResponse;
 import dev.knalis.testing.dto.response.TestGroupAvailabilityResponse;
 import dev.knalis.testing.dto.response.TestPageResponse;
+import dev.knalis.testing.dto.response.TestPreviewViewResponse;
+import dev.knalis.testing.dto.response.TestStudentAnswerOptionResponse;
+import dev.knalis.testing.dto.response.TestStudentQuestionViewResponse;
 import dev.knalis.testing.dto.response.TestQuestionAnswerResponse;
 import dev.knalis.testing.dto.response.TestQuestionViewResponse;
 import dev.knalis.testing.dto.response.TestResponse;
@@ -47,6 +54,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -84,6 +93,7 @@ public class TestService {
     private final TestingAuditService testingAuditService;
     private final TestingEventPublisher testingEventPublisher;
     private final EducationServiceClient educationServiceClient;
+    private final ObjectMapper objectMapper;
     
     @Transactional
     public TestResponse createTest(UUID currentUserId, boolean privilegedAccess, CreateTestRequest request) {
@@ -119,17 +129,17 @@ public class TestService {
     }
 
     @Transactional(readOnly = true)
-    public TestStudentViewResponse getPreviewView(UUID currentUserId, boolean privilegedAccess, UUID testId) {
+    public TestPreviewViewResponse getPreviewView(UUID currentUserId, boolean privilegedAccess, UUID testId) {
         Test test = requireTest(testId);
         assertTeacherOwnership(test, currentUserId, privilegedAccess);
-        return buildStudentView(testMapper.toResponse(test), test, true);
+        return buildPreviewView(testMapper.toResponse(test), test);
     }
 
     @Transactional(readOnly = true)
     public TestStudentViewResponse getStudentView(UUID currentUserId, UUID testId) {
         Test test = requireTest(testId);
         TestGroupAvailability availability = requireAvailableForStudent(test, currentUserId, Instant.now());
-        return buildStudentView(toStudentResponse(test, availability), test, false);
+        return buildStudentView(toStudentResponse(test, availability), test);
     }
 
     @Transactional(readOnly = true)
@@ -508,7 +518,7 @@ public class TestService {
         return availabilityByTestId;
     }
 
-    private TestStudentViewResponse buildStudentView(TestResponse testResponse, Test test, boolean preview) {
+    private TestStudentViewResponse buildStudentView(TestResponse testResponse, Test test) {
         List<Question> questions = questionRepository.findAllByTestIdOrderByOrderIndexAscCreatedAtAsc(test.getId());
         List<UUID> questionIds = questions.stream()
                 .map(Question::getId)
@@ -523,28 +533,76 @@ public class TestService {
                                 Collectors.toList()
                         ));
 
-        List<TestQuestionViewResponse> questionResponses = questions.stream()
-                .map(question -> toQuestionViewResponse(
+        List<TestStudentQuestionViewResponse> questionResponses = questions.stream()
+                .map(question -> toStudentQuestionViewResponse(
                         question,
-                        answersByQuestionId.getOrDefault(question.getId(), List.of()),
-                        !preview && test.isShowCorrectAnswersAfterSubmit()
+                        answersByQuestionId.getOrDefault(question.getId(), List.of())
                 ))
                 .toList();
 
         return new TestStudentViewResponse(
                 testResponse,
                 questionResponses,
-                preview,
+                false,
                 test.getMaxPoints(),
                 test.getTimeLimitMinutes(),
                 Instant.now()
         );
     }
 
-    private TestQuestionViewResponse toQuestionViewResponse(
+    private TestPreviewViewResponse buildPreviewView(TestResponse testResponse, Test test) {
+        List<Question> questions = questionRepository.findAllByTestIdOrderByOrderIndexAscCreatedAtAsc(test.getId());
+        List<UUID> questionIds = questions.stream().map(Question::getId).toList();
+        Map<UUID, List<Answer>> answersByQuestionId = questionIds.isEmpty()
+                ? Map.of()
+                : answerRepository.findAllByQuestionIdInOrderByCreatedAtAsc(questionIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        Answer::getQuestionId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+        List<TestQuestionViewResponse> questionResponses = questions.stream()
+                .map(question -> toPreviewQuestionViewResponse(
+                        question,
+                        answersByQuestionId.getOrDefault(question.getId(), List.of())
+                ))
+                .toList();
+        return new TestPreviewViewResponse(
+                testResponse,
+                questionResponses,
+                true,
+                test.getMaxPoints(),
+                test.getTimeLimitMinutes(),
+                Instant.now()
+        );
+    }
+
+    private TestStudentQuestionViewResponse toStudentQuestionViewResponse(
             Question question,
-            List<Answer> answers,
-            boolean includeCorrectAnswers
+            List<Answer> answers
+    ) {
+        return new TestStudentQuestionViewResponse(
+                question.getId(),
+                question.getTestId(),
+                question.getText(),
+                question.getType(),
+                question.getDescription(),
+                question.getPoints(),
+                question.getOrderIndex(),
+                question.isRequired(),
+                answers.stream()
+                        .map(this::toStudentAnswerOptionResponse)
+                        .toList(),
+                toStudentPresentationJson(question),
+                question.getCreatedAt(),
+                question.getUpdatedAt()
+        );
+    }
+
+    private TestQuestionViewResponse toPreviewQuestionViewResponse(
+            Question question,
+            List<Answer> answers
     ) {
         return new TestQuestionViewResponse(
                 question.getId(),
@@ -558,22 +616,188 @@ public class TestService {
                 question.getFeedback(),
                 question.getConfigurationJson(),
                 answers.stream()
-                        .map(answer -> toQuestionAnswerResponse(answer, includeCorrectAnswers))
+                        .map(answer -> toPreviewQuestionAnswerResponse(answer))
                         .toList(),
                 question.getCreatedAt(),
                 question.getUpdatedAt()
         );
     }
 
-    private TestQuestionAnswerResponse toQuestionAnswerResponse(Answer answer, boolean includeCorrectAnswers) {
+    private TestStudentAnswerOptionResponse toStudentAnswerOptionResponse(Answer answer) {
+        return new TestStudentAnswerOptionResponse(
+                answer.getId(),
+                answer.getQuestionId(),
+                answer.getText(),
+                answer.getCreatedAt(),
+                answer.getUpdatedAt()
+        );
+    }
+
+    private TestQuestionAnswerResponse toPreviewQuestionAnswerResponse(Answer answer) {
         return new TestQuestionAnswerResponse(
                 answer.getId(),
                 answer.getQuestionId(),
                 answer.getText(),
-                includeCorrectAnswers ? answer.isCorrect() : null,
+                answer.isCorrect(),
                 answer.getCreatedAt(),
                 answer.getUpdatedAt()
         );
+    }
+
+    private String toStudentPresentationJson(Question question) {
+        ObjectNode root = objectMapper.createObjectNode();
+        JsonNode config = parseConfiguration(question.getConfigurationJson());
+        root.put("type", question.getType().name());
+        switch (question.getType()) {
+            case SHORT_ANSWER -> {
+                if (config.has("maxLength")) {
+                    root.set("maxLength", config.get("maxLength"));
+                }
+            }
+            case LONG_TEXT, MANUAL_GRADING -> {
+                if (config.has("maxLength")) {
+                    root.set("maxLength", config.get("maxLength"));
+                }
+            }
+            case NUMERIC -> {
+                if (config.has("unit") && config.get("unit").isTextual()) {
+                    root.put("unit", config.get("unit").asText());
+                }
+            }
+            case MATCHING -> {
+                ArrayNode leftItems = objectMapper.createArrayNode();
+                ArrayNode rightItems = objectMapper.createArrayNode();
+                JsonNode leftConfigItems = config.path("leftItems");
+                JsonNode rightConfigItems = config.path("rightItems");
+                if (leftConfigItems.isArray() && rightConfigItems.isArray()
+                        && !leftConfigItems.isEmpty() && !rightConfigItems.isEmpty()) {
+                    for (JsonNode item : leftConfigItems) {
+                        String id = item.path("id").asText("");
+                        String text = item.path("text").asText("");
+                        if (!id.isBlank() && !text.isBlank()) {
+                            ObjectNode node = objectMapper.createObjectNode();
+                            node.put("id", id);
+                            node.put("label", text);
+                            leftItems.add(node);
+                        }
+                    }
+                    for (JsonNode item : rightConfigItems) {
+                        String id = item.path("id").asText("");
+                        String text = item.path("text").asText("");
+                        if (!id.isBlank() && !text.isBlank()) {
+                            ObjectNode node = objectMapper.createObjectNode();
+                            node.put("id", id);
+                            node.put("label", text);
+                            rightItems.add(node);
+                        }
+                    }
+                } else {
+                    JsonNode pairs = config.path("pairs");
+                    List<String> rightValues = new ArrayList<>();
+                    if (pairs.isArray()) {
+                        for (int index = 0; index < pairs.size(); index++) {
+                            JsonNode pair = pairs.get(index);
+                            String left = pair.path("left").asText("");
+                            String right = pair.path("right").asText("");
+                            if (!left.isBlank() && !right.isBlank()) {
+                                ObjectNode leftItem = objectMapper.createObjectNode();
+                                leftItem.put("id", String.valueOf(index));
+                                leftItem.put("label", left);
+                                leftItems.add(leftItem);
+                                rightValues.add(right);
+                            }
+                        }
+                    }
+                    if (rightValues.size() > 1) {
+                        Collections.rotate(rightValues, 1);
+                    }
+                    for (String right : rightValues) {
+                        ObjectNode rightItem = objectMapper.createObjectNode();
+                        rightItem.put("id", right);
+                        rightItem.put("label", right);
+                        rightItems.add(rightItem);
+                    }
+                }
+                root.set("leftItems", leftItems);
+                root.set("rightItems", rightItems);
+            }
+            case ORDERING -> {
+                JsonNode items = config.path("items");
+                List<ObjectNode> values = new ArrayList<>();
+                if (items.isArray()) {
+                    items.forEach(node -> {
+                        if (node.isObject()) {
+                            String id = node.path("id").asText("");
+                            String text = node.path("text").asText("");
+                            if (!id.isBlank() && !text.isBlank()) {
+                                ObjectNode item = objectMapper.createObjectNode();
+                                item.put("id", id);
+                                item.put("label", text);
+                                values.add(item);
+                            }
+                        } else {
+                            String itemText = node.asText("");
+                            if (!itemText.isBlank()) {
+                                ObjectNode item = objectMapper.createObjectNode();
+                                item.put("id", itemText);
+                                item.put("label", itemText);
+                                values.add(item);
+                            }
+                        }
+                    });
+                }
+                if (values.size() > 1) {
+                    Collections.rotate(values, 1);
+                }
+                ArrayNode presentationItems = objectMapper.createArrayNode();
+                for (ObjectNode value : values) {
+                    presentationItems.add(value);
+                }
+                root.set("items", presentationItems);
+            }
+            case FILL_IN_THE_BLANK -> {
+                String template = config.path("text").asText(question.getText());
+                root.put("text", template);
+                ArrayNode blanks = objectMapper.createArrayNode();
+                JsonNode configBlanks = config.path("blanks");
+                if (configBlanks.isArray()) {
+                    for (int index = 0; index < configBlanks.size(); index++) {
+                        ObjectNode blank = objectMapper.createObjectNode();
+                        JsonNode blankConfig = configBlanks.get(index);
+                        String id = blankConfig.isObject()
+                                ? blankConfig.path("id").asText(String.valueOf(index))
+                                : String.valueOf(index);
+                        blank.put("id", id);
+                        blank.put("placeholder", "Blank " + (index + 1));
+                        blanks.add(blank);
+                    }
+                }
+                root.set("blanks", blanks);
+            }
+            case FILE_ANSWER -> {
+                JsonNode allowed = config.path("allowedFileTypes");
+                if (allowed.isArray()) {
+                    root.set("allowedFileTypes", allowed);
+                }
+                if (config.has("maxFileSizeMb")) {
+                    root.set("maxFileSizeMb", config.get("maxFileSizeMb"));
+                }
+            }
+            case SINGLE_CHOICE, MULTIPLE_CHOICE, TRUE_FALSE -> {
+            }
+        }
+        return root.toString();
+    }
+
+    private JsonNode parseConfiguration(String configurationJson) {
+        if (configurationJson == null || configurationJson.isBlank()) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            return objectMapper.readTree(configurationJson);
+        } catch (Exception ignored) {
+            return objectMapper.createObjectNode();
+        }
     }
 
     private TestResponse toStudentResponse(Test test, TestGroupAvailability availability) {

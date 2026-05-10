@@ -4,6 +4,7 @@
   "ACCOUNT_BANNED": "Twoje konto zostało zablokowane. Skontaktuj się ze wsparciem.",
   "ACCOUNT_DISABLED": "Twoje konto jest wyłączone. Skontaktuj się ze wsparciem.",
   "ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND": "Nie znaleziono aktywnego semestru akademickiego.",
+  "ACTIVE_TEST_ATTEMPT_NOT_FOUND": "Nie znaleziono aktywnej próby testu. Wróć do listy testów i rozpocznij ponownie.",
   "AUDIT_EVENT_NOT_FOUND": "Nie znaleziono zdarzenia audytowego.",
   "BAD_CREDENTIALS": "Nieprawidłowy login lub hasło.",
   "DEADLINE_EXPIRED": "Termin wykonania tej akcji już minął.",

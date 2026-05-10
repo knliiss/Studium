@@ -7,6 +7,7 @@ import dev.knalis.testing.dto.request.UpsertTestGroupAvailabilityRequest;
 import dev.knalis.testing.dto.response.SearchPageResponse;
 import dev.knalis.testing.dto.response.TestGroupAvailabilityResponse;
 import dev.knalis.testing.dto.response.TestPageResponse;
+import dev.knalis.testing.dto.response.TestPreviewViewResponse;
 import dev.knalis.testing.dto.response.TestResponse;
 import dev.knalis.testing.dto.response.TestStudentViewResponse;
 import dev.knalis.testing.dto.response.TestResultResponse;
@@ -93,7 +94,7 @@ public class TestController {
 
     @GetMapping("/{id}/preview")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
-    public TestStudentViewResponse getPreviewView(Authentication authentication, @PathVariable("id") UUID testId) {
+    public TestPreviewViewResponse getPreviewView(Authentication authentication, @PathVariable("id") UUID testId) {
         return testService.getPreviewView(
                 currentUserService.getCurrentUserId(authentication),
                 hasManagementBypass(authentication),

@@ -235,6 +235,27 @@ export interface LectureAttachmentResponse {
   createdAt: string
 }
 
+export type TopicMaterialType = 'FILE' | 'LINK' | 'TEXT'
+
+export interface TopicMaterialResponse {
+  id: string
+  topicId: string
+  title: string
+  description: string | null
+  type: TopicMaterialType
+  url: string | null
+  fileId: string | null
+  originalFileName: string | null
+  contentType: string | null
+  sizeBytes: number | null
+  visible: boolean
+  archived: boolean
+  orderIndex: number
+  createdByUserId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AcademicSemesterResponse {
   id: string
   name: string
@@ -522,12 +543,12 @@ export interface TestQuestionAnswerResponse {
   id: string
   questionId: string
   text: string
-  isCorrect: boolean | null
+  isCorrect: boolean
   createdAt: string
   updatedAt: string
 }
 
-export interface TestQuestionViewResponse {
+export interface TestPreviewQuestionViewResponse {
   id: string
   testId: string
   text: string
@@ -543,9 +564,41 @@ export interface TestQuestionViewResponse {
   updatedAt: string
 }
 
+export interface TestStudentAnswerOptionResponse {
+  id: string
+  questionId: string
+  text: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestStudentQuestionViewResponse {
+  id: string
+  testId: string
+  text: string
+  type: QuestionType
+  description: string | null
+  points: number
+  orderIndex: number
+  required: boolean
+  answers: TestStudentAnswerOptionResponse[]
+  presentationJson: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface TestStudentViewResponse {
   test: TestResponse
-  questions: TestQuestionViewResponse[]
+  questions: TestStudentQuestionViewResponse[]
+  preview: boolean
+  totalPoints: number
+  timeLimitMinutes: number | null
+  generatedAt: string
+}
+
+export interface TestPreviewViewResponse {
+  test: TestResponse
+  questions: TestPreviewQuestionViewResponse[]
   preview: boolean
   totalPoints: number
   timeLimitMinutes: number | null

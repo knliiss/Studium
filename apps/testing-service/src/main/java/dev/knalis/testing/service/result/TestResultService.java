@@ -16,6 +16,7 @@ import dev.knalis.testing.entity.Test;
 import dev.knalis.testing.entity.TestAttempt;
 import dev.knalis.testing.entity.TestResult;
 import dev.knalis.testing.entity.TestStatus;
+import dev.knalis.testing.exception.ActiveTestAttemptNotFoundException;
 import dev.knalis.testing.exception.TestInvalidStateException;
 import dev.knalis.testing.exception.TestAccessDeniedException;
 import dev.knalis.testing.exception.TestNotFoundException;
@@ -46,6 +47,7 @@ import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -131,26 +133,21 @@ public class TestResultService {
             throw new TestNotAvailableException(test.getId(), test.getAvailableFrom(), test.getAvailableUntil());
         }
 
-        TestAttempt attempt = testAttemptRepository.findFirstByTestIdAndUserIdAndCompletedAtIsNullOrderByStartedAtDesc(
-                        testId,
-                        userId
-                )
-                .orElseThrow(() -> new TestInvalidStateException(
-                        test.getId(),
-                        test.getStatus(),
-                        "Test result submission requires an active test attempt"
+        TestAttempt attempt = testAttemptRepository.findFirstByTestIdAndUserIdAndCompletedAtIsNullOrderByStartedAtDesc(testId, userId)
+                .orElseGet(() -> recoverCompletedAttemptWithoutResult(testId, userId).orElseThrow(
+                        () -> new ActiveTestAttemptNotFoundException(testId, userId)
                 ));
-        if (test.getTimeLimitMinutes() != null
-                && now.isAfter(attempt.getStartedAt().plusSeconds(test.getTimeLimitMinutes().longValue() * 60L))) {
-            attempt.setCompletedAt(now);
-            testAttemptRepository.save(attempt);
-            throw new TestTimeExpiredException(test.getId(), attempt.getId(), attempt.getStartedAt(), test.getTimeLimitMinutes());
+
+        TestResult existingResult = testResultRepository.findFirstByAttemptId(attempt.getId()).orElse(null);
+        if (existingResult != null) {
+            return testResultMapper.toResponse(existingResult);
         }
 
         int score = calculateScore(testId, request);
         TestResult testResult = testResultFactory.newTestResult(testId, userId, attempt.getId(), Math.min(score, test.getMaxPoints()));
         TestResult savedTestResult = testResultRepository.save(testResult);
-        attempt.setCompletedAt(now);
+        Instant completedAt = resolveCompletedAt(test, attempt, now);
+        attempt.setCompletedAt(completedAt);
         testAttemptRepository.save(attempt);
         UUID subjectId = educationServiceClient.getTopic(test.getTopicId()).subjectId();
         testingEventPublisher.publishTestCompleted(new TestCompletedEventV1(
@@ -165,6 +162,19 @@ public class TestResultService {
                 savedTestResult.getCreatedAt()
         ));
         return testResultMapper.toResponse(savedTestResult);
+    }
+
+    private Optional<TestAttempt> recoverCompletedAttemptWithoutResult(UUID testId, UUID userId) {
+        return testAttemptRepository.findFirstByTestIdAndUserIdAndCompletedAtIsNotNullOrderByCompletedAtDesc(testId, userId)
+                .filter(attempt -> testResultRepository.findFirstByAttemptId(attempt.getId()).isEmpty());
+    }
+
+    private Instant resolveCompletedAt(Test test, TestAttempt attempt, Instant now) {
+        if (test.getTimeLimitMinutes() == null) {
+            return now;
+        }
+        Instant deadline = attempt.getStartedAt().plusSeconds(test.getTimeLimitMinutes().longValue() * 60L);
+        return now.isAfter(deadline) ? deadline : now;
     }
 
     @Transactional(readOnly = true)
@@ -362,6 +372,22 @@ public class TestResultService {
         if (!pairs.isArray() || pairs.isEmpty()) {
             return false;
         }
+        boolean idBased = pairs.get(0).has("leftId") && pairs.get(0).has("rightId");
+        if (idBased) {
+            for (int index = 0; index < pairs.size(); index++) {
+                JsonNode pair = pairs.get(index);
+                String leftId = pair.path("leftId").asText(null);
+                String rightId = pair.path("rightId").asText(null);
+                if (leftId == null || rightId == null) {
+                    return false;
+                }
+                String actualRight = submittedValue.path(leftId).asText(null);
+                if (actualRight == null || !rightId.equals(actualRight)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         for (int index = 0; index < pairs.size(); index++) {
             JsonNode pair = pairs.get(index);
             String expectedRight = pair.path("right").asText(null);
@@ -382,8 +408,11 @@ public class TestResultService {
         if (!items.isArray() || items.isEmpty() || items.size() != submittedValue.size()) {
             return false;
         }
+        boolean idBased = items.get(0).isObject() && items.get(0).has("id");
         for (int index = 0; index < items.size(); index++) {
-            String expected = items.get(index).asText(null);
+            String expected = idBased
+                    ? items.get(index).path("id").asText(null)
+                    : items.get(index).asText(null);
             String actual = submittedValue.get(index).asText(null);
             if (expected == null || actual == null || !expected.equals(actual)) {
                 return false;
@@ -393,28 +422,58 @@ public class TestResultService {
     }
 
     private boolean isCorrectFillInBlank(Question question, JsonNode submittedValue) {
+        JsonNode config = parseConfiguration(question);
+        JsonNode blanks = config.path("blanks");
+        if (!blanks.isArray() || blanks.isEmpty()) {
+            return false;
+        }
+        if (submittedValue.isObject()) {
+            for (int index = 0; index < blanks.size(); index++) {
+                JsonNode blank = blanks.get(index);
+                String blankId = blank.isObject() ? blank.path("id").asText(String.valueOf(index)) : String.valueOf(index);
+                JsonNode accepted = blank.isObject() ? blank.path("acceptedAnswers") : blank;
+                if (!accepted.isArray()) {
+                    return false;
+                }
+                String submitted = submittedValue.path(blankId).asText(null);
+                if (submitted == null) {
+                    return false;
+                }
+                if (!matchesAcceptedAnswer(submitted, accepted)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         if (!submittedValue.isTextual()) {
             return false;
         }
         List<String> submittedValues = splitLines(submittedValue.asText());
-        JsonNode config = parseConfiguration(question);
-        JsonNode blanks = config.path("blanks");
-        if (!blanks.isArray() || blanks.isEmpty() || blanks.size() != submittedValues.size()) {
+        if (blanks.size() != submittedValues.size()) {
             return false;
         }
         for (int index = 0; index < blanks.size(); index++) {
-            JsonNode accepted = blanks.get(index);
+            JsonNode blank = blanks.get(index);
+            JsonNode accepted = blank.isObject() ? blank.path("acceptedAnswers") : blank;
             if (!accepted.isArray()) {
                 return false;
             }
             String submitted = submittedValues.get(index);
-            List<String> acceptedValues = new ArrayList<>();
-            accepted.forEach(node -> acceptedValues.add(node.asText("").trim().toLowerCase()));
-            if (!acceptedValues.contains(submitted.trim().toLowerCase())) {
+            if (!matchesAcceptedAnswer(submitted, accepted)) {
                 return false;
             }
         }
         return true;
+    }
+
+    private boolean matchesAcceptedAnswer(String submitted, JsonNode accepted) {
+        String normalized = submitted.trim().toLowerCase();
+        for (JsonNode node : accepted) {
+            if (normalized.equals(node.asText("").trim().toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private JsonNode parseConfiguration(Question question) {

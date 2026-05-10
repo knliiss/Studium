@@ -277,10 +277,13 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   })
   const subjectScopeQuery = useQuery({
     queryKey: ['education', 'assignment-detail-subject-scope', primaryRole, session?.user.id],
-    queryFn: () => isTeacher
-      ? loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
-      : loadManagedSubjects(),
-    enabled: Boolean(!isStudent && assignmentQuery.data),
+    queryFn: () => {
+      if (primaryRole === 'STUDENT' || primaryRole === 'TEACHER') {
+        return loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
+      }
+      return loadManagedSubjects()
+    },
+    enabled: Boolean(assignmentQuery.data && session?.user.id),
   })
   const assignmentSubjectQuery = useQuery({
     queryKey: ['education', 'assignment-detail-subject', assignmentId, assignmentQuery.data?.topicId, subjectScopeQuery.data?.length],
@@ -304,7 +307,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
       return null
     },
-    enabled: Boolean(!isStudent && assignmentQuery.data && subjectScopeQuery.data),
+    enabled: Boolean(assignmentQuery.data && subjectScopeQuery.data),
   })
   const connectedGroupsQuery = useQuery({
     queryKey: ['education', 'assignment-connected-groups', assignmentSubjectQuery.data?.groupIds.join(',')],
@@ -597,7 +600,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     score: activeGradeDraft?.score ?? selectedSubmissionQuery.data?.score ?? 0,
     feedback: activeGradeDraft?.feedback ?? selectedSubmissionQuery.data?.feedback ?? '',
   }
-  const backTarget = assignmentSubjectQuery.data ? `/subjects/${assignmentSubjectQuery.data.id}` : '/assignments'
+  const backTarget = assignmentSubjectQuery.data ? `/subjects/${assignmentSubjectQuery.data.id}` : '/subjects'
   const backLabel = assignmentSubjectQuery.data
     ? t('assignments.backToCourse')
     : t('assignments.backToAssignments')
@@ -708,7 +711,15 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs items={[{ label: t('navigation.shared.assignments'), to: '/assignments' }, { label: assignment.title }]} />
+      <Breadcrumbs
+        items={assignmentSubjectQuery.data
+          ? [
+              { label: t('navigation.shared.subjects'), to: '/subjects' },
+              { label: assignmentSubjectQuery.data.name, to: `/subjects/${assignmentSubjectQuery.data.id}` },
+              { label: assignment.title },
+            ]
+          : [{ label: t('navigation.shared.assignments'), to: '/assignments' }, { label: assignment.title }]}
+      />
       <Button
         variant="secondary"
         onClick={() => {

@@ -46,8 +46,10 @@ import type {
   TeacherDashboardResponse,
   TestResponse,
   TestGroupAvailabilityResponse,
+  TestPreviewViewResponse,
   TestResultResponse,
   TestStudentViewResponse,
+  TopicMaterialResponse,
   TopicResponse,
   UnreadCountResponse,
   UserProfileResponse,
@@ -403,6 +405,53 @@ export const educationService = {
       `/api/v1/education/lectures/${lectureId}/attachments/${attachmentId}/download`,
       { responseType: 'blob' },
     )
+    return response.data
+  },
+  async getTopicMaterials(topicId: string, params: PaginationParams = {}) {
+    const response = await apiClient.get(`/api/v1/education/topics/${topicId}/materials`, { params })
+    return normalizePage<TopicMaterialResponse>(response.data)
+  },
+  async createTopicMaterial(topicId: string, payload: Record<string, unknown>) {
+    const response = await apiClient.post<TopicMaterialResponse>(`/api/v1/education/topics/${topicId}/materials`, payload)
+    return response.data
+  },
+  async getTopicMaterial(materialId: string) {
+    const response = await apiClient.get<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}`)
+    return response.data
+  },
+  async updateTopicMaterial(materialId: string, payload: Record<string, unknown>) {
+    const response = await apiClient.put<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}`, payload)
+    return response.data
+  },
+  async publishTopicMaterial(materialId: string) {
+    const response = await apiClient.post<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}/publish`)
+    return response.data
+  },
+  async hideTopicMaterial(materialId: string) {
+    const response = await apiClient.post<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}/hide`)
+    return response.data
+  },
+  async archiveTopicMaterial(materialId: string) {
+    const response = await apiClient.post<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}/archive`)
+    return response.data
+  },
+  async restoreTopicMaterial(materialId: string) {
+    const response = await apiClient.post<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}/restore`)
+    return response.data
+  },
+  async deleteTopicMaterial(materialId: string) {
+    await apiClient.delete(`/api/v1/education/materials/${materialId}`)
+  },
+  async moveTopicMaterial(materialId: string, payload: { topicId: string; orderIndex: number }) {
+    const response = await apiClient.patch<TopicMaterialResponse>(`/api/v1/education/materials/${materialId}/position`, payload)
+    return response.data
+  },
+  async previewTopicMaterialFile(materialId: string) {
+    const response = await apiClient.get<Blob>(`/api/v1/education/materials/${materialId}/preview`, { responseType: 'blob' })
+    return response.data
+  },
+  async downloadTopicMaterialFile(materialId: string) {
+    const response = await apiClient.get<Blob>(`/api/v1/education/materials/${materialId}/download`, { responseType: 'blob' })
     return response.data
   },
 }
@@ -768,7 +817,7 @@ export const testingService = {
     return response.data
   },
   async getTestPreview(id: string) {
-    const response = await apiClient.get<TestStudentViewResponse>(`/api/v1/testing/tests/${id}/preview`)
+    const response = await apiClient.get<TestPreviewViewResponse>(`/api/v1/testing/tests/${id}/preview`)
     return response.data
   },
   async getStudentTestView(id: string) {

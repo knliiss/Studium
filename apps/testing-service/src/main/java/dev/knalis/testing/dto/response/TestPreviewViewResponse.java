@@ -3,9 +3,9 @@ package dev.knalis.testing.dto.response;
 import java.time.Instant;
 import java.util.List;
 
-public record TestStudentViewResponse(
+public record TestPreviewViewResponse(
         TestResponse test,
-        List<TestStudentQuestionViewResponse> questions,
+        List<TestQuestionViewResponse> questions,
         boolean preview,
         int totalPoints,
         Integer timeLimitMinutes,

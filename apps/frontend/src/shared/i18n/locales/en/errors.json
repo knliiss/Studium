@@ -4,6 +4,7 @@
   "ACCOUNT_BANNED": "Your account has been blocked. Contact support for details.",
   "ACCOUNT_DISABLED": "Your account is disabled. Contact support for help.",
   "ACTIVE_ACADEMIC_SEMESTER_NOT_FOUND": "No active academic semester was found.",
+  "ACTIVE_TEST_ATTEMPT_NOT_FOUND": "Active test attempt not found. Please return to tests and start again.",
   "AUDIT_EVENT_NOT_FOUND": "The requested audit event was not found.",
   "BAD_CREDENTIALS": "Invalid username or password.",
   "DEADLINE_EXPIRED": "The deadline for this action has already passed.",

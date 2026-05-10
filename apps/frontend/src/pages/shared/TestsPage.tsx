@@ -1,23 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, LockKeyhole, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
 import { loadAccessibleGroups, loadAccessibleSubjects, loadManagedSubjects } from '@/pages/education/helpers'
 import { dashboardService, educationService, testingService, userDirectoryService } from '@/shared/api/services'
-import { getLocalizedRequestErrorMessage } from '@/shared/lib/api-errors'
+import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { cn } from '@/shared/lib/cn'
 import { formatDateTime } from '@/shared/lib/format'
-import { toGroupOption, toSubjectOption, toTopicOption } from '@/shared/lib/picker-options'
+import { toGroupOption } from '@/shared/lib/picker-options'
 import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
 import type {
   AnswerResponse,
   QuestionType,
   QuestionResponse,
   TestGroupAvailabilityResponse,
-  TestQuestionViewResponse,
+  TestPreviewQuestionViewResponse,
+  TestPreviewViewResponse,
+  TestStudentQuestionViewResponse,
   TestStudentViewResponse,
 } from '@/shared/types/api'
 import { Button } from '@/shared/ui/Button'
@@ -58,6 +60,7 @@ interface MatchingPairDraft {
 }
 
 type StudentAnswerValue = Record<string, string> | string | string[]
+type RenderableStudentQuestion = TestStudentQuestionViewResponse | TestPreviewQuestionViewResponse
 
 interface StudentAttemptSession {
   startedAt: number
@@ -155,7 +158,7 @@ function StudentTestsPage() {
       <PageHeader description={t('testing.studentDescription')} title={t('navigation.shared.tests')} />
       <DataTable
         columns={[
-          { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/tests/${item.testId}`}>{item.title}</Link> },
+          { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/tests/${item.testId}`} state={{ fromPath: '/tests' }}>{item.title}</Link> },
           { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
           { key: 'attempts', header: t('testing.attempts'), render: (item) => `${item.attemptsUsed}/${item.maxAttempts}` },
           { key: 'availableUntil', header: t('testing.availableUntil'), render: (item) => formatDateTime(item.availableUntil) },
@@ -168,25 +171,9 @@ function StudentTestsPage() {
 
 function ManagementTestsPage() {
   const { t } = useTranslation()
-  const { primaryRole, session } = useAuth()
-  const queryClient = useQueryClient()
+  const { primaryRole } = useAuth()
   const [query, setQuery] = useState('')
-  const [groupSearch, setGroupSearch] = useState('')
   const debouncedQuery = useDebouncedValue(query.trim(), 350)
-  const debouncedGroupSearch = useDebouncedValue(groupSearch.trim(), 350)
-  const [selectedGroupId, setSelectedGroupId] = useState('')
-  const [selectedSubjectId, setSelectedSubjectId] = useState('')
-  const [form, setForm] = useState({
-    topicId: '',
-    title: '',
-    maxAttempts: 1,
-    maxPoints: 100,
-    timeLimitMinutes: 30,
-    availableUntil: '',
-    showCorrectAnswersAfterSubmit: false,
-    shuffleQuestions: false,
-    shuffleAnswers: false,
-  })
   const isTeacher = primaryRole === 'TEACHER'
 
   const teacherDashboardQuery = useQuery({
@@ -199,70 +186,6 @@ function ManagementTestsPage() {
     queryFn: () => testingService.searchTests({ q: debouncedQuery || ' ', page: 0, size: 30 }),
     enabled: !isTeacher,
   })
-  const accessibleGroupsQuery = useQuery({
-    queryKey: ['education', 'groups', 'test-accessible', primaryRole, session?.user.id],
-    queryFn: () => loadAccessibleGroups(primaryRole, session?.user.id ?? ''),
-    enabled: Boolean(isTeacher && session?.user.id),
-  })
-  const accessibleSubjectsQuery = useQuery({
-    queryKey: ['education', 'subjects', 'test-accessible', primaryRole, session?.user.id],
-    queryFn: () => loadAccessibleSubjects(primaryRole, session?.user.id ?? ''),
-    enabled: Boolean(isTeacher && session?.user.id),
-  })
-  const adminGroupSearchQuery = useQuery({
-    queryKey: ['education', 'test-group-search', debouncedGroupSearch],
-    queryFn: () => educationService.listGroups({
-      page: 0,
-      size: 20,
-      q: debouncedGroupSearch || undefined,
-      sortBy: 'name',
-      direction: 'asc',
-    }),
-    enabled: !isTeacher,
-  })
-  const adminSubjectsQuery = useQuery({
-    queryKey: ['education', 'test-subjects', selectedGroupId],
-    queryFn: () => educationService.getSubjectsByGroup(selectedGroupId, { page: 0, size: 100 }),
-    enabled: Boolean(!isTeacher && selectedGroupId),
-  })
-  const topicsQuery = useQuery({
-    queryKey: ['education', 'test-topics', selectedSubjectId],
-    queryFn: () => educationService.getTopicsBySubject(selectedSubjectId, { page: 0, size: 100 }),
-    enabled: Boolean(selectedSubjectId),
-  })
-
-  const createMutation = useMutation({
-    mutationFn: () =>
-      testingService.createTest({
-        ...form,
-        availableFrom: null,
-        availableUntil: form.availableUntil ? new Date(form.availableUntil).toISOString() : null,
-      }),
-    onSuccess: async () => {
-      setForm((current) => ({ ...current, title: '' }))
-      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      await queryClient.invalidateQueries({ queryKey: ['tests'] })
-    },
-  })
-
-  const groupNameById = useMemo(
-    () => new Map((accessibleGroupsQuery.data ?? []).map((group) => [group.id, group.name])),
-    [accessibleGroupsQuery.data],
-  )
-  const groupOptions = isTeacher
-    ? (accessibleGroupsQuery.data ?? []).map((group) => toGroupOption(group))
-    : (adminGroupSearchQuery.data?.items ?? []).map((group) => toGroupOption(group))
-  const subjectOptions = isTeacher
-    ? (accessibleSubjectsQuery.data ?? []).map((subject) => toSubjectOption(
-        subject,
-        subject.groupId ? groupNameById.get(subject.groupId) : undefined,
-      ))
-    : (adminSubjectsQuery.data?.items ?? []).map((subject) => toSubjectOption(subject))
-  const topicOptions = (topicsQuery.data?.items ?? []).map((topic) => {
-    const selectedSubject = subjectOptions.find((option) => option.value === selectedSubjectId)
-    return toTopicOption(topic, selectedSubject?.label)
-  })
-
   const rows: TestManagementRow[] = isTeacher
     ? (teacherDashboardQuery.data?.activeTests ?? []).map((item) => ({
         id: item.testId,
@@ -289,35 +212,27 @@ function ManagementTestsPage() {
       }))
 
   if (
-    (isTeacher && (teacherDashboardQuery.isLoading || accessibleGroupsQuery.isLoading || accessibleSubjectsQuery.isLoading))
-    || (!isTeacher && (adminSearchQuery.isLoading || adminSubjectsQuery.isLoading))
+    (isTeacher && teacherDashboardQuery.isLoading)
+    || (!isTeacher && adminSearchQuery.isLoading)
   ) {
     return <LoadingState />
   }
 
   if (
-    (isTeacher && (teacherDashboardQuery.isError || accessibleGroupsQuery.isError || accessibleSubjectsQuery.isError))
-    || (!isTeacher && (adminSearchQuery.isError || adminSubjectsQuery.isError || adminGroupSearchQuery.isError))
+    (isTeacher && teacherDashboardQuery.isError)
+    || (!isTeacher && adminSearchQuery.isError)
   ) {
     return (
       <ErrorState
         title={t('navigation.shared.tests')}
         description={getLocalizedRequestErrorMessage(
           teacherDashboardQuery.error
-            ?? accessibleGroupsQuery.error
-            ?? accessibleSubjectsQuery.error
-            ?? adminSearchQuery.error
-            ?? adminSubjectsQuery.error
-            ?? adminGroupSearchQuery.error,
+            ?? adminSearchQuery.error,
           t,
         )}
         onRetry={() => {
           void teacherDashboardQuery.refetch()
-          void accessibleGroupsQuery.refetch()
-          void accessibleSubjectsQuery.refetch()
           void adminSearchQuery.refetch()
-          void adminSubjectsQuery.refetch()
-          void adminGroupSearchQuery.refetch()
         }}
       />
     )
@@ -331,70 +246,15 @@ function ManagementTestsPage() {
       />
 
       <Card className="space-y-4">
-        <PageHeader title={t('testing.createTest')} />
-        <div className="grid gap-4 xl:grid-cols-3">
-          {!isTeacher ? (
-            <EntityPicker
-              label={t('navigation.shared.groups')}
-              value={selectedGroupId}
-              options={groupOptions}
-              placeholder={t('testing.selectGroup')}
-              emptyLabel={t('education.noGroups')}
-              searchLabel={t('common.actions.search')}
-              searchPlaceholder={t('testing.groupSearchPlaceholder')}
-              searchValue={groupSearch}
-              onChange={(value) => {
-                setSelectedGroupId(value)
-                setSelectedSubjectId('')
-                setForm((current) => ({ ...current, topicId: '' }))
-              }}
-              onSearchChange={setGroupSearch}
-            />
-          ) : null}
-          <EntityPicker
-            disabled={!isTeacher && !selectedGroupId}
-            label={t('education.subject')}
-            value={selectedSubjectId}
-            options={subjectOptions}
-            placeholder={t('testing.selectSubject')}
-            emptyLabel={!isTeacher && !selectedGroupId ? t('testing.selectGroupFirst') : t('education.noSubjects')}
-            onChange={(value) => {
-              setSelectedSubjectId(value)
-              setForm((current) => ({ ...current, topicId: '' }))
-            }}
-          />
-          <EntityPicker
-            disabled={!selectedSubjectId}
-            label={t('education.topic')}
-            value={form.topicId}
-            options={topicOptions}
-            placeholder={t('testing.selectTopic')}
-            emptyLabel={!selectedSubjectId ? t('testing.selectSubjectFirst') : t('education.noTopics')}
-            onChange={(value) => setForm((current) => ({ ...current, topicId: value }))}
-          />
+        <PageHeader
+          title={t('testing.globalCreateUnavailable')}
+          description={t('testing.createFromCourseOnly')}
+        />
+        <div className="flex flex-wrap gap-3">
+          <Link to="/subjects">
+            <Button variant="secondary">{t('testing.backToCourse')}</Button>
+          </Link>
         </div>
-        <div className="grid gap-4 xl:grid-cols-2">
-          <FormField label={t('common.labels.title')}>
-            <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-          </FormField>
-          <FormField label={t('testing.availableUntil')}>
-            <Input type="datetime-local" value={form.availableUntil} onChange={(event) => setForm((current) => ({ ...current, availableUntil: event.target.value }))} />
-          </FormField>
-        </div>
-        <div className="grid gap-4 xl:grid-cols-4">
-          <FormField label={t('testing.maxAttempts')}>
-            <Input min={1} type="number" value={form.maxAttempts} onChange={(event) => setForm((current) => ({ ...current, maxAttempts: Number(event.target.value) }))} />
-          </FormField>
-          <FormField label={t('testing.maxPoints')}>
-            <Input min={1} type="number" value={form.maxPoints} onChange={(event) => setForm((current) => ({ ...current, maxPoints: Number(event.target.value) }))} />
-          </FormField>
-          <FormField label={t('testing.timeLimitMinutes')}>
-            <Input min={0} type="number" value={form.timeLimitMinutes} onChange={(event) => setForm((current) => ({ ...current, timeLimitMinutes: Number(event.target.value) }))} />
-          </FormField>
-        </div>
-        <Button disabled={!form.topicId || !form.title.trim() || createMutation.isPending} onClick={() => createMutation.mutate()}>
-          {t('common.actions.create')}
-        </Button>
       </Card>
 
       {!isTeacher ? (
@@ -410,7 +270,7 @@ function ManagementTestsPage() {
       ) : (
         <DataTable
           columns={[
-            { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/tests/${item.id}`}>{item.title}</Link> },
+            { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/tests/${item.id}`} state={{ fromPath: '/tests' }}>{item.title}</Link> },
             { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
             { key: 'availableUntil', header: t('testing.availableUntil'), render: (item) => formatDateTime(item.availableUntil) },
           ]}
@@ -424,6 +284,8 @@ function ManagementTestsPage() {
 function TestDetailPage({ testId }: { testId: string }) {
   const { t } = useTranslation()
   const { primaryRole, session } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const isStudent = primaryRole === 'STUDENT'
   const isTeacher = primaryRole === 'TEACHER'
@@ -441,6 +303,8 @@ function TestDetailPage({ testId }: { testId: string }) {
   const [selectedQuestionDraftId, setSelectedQuestionDraftId] = useState('')
   const [resultOverrideForm, setResultOverrideForm] = useState({ resultId: '', score: 0, reason: '' })
   const [questionEditorError, setQuestionEditorError] = useState('')
+  const [finishErrorMessage, setFinishErrorMessage] = useState('')
+  const autoFinishTriggeredRef = useRef(false)
 
   const testQuery = useQuery({
     queryKey: ['tests', testId],
@@ -493,10 +357,13 @@ function TestDetailPage({ testId }: { testId: string }) {
   })
   const subjectScopeQuery = useQuery({
     queryKey: ['education', 'test-detail-subject-scope', primaryRole, session?.user.id],
-    queryFn: () => isTeacher
-      ? loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
-      : loadManagedSubjects(),
-    enabled: Boolean(!isStudent && testQuery.data),
+    queryFn: () => {
+      if (primaryRole === 'STUDENT' || primaryRole === 'TEACHER') {
+        return loadAccessibleSubjects(primaryRole, session?.user.id ?? '')
+      }
+      return loadManagedSubjects()
+    },
+    enabled: Boolean(testQuery.data && session?.user.id),
   })
   const testSubjectQuery = useQuery({
     queryKey: ['education', 'test-detail-subject', testId, testQuery.data?.topicId, subjectScopeQuery.data?.length],
@@ -520,7 +387,7 @@ function TestDetailPage({ testId }: { testId: string }) {
 
       return null
     },
-    enabled: Boolean(!isStudent && testQuery.data && subjectScopeQuery.data),
+    enabled: Boolean(testQuery.data && subjectScopeQuery.data),
   })
   const connectedGroupsQuery = useQuery({
     queryKey: ['education', 'test-connected-groups', testSubjectQuery.data?.groupIds.join(',')],
@@ -579,6 +446,7 @@ function TestDetailPage({ testId }: { testId: string }) {
       })),
     }),
     onSuccess: async (result) => {
+      setFinishErrorMessage('')
       setAttemptSession((current) => {
         if (!current) {
           return current
@@ -594,6 +462,18 @@ function TestDetailPage({ testId }: { testId: string }) {
       })
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['tests', testId, 'student-view'] })
+    },
+    onError: (error) => {
+      const normalized = normalizeApiError(error)
+      if (normalized?.code === 'TEST_TIME_EXPIRED') {
+        setFinishErrorMessage(t('errors:TEST_TIME_EXPIRED'))
+        return
+      }
+      if (normalized?.code === 'ACTIVE_TEST_ATTEMPT_NOT_FOUND') {
+        setFinishErrorMessage(t('errors:ACTIVE_TEST_ATTEMPT_NOT_FOUND'))
+        return
+      }
+      setFinishErrorMessage(getLocalizedRequestErrorMessage(error, t))
     },
   })
   const publishMutation = useMutation({
@@ -739,6 +619,11 @@ function TestDetailPage({ testId }: { testId: string }) {
   const attemptTimeLeftMs = activeAttempt && timeLimitMinutes
     ? Math.max(0, (activeAttempt.startedAt + timeLimitMinutes * 60_000) - now)
     : null
+  const isTimeExpired = Boolean(activeAttempt && attemptTimeLeftMs === 0)
+  const backTarget = testSubjectQuery.data ? `/subjects/${testSubjectQuery.data.id}` : '/subjects'
+  const backLabel = testSubjectQuery.data
+    ? t('testing.backToCourse')
+    : t('testing.backToTests')
 
   const handleStudentAnswerChange = (questionId: string, value: StudentAnswerValue) => {
     setAttemptSession((current) => {
@@ -762,19 +647,27 @@ function TestDetailPage({ testId }: { testId: string }) {
     if (!activeAttempt || finishMutation.isPending || !studentViewQuery.data) {
       return
     }
+    setFinishErrorMessage('')
     finishMutation.mutate()
   }
 
   useEffect(() => {
-    if (!activeAttempt || !timeLimitMinutes || !studentViewQuery.data || finishMutation.isPending) {
+    if (!activeAttempt || !timeLimitMinutes || !studentViewQuery.data || finishMutation.isPending || autoFinishTriggeredRef.current) {
       return
     }
 
     const expiresAt = activeAttempt.startedAt + timeLimitMinutes * 60_000
     if (Date.now() >= expiresAt) {
+      autoFinishTriggeredRef.current = true
       finishMutation.mutate()
     }
   }, [activeAttempt, finishMutation, finishMutation.isPending, studentViewQuery.data, timeLimitMinutes])
+
+  useEffect(() => {
+    if (!activeAttempt) {
+      autoFinishTriggeredRef.current = false
+    }
+  }, [activeAttempt])
 
   if (
     testQuery.isLoading
@@ -833,10 +726,32 @@ function TestDetailPage({ testId }: { testId: string }) {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs items={[{ label: t('navigation.shared.tests'), to: '/tests' }, { label: test.title }]} />
-      <Link to="/tests">
-        <Button variant="secondary">{t('testing.backToTests')}</Button>
-      </Link>
+      <Breadcrumbs
+        items={testSubjectQuery.data
+          ? [
+              { label: t('navigation.shared.subjects'), to: '/subjects' },
+              { label: testSubjectQuery.data.name, to: `/subjects/${testSubjectQuery.data.id}` },
+              { label: test.title },
+            ]
+          : [{ label: t('navigation.shared.tests'), to: '/tests' }, { label: test.title }]}
+      />
+      <Button
+        variant="secondary"
+        onClick={() => {
+          const fromPath = (location.state as { fromPath?: string } | null)?.fromPath
+          if (fromPath && fromPath !== location.pathname) {
+            navigate(fromPath)
+            return
+          }
+          if (window.history.length > 1) {
+            navigate(-1)
+            return
+          }
+          navigate(backTarget)
+        }}
+      >
+        {backLabel}
+      </Button>
       <PageHeader description={t('testing.detailDescription')} title={test.title} />
       <Card className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -861,8 +776,8 @@ function TestDetailPage({ testId }: { testId: string }) {
               <StudentTestViewPanel
                 answers={activeAttempt.answers}
                 attemptStartedAt={activeAttempt.startedAt}
-                finishDisabled={finishMutation.isPending}
-                onAnswerChange={handleStudentAnswerChange}
+                finishDisabled={finishMutation.isPending || isTimeExpired}
+                onAnswerChange={isTimeExpired ? undefined : handleStudentAnswerChange}
                 onFinish={handleFinishAttempt}
                 view={studentViewQuery.data}
               />
@@ -881,6 +796,9 @@ function TestDetailPage({ testId }: { testId: string }) {
             ) : null}
             {activeAttempt && attemptTimeLeftMs === 0 && finishMutation.isPending ? (
               <p className="text-sm font-semibold text-warning">{t('testing.timeExpiredSubmitting')}</p>
+            ) : null}
+            {finishErrorMessage ? (
+              <p className="text-sm font-semibold text-danger">{finishErrorMessage}</p>
             ) : null}
           </div>
         ) : (
@@ -1503,7 +1421,7 @@ function PreviewPanel({
   isError: boolean
   isLoading: boolean
   onRetry: () => void
-  view?: TestStudentViewResponse
+  view?: TestPreviewViewResponse
 }) {
   const { t } = useTranslation()
   if (isLoading) {
@@ -1582,7 +1500,7 @@ function StudentTestViewPanel({
   finishDisabled?: boolean
   onAnswerChange?: (questionId: string, value: StudentAnswerValue) => void
   onFinish?: () => void
-  view: TestStudentViewResponse
+  view: TestStudentViewResponse | TestPreviewViewResponse
 }) {
   const { t } = useTranslation()
   const now = useNow(view.timeLimitMinutes && attemptStartedAt ? 1000 : null)
@@ -1648,12 +1566,16 @@ function StudentQuestionCard({
   answerValue?: StudentAnswerValue
   index: number
   onAnswerChange?: (questionId: string, value: StudentAnswerValue) => void
-  question: TestQuestionViewResponse
+  question: RenderableStudentQuestion
   total: number
 }) {
   const { t } = useTranslation()
-  const parsedConfiguration = parseQuestionConfigurationSafe(question.configurationJson)
+  const presentationJson = 'presentationJson' in question
+    ? question.presentationJson
+    : question.configurationJson
+  const parsedConfiguration = parseQuestionConfigurationSafe(presentationJson)
   const config = parsedConfiguration.config
+  const incompleteConfig = hasIncompleteStudentConfiguration(question, config)
 
   return (
     <div className="rounded-[16px] border border-border bg-surface p-4">
@@ -1669,7 +1591,14 @@ function StudentQuestionCard({
       </div>
       <div className="space-y-3">
         <p className="text-base font-semibold text-text-primary">{question.text}</p>
-        {question.description ? <p className="text-sm leading-6 text-text-secondary">{question.description}</p> : null}
+        {question.description
+          ? <p className="text-sm leading-6 text-text-secondary">{question.description}</p>
+          : null}
+        {incompleteConfig ? (
+          <p className="rounded-[12px] border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+            {t('testing.incompleteQuestionConfiguration')}
+          </p>
+        ) : null}
         {renderStudentAnswerSurface(question, answerValue, config, onAnswerChange, t)}
       </div>
     </div>
@@ -1777,11 +1706,24 @@ function buildQuestionConfiguration(draft: QuestionDraft) {
     case 'NUMERIC':
       return JSON.stringify({ ...base, correctValue: Number(draft.numericValue), tolerance: Number(draft.numericTolerance || 0) })
     case 'MATCHING':
-      return JSON.stringify({ ...base, pairs: draft.pairs.map(({ left, right }) => ({ left: left.trim(), right: right.trim() })) })
+      return JSON.stringify({
+        ...base,
+        leftItems: draft.pairs.map((pair) => ({ id: pair.id, text: pair.left.trim() })),
+        rightItems: draft.pairs.map((pair) => ({ id: `${pair.id}-right`, text: pair.right.trim() })),
+        pairs: draft.pairs.map((pair) => ({ leftId: pair.id, rightId: `${pair.id}-right` })),
+      })
     case 'ORDERING':
-      return JSON.stringify({ ...base, items: draft.orderingItems.map((item) => item.text.trim()) })
+      return JSON.stringify({ ...base, items: draft.orderingItems.map((item, index) => ({ id: item.id, text: item.text.trim(), orderIndex: index })) })
     case 'FILL_IN_THE_BLANK':
-      return JSON.stringify({ ...base, text: draft.blankText.trim(), blanks: draft.blanks.map((blank) => splitComma(blank.acceptedAnswers)) })
+      return JSON.stringify({
+        ...base,
+        text: draft.blankText.trim(),
+        blanks: draft.blanks.map((blank, index) => ({
+          id: blank.id,
+          label: `blank-${index + 1}`,
+          acceptedAnswers: splitComma(blank.acceptedAnswers),
+        })),
+      })
     case 'FILE_ANSWER':
       return JSON.stringify({ ...base, allowedFileTypes: splitComma(draft.allowedFileTypes), maxFileSizeMb: draft.maxFileSizeMb, rubric: draft.rubric.trim() })
     default:
@@ -1857,16 +1799,42 @@ function toQuestionEditorItem(question: QuestionResponse): QuestionEditorItem {
     draft.numericTolerance = stringifyConfigValue(config.tolerance) || '0'
   }
   if (question.type === 'MATCHING') {
-    draft.pairs = Array.isArray(config.pairs) && config.pairs.length > 0
-      ? config.pairs.map((pair) => {
-        const value = pair as { left?: string; right?: string }
-        return { id: createLocalId(), left: value.left ?? '', right: value.right ?? '' }
+    const leftItems = Array.isArray(config.leftItems) ? config.leftItems : []
+    const rightItems = Array.isArray(config.rightItems) ? config.rightItems : []
+    const pairs = Array.isArray(config.pairs) ? config.pairs : []
+    if (leftItems.length > 0 && rightItems.length > 0 && pairs.length > 0) {
+      const rightTextById = new Map(rightItems.map((item) => {
+        const value = item as { id?: string; text?: string }
+        return [value.id ?? '', value.text ?? '']
+      }))
+      draft.pairs = pairs.map((pair) => {
+        const value = pair as { leftId?: string; rightId?: string }
+        const leftId = value.leftId ?? createLocalId()
+        const leftText = leftItems.find((item) => (item as { id?: string }).id === leftId) as { text?: string } | undefined
+        return {
+          id: leftId,
+          left: leftText?.text ?? '',
+          right: rightTextById.get(value.rightId ?? '') ?? '',
+        }
       })
-      : [createPairDraft(), createPairDraft()]
+    } else {
+      draft.pairs = Array.isArray(config.pairs) && config.pairs.length > 0
+        ? config.pairs.map((pair) => {
+          const value = pair as { left?: string; right?: string }
+          return { id: createLocalId(), left: value.left ?? '', right: value.right ?? '' }
+        })
+        : [createPairDraft(), createPairDraft()]
+    }
   }
   if (question.type === 'ORDERING') {
     draft.orderingItems = Array.isArray(config.items) && config.items.length > 0
-      ? config.items.map((item) => ({ id: createLocalId(), text: String(item), correct: true }))
+      ? config.items.map((item) => {
+        if (typeof item === 'object' && item !== null) {
+          const value = item as { id?: string; text?: string }
+          return { id: value.id ?? createLocalId(), text: value.text ?? '', correct: true }
+        }
+        return { id: createLocalId(), text: String(item), correct: true }
+      })
       : question.answers.length > 0
         ? question.answers.map((answer) => ({ id: createLocalId(), text: answer.text, correct: true }))
         : [createOptionDraft(), createOptionDraft()]
@@ -1874,8 +1842,14 @@ function toQuestionEditorItem(question: QuestionResponse): QuestionEditorItem {
   if (question.type === 'FILL_IN_THE_BLANK') {
     draft.blanks = Array.isArray(config.blanks) && config.blanks.length > 0
       ? config.blanks.map((blank) => ({
-        id: createLocalId(),
-        acceptedAnswers: Array.isArray(blank) ? blank.join(', ') : '',
+        id: typeof blank === 'object' && blank !== null && 'id' in blank
+          ? String((blank as { id?: string }).id ?? createLocalId())
+          : createLocalId(),
+        acceptedAnswers: Array.isArray(blank)
+          ? blank.join(', ')
+          : (typeof blank === 'object' && blank !== null && Array.isArray((blank as { acceptedAnswers?: unknown[] }).acceptedAnswers)
+            ? ((blank as { acceptedAnswers: unknown[] }).acceptedAnswers.map((value) => String(value)).join(', '))
+            : ''),
       }))
       : [createBlankDraft()]
   }
@@ -1989,7 +1963,7 @@ function parseQuestionConfigurationSafe(value: string | null) {
 }
 
 function renderStudentAnswerSurface(
-  question: TestQuestionViewResponse,
+  question: RenderableStudentQuestion,
   answerValue: StudentAnswerValue | undefined,
   config: Record<string, unknown>,
   onAnswerChange: ((questionId: string, value: StudentAnswerValue) => void) | undefined,
@@ -2038,8 +2012,17 @@ function renderStudentAnswerSurface(
       </div>
     )
   }
-  if (question.type === 'SHORT_ANSWER' || question.type === 'NUMERIC') {
+  if (question.type === 'SHORT_ANSWER') {
     return <Input aria-label={t('testing.answerText')} value={typeof answerValue === 'string' ? answerValue : ''} onChange={(event) => onAnswerChange?.(question.id, event.target.value)} />
+  }
+  if (question.type === 'NUMERIC') {
+    const unit = typeof config.unit === 'string' ? config.unit : ''
+    return (
+      <div className="space-y-2">
+        <Input aria-label={t('testing.numericAnswer')} type="number" value={typeof answerValue === 'string' ? answerValue : ''} onChange={(event) => onAnswerChange?.(question.id, event.target.value)} />
+        {unit ? <p className="text-xs text-text-muted">{t('testing.numericUnitValue', { value: unit })}</p> : null}
+      </div>
+    )
   }
   if (question.type === 'LONG_TEXT' || question.type === 'MANUAL_GRADING') {
     return <Textarea aria-label={t('testing.answerText')} value={typeof answerValue === 'string' ? answerValue : ''} onChange={(event) => onAnswerChange?.(question.id, event.target.value)} />
@@ -2048,7 +2031,7 @@ function renderStudentAnswerSurface(
     const allowedFileTypes = Array.isArray(config.allowedFileTypes) ? config.allowedFileTypes.join(', ') : ''
     return (
       <div className="space-y-2">
-        <Input aria-label={t('testing.fileAnswer')} type="file" />
+        <p className="text-sm text-text-secondary">{t('testing.fileUploadNotAvailableYet')}</p>
         <p className="text-xs text-text-muted">
           {allowedFileTypes ? t('testing.allowedFileTypesValue', { value: allowedFileTypes }) : t('testing.manualGradingRequired')}
         </p>
@@ -2056,26 +2039,21 @@ function renderStudentAnswerSurface(
     )
   }
   if (question.type === 'MATCHING') {
-    const pairs = Array.isArray(config.pairs) ? config.pairs : []
+    const leftItems = Array.isArray(config.leftItems) ? config.leftItems : []
+    const rightItems = Array.isArray(config.rightItems) ? config.rightItems : []
     const selectedMatches = typeof answerValue === 'object' && answerValue !== null && !Array.isArray(answerValue)
       ? answerValue as Record<string, string>
       : {}
-    const rightOptions = pairs
-      .map((pair) => {
-        const value = pair as { right?: string }
-        return value.right?.trim() ?? ''
-      })
-      .filter(Boolean)
 
     return (
       <div className="space-y-3">
-        {pairs.map((pair, index) => {
-          const value = pair as { left?: string; right?: string }
-          const pairKey = `${index}`
+        {leftItems.map((item, index) => {
+          const value = item as { id?: string; label?: string }
+          const pairKey = value.id ?? `${index}`
           return (
             <div key={`${question.id}-${index}`} className="grid gap-3 rounded-[14px] border border-border bg-surface-muted p-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,280px)]">
               <div className="text-sm font-medium text-text-primary">
-                {value.left ?? t('testing.leftItem', { number: index + 1 })}
+                {value.label ?? t('testing.leftItem', { number: index + 1 })}
               </div>
               <select
                 className="field-control min-h-11 px-3"
@@ -2086,11 +2064,14 @@ function renderStudentAnswerSurface(
                 })}
               >
                 <option value="">{t('testing.selectMatch')}</option>
-                {rightOptions.map((option) => (
-                  <option key={`${pairKey}-${option}`} value={option}>
-                    {option}
-                  </option>
-                ))}
+                {rightItems.map((option, optionIndex) => {
+                  const optionValue = option as { id?: string; label?: string }
+                  return (
+                    <option key={`${pairKey}-${optionIndex}`} value={optionValue.id ?? ''}>
+                      {optionValue.label ?? ''}
+                    </option>
+                  )
+                })}
               </select>
             </div>
           )
@@ -2100,21 +2081,81 @@ function renderStudentAnswerSurface(
   }
   if (question.type === 'ORDERING') {
     const items = Array.isArray(config.items) ? config.items : []
+    const selectedOrder = Array.isArray(answerValue) && answerValue.every((value) => typeof value === 'string')
+      ? answerValue as string[]
+      : items.map((item) => {
+        const value = item as { id?: string }
+        return value.id ?? ''
+      }).filter(Boolean)
+    const move = (index: number, direction: -1 | 1) => {
+      const nextIndex = index + direction
+      if (nextIndex < 0 || nextIndex >= selectedOrder.length) {
+        return
+      }
+      const next = [...selectedOrder]
+      const [moved] = next.splice(index, 1)
+      next.splice(nextIndex, 0, moved)
+      onAnswerChange?.(question.id, next)
+    }
+    const labelById = new Map(items.map((item) => {
+      const value = item as { id?: string; label?: string }
+      return [value.id ?? '', value.label ?? '']
+    }))
     return (
       <div className="space-y-2">
-        {items.map((item, index) => (
-          <div key={`${question.id}-${index}`} className="rounded-[14px] border border-border bg-surface-muted px-3 py-2 text-sm text-text-secondary">
-            {index + 1}. {String(item)}
+        {selectedOrder.map((itemId, index) => (
+          <div key={`${question.id}-${itemId}`} className="flex items-center justify-between gap-3 rounded-[14px] border border-border bg-surface-muted px-3 py-2 text-sm text-text-secondary">
+            <span>{index + 1}. {labelById.get(itemId) ?? itemId}</span>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => move(index, -1)}>{t('testing.moveUp')}</Button>
+              <Button type="button" variant="ghost" onClick={() => move(index, 1)}>{t('testing.moveDown')}</Button>
+            </div>
           </div>
         ))}
       </div>
     )
   }
   if (question.type === 'FILL_IN_THE_BLANK') {
-    return <Textarea aria-label={t('testing.answerText')} value={typeof answerValue === 'string' ? answerValue : ''} onChange={(event) => onAnswerChange?.(question.id, event.target.value)} />
+    const blanks = Array.isArray(config.blanks) ? config.blanks : []
+    const filled = typeof answerValue === 'object' && answerValue !== null && !Array.isArray(answerValue)
+      ? answerValue as Record<string, string>
+      : {}
+    return (
+      <div className="space-y-2">
+        {blanks.map((blank, index) => {
+          const value = blank as { id?: string; placeholder?: string }
+          const blankId = value.id ?? `${index}`
+          return (
+            <Input
+              key={`${question.id}-${blankId}`}
+              aria-label={t('testing.fillBlankAnswer')}
+              placeholder={value.placeholder ?? t('testing.fillBlankAnswer')}
+              value={filled[blankId] ?? ''}
+              onChange={(event) => onAnswerChange?.(question.id, {
+                ...filled,
+                [blankId]: event.target.value,
+              })}
+            />
+          )
+        })}
+      </div>
+    )
   }
 
   return null
+}
+
+function hasIncompleteStudentConfiguration(question: RenderableStudentQuestion, config: Record<string, unknown>) {
+  if (question.type === 'MATCHING') {
+    return !Array.isArray(config.leftItems) || !Array.isArray(config.rightItems) || config.leftItems.length === 0 || config.rightItems.length === 0
+  }
+  if (question.type === 'ORDERING') {
+    return !Array.isArray(config.items) || config.items.length < 2
+  }
+  if (question.type === 'FILL_IN_THE_BLANK') {
+    return !Array.isArray(config.blanks) || config.blanks.length === 0
+  }
+  return false
 }
 
 function localizeAnswerText(value: string, t: (key: string) => string) {

@@ -70,6 +70,7 @@ public class GatewaySecurityConfig {
                         .pathMatchers(HttpMethod.PUT, "/api/v1/assignments/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")
                         .pathMatchers(HttpMethod.POST, "/api/v1/assignments/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")
                         .pathMatchers(HttpMethod.POST, "/api/v1/testing/tests/*/start").hasAnyRole("OWNER", "ADMIN", "STUDENT")
+                        .pathMatchers(HttpMethod.POST, "/api/v1/testing/tests/*/finish").hasAnyRole("OWNER", "ADMIN", "STUDENT")
                         .pathMatchers(HttpMethod.POST, "/api/v1/testing/tests/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")
                         .pathMatchers(HttpMethod.POST, "/api/v1/testing/questions/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")
                         .pathMatchers(HttpMethod.POST, "/api/v1/testing/answers/**").hasAnyRole("OWNER", "ADMIN", "TEACHER")

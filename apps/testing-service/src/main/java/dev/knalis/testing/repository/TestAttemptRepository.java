@@ -13,6 +13,8 @@ public interface TestAttemptRepository extends JpaRepository<TestAttempt, UUID> 
 
     Optional<TestAttempt> findFirstByTestIdAndUserIdAndCompletedAtIsNullOrderByStartedAtDesc(UUID testId, UUID userId);
 
+    Optional<TestAttempt> findFirstByTestIdAndUserIdAndCompletedAtIsNotNullOrderByCompletedAtDesc(UUID testId, UUID userId);
+
     List<TestAttempt> findAllByUserId(UUID userId);
 
     long countByTestId(UUID testId);
