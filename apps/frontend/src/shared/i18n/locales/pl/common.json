@@ -964,8 +964,8 @@
     },
     "subgroups": {
       "ALL": "Cała grupa",
-      "FIRST": "1 podgrupa",
-      "SECOND": "2 podgrupa"
+      "FIRST": "Podgrupa 1",
+      "SECOND": "Podgrupa 2"
     }
   },
   "teachers": {
@@ -1325,6 +1325,9 @@
     "cancelOccurrenceDescription": "To odwoła tylko to wystąpienie zajęć i nie zmieni cyklicznego szablonu.",
     "cancelOccurrenceSuccess": "Wystąpienie zajęć zostało odwołane.",
     "editLesson": "Edytuj zajęcia",
+    "saveLessonLocally": "Zapisz lokalnie",
+    "addLessonLocally": "Dodaj zajęcia lokalnie",
+    "cancelEdit": "Anuluj edycję",
     "saveChanges": "Zapisz zmiany",
     "saveChangesSuccess": "Zmiany planu zostały zapisane.",
     "discardChanges": "Odrzuć zmiany",
@@ -1393,10 +1396,15 @@
       "PRACTICAL": "Ćwiczenia"
     },
     "weekType": {
-      "ALL": "Co tydzień",
+      "ALL": "Wszystkie tygodnie",
       "EVEN": "Tydzień parzysty",
       "ODD": "Tydzień nieparzysty"
     },
+    "weekShortLabel": "Tydzień {{number}}",
+    "lessonDetails": "Szczegóły zajęć",
+    "selectLessonToViewDetails": "Wybierz zajęcia, aby wyświetlić szczegóły",
+    "timeLabel": "Czas",
+    "conflictsFound": "Konflikty",
     "modes": {
       "mine": "Mój plan",
       "group": "Plan grupy",
@@ -1511,7 +1519,19 @@
       "CURRICULUM_PLAN": "Plan nauczania",
       "DIRECT_BINDING": "Bezpośrednie przypisanie",
       "GROUP_OVERRIDE": "Override"
-    }
+    },
+    "addLessonHere": "Dodaj zajęcia tutaj",
+    "blockedReasonLabel": "Powód blokady",
+    "detailsHints": {
+      "add": "Użyj „Dodaj” w pustej komórce.",
+      "drag": "Przeciągnij zajęcia, aby je przenieść, jeśli tryb to obsługuje.",
+      "select": "Kliknij zajęcia, aby je edytować."
+    },
+    "emptySlot": "Pusty slot",
+    "noConflict": "Brak konfliktu",
+    "selectedLessonDetails": "Szczegóły wybranych zajęć",
+    "unknownConflictStatus": "Nieznany status",
+    "weekApplies": "Dotyczy tygodnia"
   },
   "adminSystem": {
     "description": "Zarządzaj dostępem, historią zmian i narzędziami wyszukiwania platformy z jednego miejsca.",
