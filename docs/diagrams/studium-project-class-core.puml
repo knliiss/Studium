@@ -1,0 +1,625 @@
+@startuml
+allowmixing
+title Studium — основна діаграма класів платформи
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam class {
+  BackgroundColor #FFF9F0
+  BorderColor #6B4B3A
+  ArrowColor #6B4B3A
+}
+skinparam enum {
+  BackgroundColor #F7EFE4
+  BorderColor #8A724E
+}
+
+package "Gateway / Frontend boundary" {
+  class FrontendApp <<React>> {
+    +renderPages()
+    +callGatewayApi()
+  }
+
+  class Gateway <<Spring Cloud Gateway>> {
+    +routeRequests()
+    +validateJwt()
+    +rateLimit()
+    +aggregateDashboard()
+    +aggregateSearch()
+  }
+}
+
+package "Auth + Profile" {
+  class User {
+    +UUID id
+    +String username
+    +String email
+    +String passwordHash
+    +Set<Role> roles
+    +boolean forcePasswordChange
+  }
+
+  enum Role {
+    OWNER
+    ADMIN
+    TEACHER
+    STUDENT
+    USER
+  }
+
+  class UserProfile {
+    +UUID id
+    +UUID userId
+    +String username
+    +String email
+    +String displayName
+    +String avatarFileKey
+    +String locale
+    +String timezone
+  }
+
+  class AuthService {
+    +login()
+    +refreshToken()
+    +resetPassword()
+    +banUser()
+  }
+
+  class ProfileService {
+    +getProfile()
+    +updateProfile()
+    +searchProfiles()
+  }
+}
+
+package "Education domain" {
+  class Specialty {
+    +UUID id
+    +String code
+    +String name
+    +boolean active
+  }
+
+  class Stream {
+    +UUID id
+    +String name
+    +UUID specialtyId
+    +Integer studyYear
+    +boolean active
+  }
+
+  class Group {
+    +UUID id
+    +String name
+    +UUID specialtyId
+    +Integer studyYear
+    +UUID streamId
+    +GroupSubgroupMode subgroupMode
+  }
+
+  enum GroupSubgroupMode {
+    NONE
+    TWO_SUBGROUPS
+  }
+
+  class GroupStudent {
+    +UUID id
+    +UUID groupId
+    +UUID userId
+    +GroupMemberRole role
+    +EducationSubgroup subgroup
+  }
+
+  enum GroupMemberRole {
+    STUDENT
+    STAROSTA
+  }
+
+  enum "Subgroup" as EducationSubgroup {
+    ALL
+    FIRST
+    SECOND
+  }
+
+  class Subject {
+    +UUID id
+    +String name
+    +String description
+  }
+
+  class Topic {
+    +UUID id
+    +UUID subjectId
+    +String title
+    +Integer orderIndex
+  }
+
+  class Lecture {
+    +UUID id
+    +UUID subjectId
+    +UUID topicId
+    +String title
+    +String content
+    +LectureStatus status
+    +Integer orderIndex
+    +UUID createdByUserId
+  }
+
+  enum LectureStatus {
+    DRAFT
+    PUBLISHED
+    CLOSED
+    ARCHIVED
+  }
+
+  class LectureAttachment {
+    +UUID id
+    +UUID lectureId
+    +UUID fileId
+    +String displayName
+    +String originalFileName
+    +String contentType
+    +long sizeBytes
+    +UUID uploadedByUserId
+  }
+
+  class TopicMaterial {
+    +UUID id
+    +UUID topicId
+    +String title
+    +String description
+    +String url
+    +UUID fileId
+    +String originalFileName
+    +String contentType
+    +long sizeBytes
+    +boolean visible
+    +boolean archived
+    +Integer orderIndex
+    +UUID createdByUserId
+    +TopicMaterialType type
+  }
+
+  enum TopicMaterialType {
+    FILE
+    LINK
+    TEXT
+  }
+
+  class EducationService {
+    +manageGroups()
+    +manageSubjects()
+    +manageTopics()
+    +manageLectures()
+    +manageTopicMaterials()
+    +resolveMembership()
+  }
+}
+
+package "Schedule domain" {
+  class AcademicSemester {
+    +UUID id
+    +String name
+    +LocalDate startDate
+    +LocalDate endDate
+    +LocalDate weekOneStartDate
+    +Integer semesterNumber
+    +boolean active
+    +boolean published
+  }
+
+  class LessonSlot {
+    +UUID id
+    +Integer number
+    +LocalTime startTime
+    +LocalTime endTime
+    +boolean active
+  }
+
+  class Room {
+    +UUID id
+    +String code
+    +String building
+    +Integer floor
+    +Integer capacity
+    +boolean active
+  }
+
+  class RoomCapability {
+    +UUID id
+    +UUID roomId
+    +LessonType lessonType
+    +Integer priority
+    +boolean active
+  }
+
+  class ScheduleTemplate {
+    +UUID id
+    +UUID semesterId
+    +UUID groupId
+    +UUID subjectId
+    +UUID teacherId
+    +DayOfWeek dayOfWeek
+    +UUID slotId
+    +WeekType weekType
+    +ScheduleSubgroup subgroup
+    +LessonType lessonType
+    +LessonFormat lessonFormat
+    +UUID roomId
+    +String onlineMeetingUrl
+    +String notes
+    +ScheduleTemplateStatus status
+    +boolean active
+  }
+
+  class ScheduleOverride {
+    +UUID id
+    +UUID templateId
+    +LocalDate date
+    +String overrideType
+    +String reason
+  }
+
+  enum WeekType {
+    ALL
+    ODD
+    EVEN
+  }
+
+  enum "Subgroup" as ScheduleSubgroup {
+    ALL
+    FIRST
+    SECOND
+  }
+
+  enum LessonType {
+    LECTURE
+    PRACTICAL
+    LABORATORY
+  }
+
+  enum LessonFormat {
+    ONLINE
+    OFFLINE
+  }
+
+  enum ScheduleTemplateStatus {
+    DRAFT
+    ACTIVE
+    ARCHIVED
+  }
+
+  class ScheduleTemplateService {
+    +createTemplate()
+    +updateTemplate()
+    +archiveTemplate()
+    +importTemplates()
+  }
+
+  class ScheduleConflictService {
+    +checkConflicts()
+    +validateTeacherAvailability()
+    +validateRoomAvailability()
+    +validateGroupCollisions()
+  }
+
+  class ScheduleReadService {
+    +resolveGroupSchedule()
+    +resolveTeacherSchedule()
+    +resolveRoomSchedule()
+  }
+}
+
+package "Assignments" {
+  class Assignment {
+    +UUID id
+    +UUID topicId
+    +UUID createdByUserId
+    +String title
+    +String description
+    +Instant deadline
+    +AssignmentStatus status
+    +Integer maxPoints
+  }
+
+  class Submission {
+    +UUID id
+    +UUID assignmentId
+    +UUID studentId
+    +SubmissionStatus status
+    +Instant submittedAt
+  }
+
+  class Grade {
+    +UUID id
+    +UUID submissionId
+    +UUID teacherId
+    +Integer points
+    +String feedback
+  }
+
+  enum AssignmentStatus {
+    DRAFT
+    PUBLISHED
+    ARCHIVED
+  }
+
+  enum SubmissionStatus {
+    DRAFT
+    SUBMITTED
+    GRADED
+  }
+
+  class AssignmentService {
+    +createAssignment()
+    +publishAssignment()
+    +submitAssignment()
+    +gradeSubmission()
+  }
+}
+
+package "Testing" {
+  class Test {
+    +UUID id
+    +UUID topicId
+    +String title
+    +TestStatus status
+    +Integer maxAttempts
+    +Integer maxPoints
+    +Integer timeLimitMinutes
+  }
+
+  class Question {
+    +UUID id
+    +UUID testId
+    +String text
+    +QuestionType type
+    +Integer points
+    +String configurationJson
+  }
+
+  class Answer {
+    +UUID id
+    +UUID questionId
+    +String text
+    +boolean correct
+  }
+
+  class TestAttempt {
+    +UUID id
+    +UUID testId
+    +UUID studentId
+    +Instant startedAt
+    +Instant completedAt
+  }
+
+  class TestResult {
+    +UUID id
+    +UUID testId
+    +UUID studentId
+    +UUID attemptId
+    +Integer score
+  }
+
+  enum TestStatus {
+    DRAFT
+    PUBLISHED
+    CLOSED
+    ARCHIVED
+  }
+
+  enum QuestionType {
+    SINGLE_CHOICE
+    MULTIPLE_CHOICE
+    TRUE_FALSE
+    SHORT_ANSWER
+    LONG_TEXT
+    NUMERIC
+    MATCHING
+    ORDERING
+    FILL_IN_THE_BLANK
+    FILE_ANSWER
+    MANUAL_GRADING
+  }
+
+  class TestingService {
+    +createTest()
+    +publishTest()
+    +startAttempt()
+    +finishAttempt()
+    +calculateResult()
+  }
+}
+
+package "Files + Notifications + Analytics" {
+  class StoredFile {
+    +UUID id
+    +UUID ownerId
+    +String originalFileName
+    +String objectKey
+    +String bucketName
+    +String contentType
+    +long sizeBytes
+    +StoredFileKind fileKind
+    +StoredFileAccess access
+    +StoredFileStatus status
+  }
+
+  enum StoredFileKind {
+    AVATAR
+    DOCUMENT
+    ATTACHMENT
+    GENERIC
+  }
+
+  enum StoredFileAccess {
+    PRIVATE
+    PUBLIC
+  }
+
+  enum StoredFileStatus {
+    PENDING_SCAN
+    READY
+    UPLOADED
+    ACTIVE
+    ORPHANED
+    REJECTED
+    DELETED
+  }
+
+  class Notification {
+    +UUID id
+    +UUID userId
+    +String type
+    +String title
+    +String body
+    +String payload
+    +boolean read
+  }
+
+  class AnalyticsSnapshot {
+    +UUID id
+    +String scopeType
+    +UUID scopeId
+    +String metricsJson
+  }
+
+  class FileService {
+    +upload()
+    +download()
+    +preview()
+    +cleanupOrphans()
+  }
+
+  class NotificationService {
+    +createNotification()
+    +markAsRead()
+    +pushRealtime()
+  }
+
+  class AnalyticsService {
+    +consumeEvents()
+    +aggregateMetrics()
+    +readDashboard()
+  }
+}
+
+package "Audit" {
+  class AuditEvent {
+    +UUID id
+    +UUID actorUserId
+    +String action
+    +String entityType
+    +UUID entityId
+    +String oldValueJson
+    +String newValueJson
+    +Instant occurredAt
+    +String requestId
+    +String sourceService
+  }
+
+  class AuditService {
+    +searchEvents()
+    +readEvent()
+  }
+}
+
+package "Infrastructure" {
+  database "PostgreSQL" as PostgreSQL
+  database "Redis" as Redis
+  queue "Kafka" as Kafka
+  cloud "MinIO" as MinIO
+}
+
+FrontendApp --> Gateway
+Gateway --> AuthService
+Gateway --> ProfileService
+Gateway --> EducationService
+Gateway --> ScheduleTemplateService
+Gateway --> ScheduleReadService
+Gateway --> AssignmentService
+Gateway --> TestingService
+Gateway --> FileService
+Gateway --> NotificationService
+Gateway --> AnalyticsService
+Gateway --> AuditService
+
+User "1" -- "1" UserProfile
+User "1" -- "*" Role
+User "1" -- "*" AuditEvent : actorUserId
+Specialty "1" -- "*" Stream
+Specialty "1" -- "*" Group
+Stream "1" -- "*" Group
+Group "1" -- "*" GroupStudent
+User "1" -- "*" GroupStudent
+Subject "1" -- "*" Topic
+Subject "1" -- "*" Group : subject_groups
+Subject "1" -- "*" User : subject_teachers
+Topic "1" -- "*" Lecture
+Lecture "1" -- "*" LectureAttachment
+Topic "1" -- "*" TopicMaterial
+Topic "1" -- "*" Assignment
+Topic "1" -- "*" Test
+
+AcademicSemester "1" -- "*" ScheduleTemplate
+LessonSlot "1" -- "*" ScheduleTemplate
+Group "1" -- "*" ScheduleTemplate
+Subject "1" -- "*" ScheduleTemplate
+User "1" -- "*" ScheduleTemplate : teacherId
+Room "0..1" -- "*" ScheduleTemplate
+Room "1" -- "*" RoomCapability
+LessonType "1" -- "*" RoomCapability
+ScheduleTemplate "1" -- "*" ScheduleOverride
+
+Assignment "1" -- "*" Submission
+Submission "1" -- "0..1" Grade
+Assignment "1" -- "*" StoredFile : attachments
+Submission "1" -- "*" StoredFile : attachments
+
+Test "1" -- "*" Question
+Question "1" -- "*" Answer
+Test "1" -- "*" TestAttempt
+TestAttempt "1" -- "0..1" TestResult
+
+TopicMaterial "0..1" -- "1" StoredFile : FILE material
+LectureAttachment "1" -- "1" StoredFile : attachment
+User "1" -- "*" StoredFile : owner
+User "1" -- "*" Notification
+AnalyticsSnapshot ..> Kafka : built from events
+
+AuthService --> PostgreSQL
+ProfileService --> PostgreSQL
+EducationService --> PostgreSQL
+ScheduleTemplateService --> PostgreSQL
+AssignmentService --> PostgreSQL
+TestingService --> PostgreSQL
+FileService --> PostgreSQL
+AnalyticsService --> PostgreSQL
+NotificationService --> PostgreSQL
+AuditService --> PostgreSQL
+
+FileService --> MinIO
+Gateway --> Redis
+NotificationService --> Redis
+AuthService --> Kafka
+ScheduleTemplateService --> Kafka
+AssignmentService --> Kafka
+TestingService --> Kafka
+Kafka --> NotificationService
+Kafka --> AnalyticsService
+
+note right of ScheduleTemplate
+Ядро розкладу:
+семестр + група + предмет + викладач +
+день + слот + тип тижня + підгрупа.
+end note
+
+note bottom of Gateway
+Gateway — єдина зовнішня точка входу:
+routing, JWT validation, rate limiting,
+dashboard/search/BFF endpoints.
+end note
+
+@enduml

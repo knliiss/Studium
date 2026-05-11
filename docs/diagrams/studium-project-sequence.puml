@@ -1,0 +1,186 @@
+@startuml
+title Studium — загальна діаграма послідовності основного навчального сценарію
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #6B4B3A
+  LifeLineBorderColor #8A724E
+  LifeLineBackgroundColor #F7EFE4
+  ParticipantBorderColor #6B4B3A
+  ParticipantBackgroundColor #FFF9F0
+  ActorBorderColor #6B4B3A
+  ActorBackgroundColor #F3E7DA
+}
+skinparam note {
+  BackgroundColor #FFF3DA
+  BorderColor #B66A3C
+}
+
+actor "Студент" as Student
+actor "Викладач" as Teacher
+
+participant "Frontend\nReact + TypeScript" as FE
+participant "Gateway\nєдина зовнішня точка входу" as GW
+participant "Auth Service" as Auth
+participant "Profile Service" as Profile
+participant "Education Service" as Education
+participant "Schedule Service" as Schedule
+participant "Assignment Service" as Assignment
+participant "Testing Service" as Testing
+participant "File Service" as File
+participant "Notification Service" as Notification
+participant "Analytics Service" as Analytics
+queue "Kafka\nподії домену" as Kafka
+database "PostgreSQL\nсхеми сервісів" as DB
+database "MinIO\nоб'єктне сховище" as MinIO
+collections "Redis\nкеш / rate-limit / realtime" as Redis
+
+== Авторизація ==
+
+Student -> FE: Відкриває систему
+FE -> GW: POST /api/auth/login
+GW -> Auth: Передає запит логіну
+Auth -> DB: Перевірити користувача, пароль, ролі
+Auth -> Redis: Перевірити rate-limit / ban state
+Auth --> GW: JWT access + refresh token
+GW --> FE: Авторизація успішна
+
+FE -> GW: GET /api/profile/me
+GW -> Profile: Завантажити профіль
+Profile -> DB: user_profiles
+Profile --> GW: ProfileResponse
+GW --> FE: Дані профілю
+
+== Відкриття навчального простору ==
+
+FE -> GW: GET /api/v1/dashboard/student/me
+GW -> Education: Групи, предмети, теми користувача
+Education -> DB: education.groups / subjects / topics
+Education --> GW: Academic context
+
+GW -> Schedule: Поточний розклад
+Schedule -> DB: semesters, slots, templates, overrides
+Schedule --> GW: Resolved lessons
+
+GW -> Assignment: Активні завдання
+Assignment -> DB: assignments, submissions, grades
+Assignment --> GW: Assignment summary
+
+GW -> Testing: Доступні тести
+Testing -> DB: tests, questions, attempts
+Testing --> GW: Test summary
+
+GW -> Analytics: KPI / прогрес
+Analytics -> DB: snapshots / aggregates
+Analytics --> GW: Dashboard metrics
+
+GW --> FE: Агрегований dashboard
+
+== Робота з курсом ==
+
+Student -> FE: Відкриває предмет / тему
+FE -> GW: GET /api/v1/education/subjects/{id}
+GW -> Education: Дані предмета, теми, лекції, матеріали
+Education -> DB: subjects, topics, lectures, topic_materials
+Education --> GW: Course content
+
+FE -> GW: GET /api/v1/assignments/topic/{topicId}
+GW -> Assignment: Завдання теми
+Assignment --> GW: Assignments
+
+FE -> GW: GET /api/v1/testing/tests/topic/{topicId}
+GW -> Testing: Тести теми
+Testing --> GW: Tests
+
+GW --> FE: Контент теми
+
+== Завантаження матеріалу / файлу ==
+
+Student -> FE: Відкриває прикріплений файл
+FE -> GW: GET /api/files/{fileId}/preview
+GW -> File: Перевірка доступу і metadata
+File -> DB: stored_files
+File -> MinIO: Отримати object stream / preview
+File --> GW: File preview/download response
+GW --> FE: Превʼю або файл
+
+== Виконання завдання ==
+
+Student -> FE: Надсилає роботу
+opt якщо є файл
+    FE -> GW: POST /api/files
+  GW -> File: Upload
+  File -> MinIO: Зберегти обʼєкт
+  File -> DB: stored_files metadata
+  File --> GW: fileId
+  GW --> FE: fileId
+end
+
+FE -> GW: POST /api/v1/submissions
+GW -> Assignment: Створити submission
+Assignment -> Education: Перевірити групу / доступ до предмета
+Education --> Assignment: Access context
+Assignment -> DB: submissions, attachments
+Assignment -> Kafka: assignment.assignment-submitted.v1
+Assignment --> GW: SubmissionResponse
+GW --> FE: Submission saved
+
+Kafka -> Notification: Подія submission
+Notification -> DB: Створити notification викладачу
+Notification -> Redis: realtime fanout
+Notification --> FE: WebSocket notification
+
+Kafka -> Analytics: Подія submission
+Analytics -> DB: Оновити агрегати
+
+== Проходження тесту ==
+
+Student -> FE: Починає тест
+FE -> GW: POST /api/v1/testing/tests/{testId}/start
+GW -> Testing: Start attempt
+Testing -> Education: Перевірити доступ групи
+Education --> Testing: Access context
+Testing -> DB: test_attempts
+Testing -> Kafka: testing.test-started.v1
+Testing --> GW: Attempt started
+GW --> FE: Start ok
+
+Student -> FE: Відповідає на питання
+FE -> GW: POST /api/v1/testing/tests/{testId}/finish
+GW -> Testing: Finish attempt with answers
+Testing -> DB: tests, questions, answers, attempts
+Testing -> Testing: Оцінити відповіді, time-limit, attempts
+Testing -> DB: test_results
+Testing -> Kafka: testing.test-completed.v1
+Testing --> GW: TestResultResponse
+GW --> FE: Результат тесту
+
+Kafka -> Notification: Подія завершення тесту
+Notification -> DB: Notification
+Kafka -> Analytics: Подія результату тесту
+Analytics -> DB: Оновити статистику
+
+== Дії викладача ==
+
+Teacher -> FE: Створює / публікує завдання або тест
+FE -> GW: POST /api/v1/assignments або /api/v1/testing/tests
+GW -> Assignment: Assignment lifecycle
+GW -> Testing: Test lifecycle
+Assignment -> DB: assignment data
+Testing -> DB: test/question data
+Assignment -> Kafka: assignment.assignment-created/updated.v1
+Testing -> Kafka: testing.test-published.v1
+Kafka -> Notification: Сповістити студентів
+
+note over GW
+Gateway централізує зовнішній HTTP/API доступ,
+перевіряє JWT, rate-limit, routing, dashboard/search/BFF endpoints.
+end note
+
+note over Kafka
+Міжсервісна комунікація для нотифікацій,
+аналітики та асинхронних реакцій проходить через Kafka events.
+end note
+
+@enduml

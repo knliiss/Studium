@@ -1,0 +1,208 @@
+@startuml
+title Studium — діаграма прецидентів усієї платформи
+
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #FFF9F0
+  BorderColor #8A724E
+  ArrowColor #6B4B3A
+}
+skinparam rectangle {
+  BorderColor #6B4B3A
+}
+
+actor "Гість" as Guest
+actor "Студент" as Student
+actor "Викладач" as Teacher
+actor "Адміністратор" as Admin
+actor "Власник" as Owner
+actor "Система\nподій" as EventSystem
+
+Owner --|> Admin
+Admin --|> Teacher
+Teacher --|> Student
+
+rectangle "Studium LMS Platform" {
+
+  package "Автентифікація та профіль" {
+    usecase "Реєстрація" as UC_Register
+    usecase "Вхід у систему" as UC_Login
+    usecase "Оновлення токена" as UC_Refresh
+    usecase "Вихід" as UC_Logout
+    usecase "Скидання пароля" as UC_ResetPassword
+    usecase "Керування MFA" as UC_Mfa
+    usecase "Перегляд профілю" as UC_ProfileView
+    usecase "Редагування профілю" as UC_ProfileEdit
+    usecase "Завантаження аватара" as UC_Avatar
+    usecase "Бан / розбан користувача" as UC_Ban
+  }
+
+  package "Академічна структура" {
+    usecase "Керування спеціальностями" as UC_Specialties
+    usecase "Керування потоками" as UC_Streams
+    usecase "Керування групами" as UC_Groups
+    usecase "Керування студентами групи" as UC_GroupStudents
+    usecase "Керування предметами" as UC_Subjects
+    usecase "Призначення викладачів" as UC_SubjectTeachers
+    usecase "Керування темами" as UC_Topics
+    usecase "Керування лекціями" as UC_Lectures
+    usecase "Керування матеріалами теми" as UC_Materials
+    usecase "Перегляд курсу" as UC_CourseView
+  }
+
+  package "Розклад" {
+    usecase "Перегляд свого розкладу" as UC_MySchedule
+    usecase "Перегляд розкладу групи" as UC_GroupSchedule
+    usecase "Керування семестрами" as UC_Semesters
+    usecase "Керування слотами пар" as UC_Slots
+    usecase "Керування аудиторіями" as UC_Rooms
+    usecase "Налаштування можливостей аудиторій" as UC_RoomCaps
+    usecase "Створення заняття" as UC_CreateLesson
+    usecase "Редагування заняття" as UC_EditLesson
+    usecase "Переміщення заняття" as UC_MoveLesson
+    usecase "Копіювання заняття" as UC_CopyLesson
+    usecase "Видалення заняття" as UC_DeleteLesson
+    usecase "Перевірка конфліктів" as UC_CheckConflicts
+    usecase "Збереження змін розкладу" as UC_SaveSchedule
+    usecase "Публікація розкладу" as UC_PublishSchedule
+    usecase "Експорт розкладу iCal" as UC_ExportIcal
+  }
+
+  package "Завдання та оцінювання" {
+    usecase "Перегляд завдань" as UC_ViewAssignments
+    usecase "Створення завдання" as UC_CreateAssignment
+    usecase "Редагування завдання" as UC_EditAssignment
+    usecase "Публікація / закриття завдання" as UC_AssignmentLifecycle
+    usecase "Прикріплення файлів до завдання" as UC_AssignmentFiles
+    usecase "Надсилання роботи" as UC_SubmitAssignment
+    usecase "Коментарі до submission" as UC_SubmissionComments
+    usecase "Оцінювання роботи" as UC_GradeSubmission
+  }
+
+  package "Тести" {
+    usecase "Перегляд доступних тестів" as UC_ViewTests
+    usecase "Конструктор тесту" as UC_TestBuilder
+    usecase "Керування питаннями" as UC_Questions
+    usecase "Публікація / закриття тесту" as UC_TestLifecycle
+    usecase "Попередній перегляд тесту" as UC_TestPreview
+    usecase "Початок спроби" as UC_StartTest
+    usecase "Завершення тесту" as UC_FinishTest
+    usecase "Перегляд результатів тесту" as UC_TestResults
+  }
+
+  package "Файли" {
+    usecase "Завантаження файлу" as UC_FileUpload
+    usecase "Перегляд metadata файлу" as UC_FileMetadata
+    usecase "Превʼю файлу" as UC_FilePreview
+    usecase "Завантаження файлу з системи" as UC_FileDownload
+    usecase "Очищення orphan-файлів" as UC_FileCleanup
+  }
+
+  package "Нотифікації та realtime" {
+    usecase "Перегляд нотифікацій" as UC_ViewNotifications
+    usecase "Позначити як прочитане" as UC_ReadNotification
+    usecase "Realtime WebSocket-сповіщення" as UC_Realtime
+    usecase "Створення системних нотифікацій" as UC_SystemNotifications
+  }
+
+  package "Аналітика, пошук, аудит" {
+    usecase "Перегляд dashboard" as UC_Dashboard
+    usecase "Глобальний пошук" as UC_Search
+    usecase "Аналітика студента" as UC_StudentAnalytics
+    usecase "Аналітика групи / предмета" as UC_GroupAnalytics
+    usecase "Журнал аудиту" as UC_Audit
+  }
+}
+
+Guest --> UC_Register
+Guest --> UC_Login
+Guest --> UC_ResetPassword
+
+Student --> UC_ProfileView
+Student --> UC_ProfileEdit
+Student --> UC_Avatar
+Student --> UC_CourseView
+Student --> UC_MySchedule
+Student --> UC_GroupSchedule
+Student --> UC_ExportIcal
+Student --> UC_ViewAssignments
+Student --> UC_SubmitAssignment
+Student --> UC_SubmissionComments
+Student --> UC_ViewTests
+Student --> UC_StartTest
+Student --> UC_FinishTest
+Student --> UC_TestResults
+Student --> UC_FilePreview
+Student --> UC_FileDownload
+Student --> UC_ViewNotifications
+Student --> UC_ReadNotification
+Student --> UC_Realtime
+Student --> UC_Dashboard
+
+Teacher --> UC_CourseView
+Teacher --> UC_Lectures
+Teacher --> UC_Materials
+Teacher --> UC_CreateAssignment
+Teacher --> UC_EditAssignment
+Teacher --> UC_AssignmentLifecycle
+Teacher --> UC_AssignmentFiles
+Teacher --> UC_GradeSubmission
+Teacher --> UC_TestBuilder
+Teacher --> UC_Questions
+Teacher --> UC_TestLifecycle
+Teacher --> UC_TestPreview
+Teacher --> UC_GroupSchedule
+Teacher --> UC_ViewNotifications
+Teacher --> UC_GroupAnalytics
+
+Admin --> UC_Specialties
+Admin --> UC_Streams
+Admin --> UC_Groups
+Admin --> UC_GroupStudents
+Admin --> UC_Subjects
+Admin --> UC_SubjectTeachers
+Admin --> UC_Topics
+Admin --> UC_Semesters
+Admin --> UC_Slots
+Admin --> UC_Rooms
+Admin --> UC_RoomCaps
+Admin --> UC_CreateLesson
+Admin --> UC_EditLesson
+Admin --> UC_MoveLesson
+Admin --> UC_CopyLesson
+Admin --> UC_DeleteLesson
+Admin --> UC_CheckConflicts
+Admin --> UC_SaveSchedule
+Admin --> UC_PublishSchedule
+Admin --> UC_Search
+Admin --> UC_Audit
+
+Owner --> UC_Ban
+Owner --> UC_Mfa
+
+EventSystem --> UC_SystemNotifications
+EventSystem --> UC_Realtime
+EventSystem --> UC_StudentAnalytics
+EventSystem --> UC_GroupAnalytics
+
+UC_CreateLesson ..> UC_CheckConflicts : <<include>>
+UC_EditLesson ..> UC_CheckConflicts : <<include>>
+UC_MoveLesson ..> UC_CheckConflicts : <<include>>
+UC_SaveSchedule ..> UC_CheckConflicts : <<include>>
+UC_PublishSchedule ..> UC_CheckConflicts : <<include>>
+
+UC_SubmitAssignment ..> UC_FileUpload : <<include>>
+UC_AssignmentFiles ..> UC_FileUpload : <<include>>
+UC_Avatar ..> UC_FileUpload : <<include>>
+
+UC_TestBuilder ..> UC_Questions : <<include>>
+UC_FinishTest ..> UC_TestResults : <<include>>
+
+UC_SystemNotifications ..> UC_ViewNotifications : <<extend>>
+UC_Dashboard ..> UC_StudentAnalytics : <<include>>
+
+@enduml
