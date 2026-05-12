@@ -216,11 +216,12 @@ upload_file() {
   local token="$1"
   local file_path="$2"
   local file_kind="$3"
+  local file_content_type="${4:-text/plain}"
 
   local out http_code resp_body
   out=$(curl -sS -w "\n%{http_code}" \
     -H "Authorization: Bearer $token" \
-    -F "file=@${file_path};type=text/plain" \
+    -F "file=@${file_path};type=${file_content_type}" \
     -F "fileKind=${file_kind}" \
     "http://localhost:${GATEWAY_PORT:-8080}/api/files")
   http_code="${out##*$'\n'}"
@@ -294,7 +295,7 @@ ensure_schedule_template() {
   local notes="${14}"
 
   local existing_id
-  existing_id="$(sql_scalar "select id::text from ${SCHEDULE_DB_SCHEMA:-schedule}.schedule_templates where semester_id = '${semester_id}' and group_id = '${group_id}' and subject_id = '${subject_id}' and teacher_id = '${teacher_id}' and day_of_week = '${day_of_week}' and slot_id = '${slot_id}' and week_type = '${week_type}' and subgroup = '${subgroup}' and lesson_type = '${lesson_type}' and lesson_format = '${lesson_format}' and status <> 'ARCHIVED' limit 1;")"
+  existing_id="$(sql_scalar "select id::text from ${SCHEDULE_DB_SCHEMA:-schedule}.schedule_templates where semester_id = '${semester_id}' and group_id = '${group_id}' and day_of_week = '${day_of_week}' and slot_id = '${slot_id}' and week_type = '${week_type}' and subgroup = '${subgroup}' and status <> 'ARCHIVED' order by updated_at desc limit 1;")"
   if [[ -n "$existing_id" ]]; then
     printf '%s' "$existing_id"
     return 0
@@ -403,6 +404,30 @@ JSON
 )" >/dev/null
 }
 
+ensure_assignment_attachment() {
+  local token="$1"
+  local assignment_id="$2"
+  local file_id="$3"
+  local display_name="$4"
+  local existing_id
+
+  existing_id="$(sql_scalar "select id::text from ${ASSIGNMENT_DB_SCHEMA:-assignment}.assignment_attachments where assignment_id = '${assignment_id}' and display_name = '${display_name}' limit 1;" 2>/dev/null || true)"
+  if [[ -n "$existing_id" ]]; then
+    printf '%s' "$existing_id"
+    return 0
+  fi
+  existing_id="$(sql_scalar "select id::text from ${ASSIGNMENT_DB_SCHEMA:-assignment}.assignment_attachments where assignment_id = '${assignment_id}' and file_id = '${file_id}' limit 1;" 2>/dev/null || true)"
+  if [[ -n "$existing_id" ]]; then
+    printf '%s' "$existing_id"
+    return 0
+  fi
+
+  printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/assignments/${assignment_id}/attachments" "$token" "$(cat <<JSON
+{"fileId":"${file_id}","displayName":"${display_name}"}
+JSON
+)" | json_get id)"
+}
+
 get_test_status() {
   local token="$1"
   local test_id="$2"
@@ -496,6 +521,33 @@ ensure_test_answer() {
 {"questionId":"${question_id}","text":"${answer_text}","isCorrect":${is_correct}}
 JSON
 )")" | json_get id
+}
+
+ensure_test_question_configured() {
+  local token="$1"
+  local test_id="$2"
+  local question_text="$3"
+  local question_type="$4"
+  local order_index="$5"
+  local points="$6"
+  local answers_json="$7"
+  local configuration_json="${8:-null}"
+  local existing_id
+
+  existing_id="$(sql_scalar "select id::text from ${TESTING_DB_SCHEMA:-testing}.questions where test_id = '${test_id}' and text = '${question_text}' limit 1;" 2>/dev/null || true)"
+  if [[ -z "$existing_id" ]]; then
+    existing_id="$(printf '%s' "$(api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/questions" "$token" "$(cat <<JSON
+{"testId":"${test_id}","text":"${question_text}","type":"${question_type}","points":${points},"orderIndex":${order_index},"required":true}
+JSON
+)")" | json_get id)"
+  fi
+
+  api_json "PATCH" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/questions/${existing_id}" "$token" "$(cat <<JSON
+{"text":"${question_text}","type":"${question_type}","description":null,"points":${points},"orderIndex":${order_index},"required":true,"feedback":null,"configurationJson":${configuration_json},"answers":${answers_json}}
+JSON
+)" >/dev/null
+
+  printf '%s' "$existing_id"
 }
 
 ensure_schedule_semester() {
@@ -850,6 +902,21 @@ create_temp_file() {
   printf '%s' "$path"
 }
 
+create_temp_png() {
+  local filename="$1"
+  local path
+  path="$(mktemp "${TMPDIR:-/tmp}/studium-demo-${filename}-XXXX.png")"
+  python3 - "$path" <<'PY'
+import base64
+import sys
+
+png_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII="
+with open(sys.argv[1], "wb") as output:
+    output.write(base64.b64decode(png_data))
+PY
+  printf '%s' "$path"
+}
+
 wait_for_student_risk() {
   local user_id="$1"
   local _expected_risk="$2"
@@ -1048,6 +1115,7 @@ ensure_schedule_extra_override "$admin_token" "$semester_id" "$TODAY" "$group_on
 
 published_assignment_deadline="$(instant_shift 3)"
 graded_assignment_deadline="$(instant_shift 5)"
+teacher_assignment_deadline="$(instant_shift 7)"
 late_assignment_initial_deadline="$(instant_shift 6)"
 draft_assignment_deadline="$(instant_shift 8)"
 archived_assignment_deadline="$(instant_shift 10)"
@@ -1055,6 +1123,7 @@ published_test_available_from="$(instant_shift -1)"
 published_test_available_until="$(instant_shift 4)"
 draft_test_available_until="$(instant_shift 9)"
 closed_test_available_until="$(instant_shift 2)"
+workflow_test_available_until="$(instant_shift 6)"
 late_assignment_actual_deadline="$(instant_shift -2)"
 reminder_at="$(instant_shift 1)"
 
@@ -1071,6 +1140,13 @@ JSON
 )")" | json_get id)"
 ensure_assignment_published "$admin_token" "$graded_assignment_id"
 upsert_assignment_availability "$admin_token" "$graded_assignment_id" "$group_one_id" "$graded_assignment_deadline" "false" "1" "false"
+
+teacher_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-assignment}.assignments" "title" "Teacher Alpha API Contract Drill" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/assignments" "$teacher_alpha_token" "$(cat <<JSON
+{"topicId":"${graphs_topic_id}","title":"Teacher Alpha API Contract Drill","description":"Teacher-owned assignment for role-based detail and submission review QA.","deadline":"${teacher_assignment_deadline}","allowLateSubmissions":true,"maxSubmissions":2,"allowResubmit":true,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
+JSON
+)")" | json_get id)"
+ensure_assignment_published "$teacher_alpha_token" "$teacher_assignment_id"
+upsert_assignment_availability "$teacher_alpha_token" "$teacher_assignment_id" "$group_one_id" "$teacher_assignment_deadline" "true" "2" "true"
 
 late_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-assignment}.assignments" "title" "Late SQL Reflection" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/assignments" "$admin_token" "$(cat <<JSON
 {"topicId":"${sql_topic_id}","title":"Late SQL Reflection","description":"Assignment intentionally backdated for late submission analytics.","deadline":"${late_assignment_initial_deadline}","allowLateSubmissions":true,"maxSubmissions":2,"allowResubmit":true,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
@@ -1097,10 +1173,15 @@ sql_exec "update ${ASSIGNMENT_DB_SCHEMA:-assignment}.assignment_group_availabili
 
 student_one_file_path="$(create_temp_file "student-one-graph" "Student One graph exercise answer.")"
 student_two_file_path="$(create_temp_file "student-two-late" "Student Two late SQL reflection.")"
-trap 'rm -f "${student_one_file_path}" "${student_two_file_path}"' EXIT
+teacher_attachment_file_path="$(create_temp_png "teacher-assignment-brief")"
+trap 'rm -f "${student_one_file_path}" "${student_two_file_path}" "${teacher_attachment_file_path}"' EXIT
 
 student_one_file_id="$(printf '%s' "$(upload_file "$student_one_token" "$student_one_file_path" "ATTACHMENT")" | json_get id)"
 student_two_file_id="$(printf '%s' "$(upload_file "$student_two_token" "$student_two_file_path" "ATTACHMENT")" | json_get id)"
+teacher_attachment_file_id="$(printf '%s' "$(upload_file "$teacher_alpha_token" "$teacher_attachment_file_path" "ATTACHMENT" "image/png")" | json_get id)"
+
+ensure_assignment_attachment "$teacher_alpha_token" "$teacher_assignment_id" "$teacher_attachment_file_id" "teacher-alpha-brief.png" >/dev/null
+sql_exec "delete from ${ASSIGNMENT_DB_SCHEMA:-assignment}.assignment_attachments where assignment_id = '${teacher_assignment_id}' and display_name <> 'teacher-alpha-brief.png';" || true
 
 graded_submission_id="$(sql_scalar "select id::text from ${ASSIGNMENT_DB_SCHEMA:-assignment}.submissions where assignment_id = '${graded_assignment_id}' and user_id = '${student_one_id}' order by submitted_at desc limit 1;" 2>/dev/null || echo "")"
 if [[ -z "$graded_submission_id" ]]; then
@@ -1118,6 +1199,15 @@ if [[ -z "$late_submission_id" ]]; then
 JSON
 )" >/dev/null
   late_submission_id="$(sql_scalar "select id::text from ${ASSIGNMENT_DB_SCHEMA:-assignment}.submissions where assignment_id = '${late_assignment_id}' and user_id = '${student_two_id}' order by submitted_at desc limit 1;" 2>/dev/null || echo "")"
+fi
+
+teacher_review_submission_id="$(sql_scalar "select id::text from ${ASSIGNMENT_DB_SCHEMA:-assignment}.submissions where assignment_id = '${teacher_assignment_id}' and user_id = '${student_two_id}' order by submitted_at desc limit 1;" 2>/dev/null || echo "")"
+if [[ -z "$teacher_review_submission_id" ]]; then
+  api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/submissions" "$student_two_token" "$(cat <<JSON
+{"assignmentId":"${teacher_assignment_id}","fileId":"${student_two_file_id}"}
+JSON
+)" >/dev/null
+  teacher_review_submission_id="$(sql_scalar "select id::text from ${ASSIGNMENT_DB_SCHEMA:-assignment}.submissions where assignment_id = '${teacher_assignment_id}' and user_id = '${student_two_id}' order by submitted_at desc limit 1;" 2>/dev/null || echo "")"
 fi
 
 if [[ -n "$graded_submission_id" ]]; then
@@ -1161,14 +1251,101 @@ upsert_test_availability "$admin_token" "$closed_test_id" "$group_one_id" "$publ
 ensure_test_published "$admin_token" "$published_test_id"
 ensure_test_closed "$admin_token" "$closed_test_id"
 
-student_two_test_result_id="$(sql_scalar "select id::text from ${TESTING_DB_SCHEMA:-testing}.test_results where test_id = '${published_test_id}' and user_id = '${student_two_id}' limit 1;" 2>/dev/null || echo "")"
-if [[ -z "$student_two_test_result_id" ]]; then
-  api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests/${published_test_id}/start" "$student_two_token" "" >/dev/null
-  api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/results" "$student_two_token" "$(cat <<JSON
-{"testId":"${published_test_id}","score":20}
+workflow_test_id="$(printf '%s' "$(ensure_entity "${TESTING_DB_SCHEMA:-testing}.tests" "title" "Teacher Alpha Testing Workflow QA" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests" "$teacher_alpha_token" "$(cat <<JSON
+{"topicId":"${sorting_topic_id}","title":"Teacher Alpha Testing Workflow QA","maxAttempts":2,"timeLimitMinutes":25,"availableFrom":"${published_test_available_from}","availableUntil":"${workflow_test_available_until}","showCorrectAnswersAfterSubmit":true,"shuffleQuestions":false,"shuffleAnswers":false}
 JSON
-)" >/dev/null
+)")" | json_get id)"
+
+workflow_test_status="$(get_test_status "$teacher_alpha_token" "$workflow_test_id")"
+if [[ "$workflow_test_status" == "DRAFT" ]]; then
+  ensure_test_question_configured "$teacher_alpha_token" "$workflow_test_id" "Choose the stable sorting algorithm." "SINGLE_CHOICE" "0" "10" '[{"text":"Merge sort","isCorrect":true},{"text":"Selection sort","isCorrect":false}]' >/dev/null
+  ensure_test_question_configured "$teacher_alpha_token" "$workflow_test_id" "Select all divide-and-conquer algorithms." "MULTIPLE_CHOICE" "1" "10" '[{"text":"Merge sort","isCorrect":true},{"text":"Quick sort","isCorrect":true},{"text":"Bubble sort","isCorrect":false}]' >/dev/null
+  ensure_test_question_configured "$teacher_alpha_token" "$workflow_test_id" "What is the average time complexity of merge sort?" "SHORT_ANSWER" "2" "10" '[{"text":"O(n log n)","isCorrect":true},{"text":"n log n","isCorrect":true}]' >/dev/null
+  ensure_test_question_configured "$teacher_alpha_token" "$workflow_test_id" "Explain when quick sort can degrade to O(n^2)." "MANUAL_GRADING" "3" "10" '[]' '"{\"rubric\":\"Check if student mentions poor pivot choice or already sorted adversarial input.\"}"' >/dev/null
 fi
+
+upsert_test_availability "$teacher_alpha_token" "$workflow_test_id" "$group_one_id" "$published_test_available_from" "$workflow_test_available_until" "$workflow_test_available_until" "2"
+if [[ "$workflow_test_status" == "CLOSED" ]]; then
+  api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests/${workflow_test_id}/reopen" "$teacher_alpha_token" "" >/dev/null
+fi
+ensure_test_published "$teacher_alpha_token" "$workflow_test_id"
+
+sql_exec "create table if not exists ${TESTING_DB_SCHEMA:-testing}.test_result_questions (id uuid primary key, result_id uuid not null, question_id uuid not null, question_type varchar(40) not null, question_text varchar(2000) not null, question_order_index integer not null default 0, max_points integer not null, submitted_value_json text, correct_value_json text, auto_score integer not null default 0, score integer not null default 0, review_comment varchar(2000), reviewed_by_user_id uuid, reviewed_at timestamp(6) with time zone, time_spent_seconds integer, created_at timestamp(6) with time zone not null, updated_at timestamp(6) with time zone not null);"
+sql_exec "create index if not exists idx_test_result_questions_result_id on ${TESTING_DB_SCHEMA:-testing}.test_result_questions (result_id);"
+sql_exec "create index if not exists idx_test_result_questions_question_id on ${TESTING_DB_SCHEMA:-testing}.test_result_questions (question_id);"
+sql_exec "create unique index if not exists uk_test_result_questions_result_id_question_id on ${TESTING_DB_SCHEMA:-testing}.test_result_questions (result_id, question_id);"
+
+sql_exec "delete from ${TESTING_DB_SCHEMA:-testing}.test_result_questions where result_id in (select id from ${TESTING_DB_SCHEMA:-testing}.test_results where test_id = '${workflow_test_id}' and user_id in ('${student_one_id}','${student_two_id}'));"
+sql_exec "delete from ${TESTING_DB_SCHEMA:-testing}.test_results where test_id = '${workflow_test_id}' and user_id in ('${student_one_id}','${student_two_id}');"
+sql_exec "delete from ${TESTING_DB_SCHEMA:-testing}.test_attempts where test_id = '${workflow_test_id}' and user_id in ('${student_one_id}','${student_two_id}');"
+
+workflow_questions_json="$(api_json "GET" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/questions/test/${workflow_test_id}" "$teacher_alpha_token" "")"
+student_one_answers_json="$(printf '%s' "$workflow_questions_json" | python3 <<'PY'
+import json
+import sys
+
+questions = json.loads(sys.stdin.read() or "[]")
+answers = []
+for question in questions:
+    qid = question["id"]
+    qtype = question["type"]
+    variants = question.get("answers") or []
+    if qtype in ("SINGLE_CHOICE", "TRUE_FALSE"):
+        correct = next((item for item in variants if item.get("isCorrect")), variants[0] if variants else None)
+        if correct:
+            answers.append({"questionId": qid, "value": correct["id"]})
+    elif qtype == "MULTIPLE_CHOICE":
+        correct_ids = [item["id"] for item in variants if item.get("isCorrect")]
+        if correct_ids:
+            answers.append({"questionId": qid, "value": correct_ids})
+    elif qtype == "SHORT_ANSWER":
+        accepted = variants[0]["text"] if variants else "O(n log n)"
+        answers.append({"questionId": qid, "value": accepted})
+    elif qtype in ("NUMERIC",):
+        numeric = variants[0]["text"] if variants else "0"
+        answers.append({"questionId": qid, "value": numeric})
+    else:
+        answers.append({"questionId": qid, "value": "Seeded manual-review explanation."})
+print(json.dumps({"answers": answers}, separators=(",", ":")))
+PY
+)"
+student_two_answers_json="$(printf '%s' "$workflow_questions_json" | python3 <<'PY'
+import json
+import sys
+
+questions = json.loads(sys.stdin.read() or "[]")
+answers = []
+for question in questions:
+    qid = question["id"]
+    qtype = question["type"]
+    variants = question.get("answers") or []
+    if qtype in ("SINGLE_CHOICE", "TRUE_FALSE"):
+        wrong = next((item for item in variants if not item.get("isCorrect")), variants[0] if variants else None)
+        if wrong:
+            answers.append({"questionId": qid, "value": wrong["id"]})
+    elif qtype == "MULTIPLE_CHOICE":
+        wrong_ids = [item["id"] for item in variants if not item.get("isCorrect")]
+        answers.append({"questionId": qid, "value": wrong_ids[:1]})
+    elif qtype == "SHORT_ANSWER":
+        answers.append({"questionId": qid, "value": "O(n^2)"})
+    elif qtype in ("NUMERIC",):
+        answers.append({"questionId": qid, "value": "999"})
+    else:
+        answers.append({"questionId": qid, "value": "Needs manual review with additional detail."})
+print(json.dumps({"answers": answers}, separators=(",", ":")))
+PY
+)"
+
+api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests/${workflow_test_id}/start" "$student_one_token" "" >/dev/null
+sleep 2
+api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests/${workflow_test_id}/finish" "$student_one_token" "$student_one_answers_json" >/dev/null
+
+api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests/${workflow_test_id}/start" "$student_two_token" "" >/dev/null
+sleep 2
+api_json "POST" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/tests/${workflow_test_id}/finish" "$student_two_token" "$student_two_answers_json" >/dev/null
+
+student_one_workflow_result_id="$(sql_scalar "select id::text from ${TESTING_DB_SCHEMA:-testing}.test_results where test_id = '${workflow_test_id}' and user_id = '${student_one_id}' order by created_at desc limit 1;" 2>/dev/null || echo "")"
+student_two_workflow_result_id="$(sql_scalar "select id::text from ${TESTING_DB_SCHEMA:-testing}.test_results where test_id = '${workflow_test_id}' and user_id = '${student_two_id}' order by created_at desc limit 1;" 2>/dev/null || echo "")"
 
 best_effort_notification_internal_json "POST" "/internal/notifications/users/${student_one_id}/reminders/assignments/deadline" "${NOTIFICATION_INTERNAL_SHARED_SECRET:-change-me-notification-internal}" "$(cat <<JSON
 {"assignmentId":"${published_assignment_id}","title":"Merge Sort Walkthrough","deadline":"${published_assignment_deadline}","reminderAt":"${reminder_at}"}
@@ -1192,4 +1369,16 @@ if [[ -n "$student_one_first_notification_id" ]]; then
   best_effort_api_json "PATCH" "http://localhost:${GATEWAY_PORT:-8080}/api/notifications/${student_one_first_notification_id}/read" "$student_one_token" ""
 fi
 
+echo "QA TESTING SCENARIOS:"
+echo "  subject.programming.id=${programming_subject_id}"
+echo "  test.workflow.id=${workflow_test_id}"
+echo "  test.workflow.teacher=teacher.alpha"
+echo "  test.workflow.student1.result.id=${student_one_workflow_result_id}"
+echo "  test.workflow.student2.result.id=${student_two_workflow_result_id}"
+echo "  url.teacher=http://localhost:${FRONTEND_PORT:-5173}/tests/${workflow_test_id}"
+echo "  url.student=http://localhost:${FRONTEND_PORT:-5173}/tests/${workflow_test_id}"
+echo "  creds.teacher=teacher.alpha / DemoPass123!"
+echo "  creds.student1=student.one / DemoPass123!"
+echo "  creds.student2=student.two / DemoPass123!"
+echo "  creds.admin=admin.demo / DemoPass123!"
 echo "Demo seed completed."

@@ -46,7 +46,7 @@ export function BulkAvailabilityToolbar({
           {t('availability.connectedGroupsCount', { count: connectedGroupsCount })}
         </span>
       </div>
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <FormField label={t('common.labels.status')}>
           <SegmentedControl
             ariaLabel={t('availability.title')}
@@ -111,7 +111,7 @@ export function BulkAvailabilityToolbar({
           {t('availability.applySameToAll')}
         </Button>
       </div>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
         <EntityPicker
           label={t('availability.copyFromGroup')}
           value={form.copyFromGroupId}

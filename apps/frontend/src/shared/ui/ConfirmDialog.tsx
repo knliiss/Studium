@@ -3,12 +3,16 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/shared/ui/Button'
 
 export function ConfirmDialog({
+  cancelLabel,
+  confirmLabel,
   description,
   open,
   onCancel,
   onConfirm,
   title,
 }: {
+  cancelLabel?: string
+  confirmLabel?: string
   description: string
   open: boolean
   onCancel: () => void
@@ -30,9 +34,9 @@ export function ConfirmDialog({
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="secondary" onClick={onCancel}>
-            {t('common.actions.cancel')}
+            {cancelLabel ?? t('common.actions.cancel')}
           </Button>
-          <Button onClick={onConfirm}>{t('common.actions.confirm')}</Button>
+          <Button onClick={onConfirm}>{confirmLabel ?? t('common.actions.confirm')}</Button>
         </div>
       </div>
     </div>

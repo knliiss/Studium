@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowDown,
   ArrowUp,
@@ -12,7 +12,9 @@ import {
   ExternalLink,
   FileText,
   GraduationCap,
+  Layers3,
   Link2,
+  NotebookTabs,
   Plus,
   Settings2,
   TestTube2,
@@ -55,6 +57,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
+import { SectionTabs } from '@/shared/ui/SectionTabs'
 import { Select } from '@/shared/ui/Select'
 import { Textarea } from '@/shared/ui/Textarea'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
@@ -94,6 +97,9 @@ type CourseItem =
       to: string
     }
 
+type SubjectTab = 'overview' | 'topics' | 'assignments' | 'tests' | 'materials' | 'students' | 'analytics' | 'settings'
+const SUBJECT_TABS: SubjectTab[] = ['overview', 'topics', 'assignments', 'tests', 'materials', 'students', 'analytics', 'settings']
+
 function buildRange() {
   const today = new Date()
   const until = new Date(today)
@@ -111,6 +117,7 @@ export function SubjectDetailPage() {
   const { primaryRole, roles, session } = useAuth()
   const queryClient = useQueryClient()
   const range = useMemo(() => buildRange(), [])
+  const [searchParams, setSearchParams] = useSearchParams()
   const currentUserId = session?.user.id ?? ''
   const isStudent = primaryRole === 'STUDENT'
   const isAdmin = hasAnyRole(roles, ['ADMIN', 'OWNER'])
@@ -160,6 +167,22 @@ export function SubjectDetailPage() {
     selectedGroupIds: [] as string[],
     selectedTeacherIds: [] as string[],
   })
+  const requestedTab = searchParams.get('tab')
+  const activeTab = SUBJECT_TABS.includes(requestedTab as SubjectTab)
+    ? requestedTab as SubjectTab
+    : 'overview'
+
+  function handleTabChange(nextTab: SubjectTab) {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (nextTab === 'overview') {
+        next.delete('tab')
+      } else {
+        next.set('tab', nextTab)
+      }
+      return next
+    }, { replace: true })
+  }
 
   const subjectQuery = useQuery({
     queryKey: ['education', 'subject', subjectId],
@@ -567,9 +590,6 @@ export function SubjectDetailPage() {
   const studentUpcomingDeadlines = (studentDashboardQuery.data?.upcomingDeadlines ?? [])
     .filter((item) => item.subjectId === subjectId)
     .sort((left, right) => left.deadline.localeCompare(right.deadline))
-  const studentRecentGrades = (studentDashboardQuery.data?.recentGrades ?? [])
-    .filter((item) => item.subjectId === subjectId)
-    .sort((left, right) => right.gradedAt.localeCompare(left.gradedAt))
   const studentAvailableTests = new Map(
     (studentDashboardQuery.data?.availableTests ?? [])
       .filter((item) => item.subjectId === subjectId)
@@ -624,6 +644,54 @@ export function SubjectDetailPage() {
       topicId: null,
     },
   ]
+  const latestMaterials = materials
+    .slice()
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 5)
+  const latestAssignments = assignments
+    .slice()
+    .sort((left, right) => left.deadline.localeCompare(right.deadline))
+    .slice(0, 6)
+  const latestTests = tests
+    .slice()
+    .sort((left, right) => {
+      const leftDate = left.availableUntil ?? left.createdAt
+      const rightDate = right.availableUntil ?? right.createdAt
+      return leftDate.localeCompare(rightDate)
+    })
+    .slice(0, 6)
+  const upcomingDeadlines = [
+    ...assignments.map((assignment) => ({
+      id: assignment.id,
+      kind: 'assignment' as const,
+      title: assignment.title,
+      deadline: assignment.deadline,
+      status: assignment.status,
+      to: `/assignments/${assignment.id}`,
+    })),
+    ...tests
+      .filter((test) => Boolean(test.availableUntil))
+      .map((test) => ({
+        id: test.id,
+        kind: 'test' as const,
+        title: test.title,
+        deadline: test.availableUntil ?? test.createdAt,
+        status: test.status,
+        to: `/tests/${test.id}`,
+      })),
+  ]
+    .sort((left, right) => left.deadline.localeCompare(right.deadline))
+    .slice(0, 8)
+  const courseTabs = [
+    { id: 'overview', label: t('education.subjectTabs.overview') },
+    { id: 'topics', label: t('education.subjectTabs.topics') },
+    { id: 'assignments', label: t('education.subjectTabs.assignments') },
+    { id: 'tests', label: t('education.subjectTabs.tests') },
+    { id: 'materials', label: t('education.subjectTabs.materials') },
+    { id: 'students', label: t('education.subjectTabs.students') },
+    { id: 'analytics', label: t('education.subjectTabs.analytics') },
+    ...(canManageSettings ? [{ id: 'settings', label: t('education.subjectTabs.settings') }] : []),
+  ] as Array<{ id: SubjectTab; label: string }>
   const settingsGroupItems: CardPickerItem[] = (groupOptionsQuery.data?.items ?? []).map((group) => ({
     id: group.id,
     title: group.name,
@@ -735,8 +803,13 @@ export function SubjectDetailPage() {
       selectedGroupIds: currentSubject.groupIds,
       selectedTeacherIds: currentSubject.teacherIds,
     })
+    handleTabChange('settings')
     setSettingsOpen(true)
   }
+
+  const nearestDeadline = upcomingDeadlines[0]?.deadline
+    ?? studentUpcomingDeadlines[0]?.deadline
+    ?? null
 
   return (
     <div className="space-y-6">
@@ -747,9 +820,28 @@ export function SubjectDetailPage() {
           { label: subject.name },
         ]}
       />
-
-      <PageHeader
-        actions={(
+      <Card className="space-y-5 rounded-2xl border border-border-strong bg-surface p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-4">
+            <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-border bg-accent-muted text-accent">
+              <NotebookTabs className="h-6 w-6" />
+            </span>
+            <div className="min-w-0 space-y-2">
+              <h1 className="break-words text-2xl font-bold tracking-[-0.03em] text-text-primary md:text-3xl">{subject.name}</h1>
+              <p className="text-sm leading-6 text-text-secondary">{subject.description ?? t('education.subjectDescriptionFallback')}</p>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-border bg-surface-muted px-3 py-1 text-xs font-semibold text-text-secondary">
+                  {t('education.subjectGroupsCount', { count: subject.groupIds.length })}
+                </span>
+                <span className="rounded-full border border-border bg-surface-muted px-3 py-1 text-xs font-semibold text-text-secondary">
+                  {t('education.subjectTeachersCount', { count: subject.teacherIds.length })}
+                </span>
+                <span className="rounded-full border border-border bg-surface-muted px-3 py-1 text-xs font-semibold text-text-secondary">
+                  {sidebarMetrics ? t('common.status.ACTIVE') : t('education.statusUnavailable')}
+                </span>
+              </div>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-3">
             <Link to="/subjects">
               <Button variant="secondary">{t('education.backToSubjects')}</Button>
@@ -761,397 +853,595 @@ export function SubjectDetailPage() {
               </Button>
             ) : null}
           </div>
-        )}
-        description={subject.description ?? t('education.subjectDescriptionFallback')}
-        title={subject.name}
-      />
+        </div>
+      </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title={t('education.overview.topics')} value={topics.length} />
-        <MetricCard title={t('education.overview.assignments')} value={assignments.length} />
-        <MetricCard title={t('education.overview.tests')} value={tests.length} />
-        <MetricCard title={t('navigation.shared.groups')} value={subject.groupIds.length} />
-      </div>
+      <SectionTabs
+        activeId={activeTab}
+        items={courseTabs}
+        onChange={(tabId) => handleTabChange(tabId as SubjectTab)}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <main className="space-y-5">
-          <div className="space-y-4">
-            <CourseSection
-              actions={canManageContent ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setOpenAddMenu((current) => current === 'general' ? null : 'general')
-                    setBuilder(null)
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t('education.addContent')}
-                </Button>
-              ) : null}
-              description={t('education.generalSectionDescription')}
-              items={generalItems}
-              title={t('education.courseGeneralSection')}
-            >
-              {openAddMenu === 'general' && canManageContent ? (
-                <AddContentPanel
-                  allowSection
-                  title={t('education.addContent')}
-                  onAddAssignment={undefined}
-                  onAddSection={openTopicBuilder}
-                  onAddTest={undefined}
-                />
-              ) : null}
-              {builder?.mode === 'topic' ? (
-                <BuilderPanel
-                  title={t('education.createTopic')}
-                  onCancel={() => setBuilder(null)}
-                >
-                  <FormField label={t('common.labels.title')}>
-                    <Input
-                      value={topicForm.title}
-                      onChange={(event) => setTopicForm({ title: event.target.value })}
-                    />
-                  </FormField>
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      disabled={!topicForm.title.trim() || createTopicMutation.isPending}
-                      onClick={() => createTopicMutation.mutate()}
-                    >
-                      {t('common.actions.create')}
-                    </Button>
-                    <Button variant="secondary" onClick={() => setBuilder(null)}>
-                      {t('common.actions.cancel')}
-                    </Button>
-                  </div>
-                  {!topicForm.title.trim() ? (
-                    <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
-                  ) : null}
-                </BuilderPanel>
-              ) : null}
-            </CourseSection>
-
-            {topics.length === 0 ? (
-              <EmptyState
-                action={canManageContent ? (
-                  <Button onClick={openTopicBuilder}>{t('education.addFirstSection')}</Button>
-                ) : undefined}
-                description={canManageContent ? t('education.noTopicsTeacher') : t('education.noContentAvailable')}
-                title={t('education.courseContentFlow')}
-              />
-            ) : (
-              topics.map((topic, index) => {
-                const items = orderedItemsByTopicId.get(topic.id) ?? []
-                return (
-                  <CourseSection
-                    key={topic.id}
-                    actions={(
-                      <div className="flex flex-wrap gap-2">
-                        <Link to={`/subjects/${subjectId}/topics/${topic.id}`}>
-                          <Button variant="secondary">{t('common.actions.open')}</Button>
-                        </Link>
-                        {canManageContent ? (
-                          <>
-                            <Button
-                              disabled={index === 0 || reorderTopicsMutation.isPending}
-                              variant="ghost"
-                              onClick={() => moveTopic(topic.id, -1)}
-                            >
-                              <ArrowUp className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              disabled={index === topics.length - 1 || reorderTopicsMutation.isPending}
-                              variant="ghost"
-                              onClick={() => moveTopic(topic.id, 1)}
-                            >
-                              <ArrowDown className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={() => {
-                                setOpenAddMenu((current) => current === topic.id ? null : topic.id)
-                                setBuilder(null)
-                              }}
-                            >
-                              <Plus className="mr-2 h-4 w-4" />
-                              {t('education.addContent')}
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
-                    )}
-                    description={t('education.topicWorkloadSummary', {
-                      assignments: assignments.filter((assignment) => assignment.topicId === topic.id).length,
-                      lectures: lectures.filter((lecture) => lecture.topicId === topic.id).length,
-                      materials: materials.filter((material) => material.topicId === topic.id).length,
-                      tests: tests.filter((test) => test.topicId === topic.id).length,
-                    })}
-                    emptyLabel={canManageContent ? t('education.emptyTopicTeacher') : t('education.noContentAvailable')}
-                    items={items}
-                    renderItems={false}
-                    title={topic.title}
-                  >
-                    {openAddMenu === topic.id && canManageContent ? (
-                      <AddContentPanel
-                        title={t('education.addContent')}
-                        onAddAssignment={() => openAssignmentBuilder(topic.id)}
-                        onAddLecture={() => openLectureBuilder(topic.id)}
-                        onAddMaterial={() => openMaterialBuilder(topic.id)}
-                        onAddTest={() => openTestBuilder(topic.id)}
+          {activeTab === 'overview' ? (
+            <div className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <MetricCard title={t('education.overview.topics')} value={topics.length} />
+                <MetricCard title={t('education.overview.assignments')} value={assignments.length} />
+                <MetricCard title={t('education.overview.tests')} value={tests.length} />
+                <MetricCard title={t('education.courseGroups')} value={subject.groupIds.length} />
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+                  <PageHeader title={t('education.aboutCourse')} />
+                  <p className="text-sm leading-6 text-text-secondary">{subject.description ?? t('education.subjectOverviewFallback')}</p>
+                </Card>
+                <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+                  <PageHeader title={t('education.courseProgress')} />
+                  {isStudent && studentSubjectAnalyticsQuery.data ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <SidebarLine
+                        label={t('analytics.completionRate')}
+                        value={`${Math.round(studentSubjectAnalyticsQuery.data.completionRate * 100)}%`}
                       />
-                    ) : null}
+                      <SidebarLine
+                        label={t('dashboard.metrics.averageScore')}
+                        value={studentSubjectAnalyticsQuery.data.averageScore == null ? '-' : `${studentSubjectAnalyticsQuery.data.averageScore}`}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-text-secondary">{t('education.emptyAnalytics')}</p>
+                  )}
+                </Card>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+                  <PageHeader title={t('education.latestMaterials')} />
+                  {latestMaterials.length === 0 ? (
+                    <p className="text-sm text-text-secondary">{t('education.noContentAvailable')}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {latestMaterials.map((material) => (
+                        <Link key={material.id} to={`/materials/${material.id}`} className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 transition hover:border-border-strong">
+                          <p className="font-semibold text-text-primary">{material.title}</p>
+                          <p className="mt-1 text-xs text-text-muted">
+                            {t(`education.materialTypeLabels.${material.type}`)} · {formatDateTime(material.updatedAt)}
+                          </p>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+                <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+                  <PageHeader title={t('education.upcomingDeadlines')} />
+                  {upcomingDeadlines.length === 0 ? (
+                    <p className="text-sm text-text-secondary">{t('education.noUpcomingDeadline')}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {upcomingDeadlines.map((item) => (
+                        <Link key={`${item.kind}-${item.id}`} to={item.to} className="flex items-start justify-between gap-3 rounded-[14px] border border-border bg-surface-muted px-4 py-3 transition hover:border-border-strong">
+                          <div>
+                            <p className="font-semibold text-text-primary">{item.title}</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-text-muted">
+                              {item.kind === 'assignment' ? t('education.contentType.assignment') : t('education.contentType.test')}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-text-primary">{formatDateTime(item.deadline)}</p>
+                            <p className="mt-1 text-xs text-text-muted">{item.status}</p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            </div>
+          ) : null}
 
-                    {builder?.mode === 'assignment' && builder.topicId === topic.id ? (
-                      <BuilderPanel
-                        title={t('assignments.createAssignment')}
-                        onCancel={() => setBuilder(null)}
+          {activeTab === 'topics' ? (
+            <div className="space-y-4">
+              <CourseSection
+                actions={canManageContent ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setOpenAddMenu((current) => current === 'general' ? null : 'general')
+                      setBuilder(null)
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t('education.addContent')}
+                  </Button>
+                ) : null}
+                description={t('education.generalSectionDescription')}
+                items={generalItems}
+                title={t('education.courseGeneralSection')}
+              >
+                {openAddMenu === 'general' && canManageContent ? (
+                  <AddContentPanel
+                    allowSection
+                    title={t('education.addContent')}
+                    onAddAssignment={undefined}
+                    onAddSection={openTopicBuilder}
+                    onAddTest={undefined}
+                  />
+                ) : null}
+                {builder?.mode === 'topic' ? (
+                  <BuilderPanel
+                    title={t('education.createTopic')}
+                    onCancel={() => setBuilder(null)}
+                  >
+                    <FormField label={t('common.labels.title')}>
+                      <Input
+                        value={topicForm.title}
+                        onChange={(event) => setTopicForm({ title: event.target.value })}
+                      />
+                    </FormField>
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        disabled={!topicForm.title.trim() || createTopicMutation.isPending}
+                        onClick={() => createTopicMutation.mutate()}
                       >
-                        <FormField label={t('common.labels.title')}>
-                          <Input
-                            value={assignmentForm.title}
-                            onChange={(event) => setAssignmentForm((current) => ({ ...current, title: event.target.value }))}
-                          />
-                        </FormField>
-                        <FormField label={t('common.labels.deadline')}>
-                          <Input
-                            type="datetime-local"
-                            value={assignmentForm.deadline}
-                            onChange={(event) => setAssignmentForm((current) => ({ ...current, deadline: event.target.value }))}
-                          />
-                        </FormField>
-                        <FormField label={t('common.labels.description')}>
-                          <Textarea
-                            value={assignmentForm.description}
-                            onChange={(event) => setAssignmentForm((current) => ({ ...current, description: event.target.value }))}
-                          />
-                        </FormField>
-                        <div className="flex flex-wrap gap-3">
-                          <Button
-                            disabled={!assignmentForm.title.trim() || !assignmentForm.deadline || createAssignmentMutation.isPending}
-                            onClick={() => createAssignmentMutation.mutate()}
-                          >
-                            {t('common.actions.create')}
-                          </Button>
-                          <Button variant="secondary" onClick={() => setBuilder(null)}>
-                            {t('common.actions.cancel')}
-                          </Button>
-                        </div>
-                        {!assignmentForm.title.trim() || !assignmentForm.deadline ? (
-                          <p className="text-sm text-text-secondary">{t('courseBuilder.assignmentRequired')}</p>
-                        ) : null}
-                      </BuilderPanel>
+                        {t('common.actions.create')}
+                      </Button>
+                      <Button variant="secondary" onClick={() => setBuilder(null)}>
+                        {t('common.actions.cancel')}
+                      </Button>
+                    </div>
+                    {!topicForm.title.trim() ? (
+                      <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
                     ) : null}
+                  </BuilderPanel>
+                ) : null}
+              </CourseSection>
 
-                    {builder?.mode === 'lecture' && builder.topicId === topic.id ? (
-                      <BuilderPanel
-                        title={t('education.createLecture')}
-                        onCancel={() => setBuilder(null)}
-                      >
-                        <FormField label={t('common.labels.title')}>
-                          <Input
-                            value={lectureForm.title}
-                            onChange={(event) => setLectureForm((current) => ({ ...current, title: event.target.value }))}
-                          />
-                        </FormField>
-                        <FormField label={t('common.labels.description')}>
-                          <Textarea
-                            value={lectureForm.content}
-                            onChange={(event) => setLectureForm((current) => ({ ...current, content: event.target.value }))}
-                          />
-                        </FormField>
-                        <div className="flex flex-wrap gap-3">
-                          <Button
-                            disabled={!lectureForm.title.trim() || createLectureMutation.isPending}
-                            onClick={() => createLectureMutation.mutate()}
-                          >
-                            {t('common.actions.create')}
-                          </Button>
-                          <Button variant="secondary" onClick={() => setBuilder(null)}>
-                            {t('common.actions.cancel')}
-                          </Button>
+              {topics.length === 0 ? (
+                <EmptyState
+                  action={canManageContent ? (
+                    <Button onClick={openTopicBuilder}>{t('education.addFirstSection')}</Button>
+                  ) : undefined}
+                  description={canManageContent ? t('education.noTopicsTeacher') : t('education.noContentAvailable')}
+                  title={t('education.courseContentFlow')}
+                />
+              ) : (
+                topics.map((topic, index) => {
+                  const items = orderedItemsByTopicId.get(topic.id) ?? []
+                  return (
+                    <CourseSection
+                      key={topic.id}
+                      actions={(
+                        <div className="flex flex-wrap gap-2">
+                          <Link to={`/subjects/${subjectId}/topics/${topic.id}`}>
+                            <Button variant="secondary">{t('common.actions.open')}</Button>
+                          </Link>
+                          {canManageContent ? (
+                            <>
+                              <Button
+                                disabled={index === 0 || reorderTopicsMutation.isPending}
+                                variant="ghost"
+                                onClick={() => moveTopic(topic.id, -1)}
+                              >
+                                <ArrowUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                disabled={index === topics.length - 1 || reorderTopicsMutation.isPending}
+                                variant="ghost"
+                                onClick={() => moveTopic(topic.id, 1)}
+                              >
+                                <ArrowDown className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() => {
+                                  setOpenAddMenu((current) => current === topic.id ? null : topic.id)
+                                  setBuilder(null)
+                                }}
+                              >
+                                <Plus className="mr-2 h-4 w-4" />
+                                {t('education.addContent')}
+                              </Button>
+                            </>
+                          ) : null}
                         </div>
-                        {!lectureForm.title.trim() ? (
-                          <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
-                        ) : null}
-                      </BuilderPanel>
-                    ) : null}
+                      )}
+                      description={t('education.topicWorkloadSummary', {
+                        assignments: assignments.filter((assignment) => assignment.topicId === topic.id).length,
+                        lectures: lectures.filter((lecture) => lecture.topicId === topic.id).length,
+                        materials: materials.filter((material) => material.topicId === topic.id).length,
+                        tests: tests.filter((test) => test.topicId === topic.id).length,
+                      })}
+                      emptyLabel={canManageContent ? t('education.emptyTopicTeacher') : t('education.noContentAvailable')}
+                      items={items}
+                      renderItems={false}
+                      title={topic.title}
+                    >
+                      {openAddMenu === topic.id && canManageContent ? (
+                        <AddContentPanel
+                          title={t('education.addContent')}
+                          onAddAssignment={() => openAssignmentBuilder(topic.id)}
+                          onAddLecture={() => openLectureBuilder(topic.id)}
+                          onAddMaterial={() => openMaterialBuilder(topic.id)}
+                          onAddTest={() => openTestBuilder(topic.id)}
+                        />
+                      ) : null}
 
-                    {builder?.mode === 'material' && builder.topicId === topic.id ? (
-                      <BuilderPanel
-                        title={t('education.addMaterial')}
-                        onCancel={() => setBuilder(null)}
-                      >
-                        <FormField label={t('education.materialTitle')}>
-                          <Input
-                            value={materialForm.title}
-                            onChange={(event) => setMaterialForm((current) => ({ ...current, title: event.target.value }))}
-                          />
-                        </FormField>
-                        <FormField label={t('education.materialType')}>
-                          <Select
-                            value={materialForm.type}
-                            onChange={(event) => setMaterialForm((current) => ({ ...current, type: event.target.value as TopicMaterialType }))}
-                          >
-                            <option value="TEXT">{t('education.textMaterial')}</option>
-                            <option value="LINK">{t('education.linkMaterial')}</option>
-                            <option value="FILE">{t('education.fileMaterial')}</option>
-                          </Select>
-                        </FormField>
-                        <FormField label={t('education.materialDescription')}>
-                          <Textarea
-                            value={materialForm.description}
-                            onChange={(event) => setMaterialForm((current) => ({ ...current, description: event.target.value }))}
-                          />
-                        </FormField>
-                        {materialForm.type === 'LINK' ? (
-                          <FormField label={t('education.materialUrl')}>
-                            <Input
-                              value={materialForm.url}
-                              onChange={(event) => setMaterialForm((current) => ({ ...current, url: event.target.value }))}
-                            />
-                          </FormField>
-                        ) : null}
-                        {materialForm.type === 'FILE' ? (
-                          <FormField label={t('education.uploadFile')}>
-                            <Input type="file" onChange={(event) => setMaterialFile(event.target.files?.[0] ?? null)} />
-                          </FormField>
-                        ) : null}
-                        <div className="flex items-center gap-2">
-                          <input
-                            id={`material-visible-${topic.id}`}
-                            checked={materialForm.visible}
-                            type="checkbox"
-                            onChange={(event) => setMaterialForm((current) => ({ ...current, visible: event.target.checked }))}
-                          />
-                          <label htmlFor={`material-visible-${topic.id}`} className="text-sm text-text-secondary">
-                            {t('education.visibleToStudents')}
-                          </label>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                          <Button
-                            disabled={
-                              !materialForm.title.trim()
-                              || (materialForm.type === 'FILE' && !materialFile)
-                              || (materialForm.type === 'LINK' && !materialForm.url.trim())
-                              || (materialForm.type === 'TEXT' && !materialForm.description.trim())
-                              || createMaterialMutation.isPending
-                            }
-                            onClick={() => createMaterialMutation.mutate()}
-                          >
-                            {t('common.actions.create')}
-                          </Button>
-                          <Button variant="secondary" onClick={() => setBuilder(null)}>
-                            {t('common.actions.cancel')}
-                          </Button>
-                        </div>
-                      </BuilderPanel>
-                    ) : null}
-
-                    {builder?.mode === 'test' && builder.topicId === topic.id ? (
-                      <BuilderPanel
-                        title={t('testing.createTest')}
-                        onCancel={() => setBuilder(null)}
-                      >
-                        <div className="grid gap-4 md:grid-cols-2">
+                      {builder?.mode === 'assignment' && builder.topicId === topic.id ? (
+                        <BuilderPanel
+                          title={t('assignments.createAssignment')}
+                          onCancel={() => setBuilder(null)}
+                        >
                           <FormField label={t('common.labels.title')}>
                             <Input
-                              value={testForm.title}
-                              onChange={(event) => setTestForm((current) => ({ ...current, title: event.target.value }))}
+                              value={assignmentForm.title}
+                              onChange={(event) => setAssignmentForm((current) => ({ ...current, title: event.target.value }))}
                             />
                           </FormField>
-                          <FormField label={t('testing.availableUntil')}>
+                          <FormField label={t('common.labels.deadline')}>
                             <Input
                               type="datetime-local"
-                              value={testForm.availableUntil}
-                              onChange={(event) => setTestForm((current) => ({ ...current, availableUntil: event.target.value }))}
+                              value={assignmentForm.deadline}
+                              onChange={(event) => setAssignmentForm((current) => ({ ...current, deadline: event.target.value }))}
                             />
                           </FormField>
-                        </div>
-                        <div className="grid gap-4 md:grid-cols-3">
-                          <FormField label={t('testing.maxPoints')}>
-                            <Input
-                              type="number"
-                              value={testForm.maxPoints}
-                              onChange={(event) => setTestForm((current) => ({ ...current, maxPoints: Number(event.target.value) }))}
+                          <FormField label={t('common.labels.description')}>
+                            <Textarea
+                              value={assignmentForm.description}
+                              onChange={(event) => setAssignmentForm((current) => ({ ...current, description: event.target.value }))}
                             />
                           </FormField>
-                          <FormField label={t('testing.maxAttempts')}>
-                            <Input
-                              type="number"
-                              value={testForm.maxAttempts}
-                              onChange={(event) => setTestForm((current) => ({ ...current, maxAttempts: Number(event.target.value) }))}
-                            />
-                          </FormField>
-                          <FormField label={t('testing.timeLimitMinutes')}>
-                            <Input
-                              type="number"
-                              value={testForm.timeLimitMinutes}
-                              onChange={(event) => setTestForm((current) => ({ ...current, timeLimitMinutes: Number(event.target.value) }))}
-                            />
-                          </FormField>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                          <Button
-                            disabled={!testForm.title.trim() || createTestMutation.isPending}
-                            onClick={() => createTestMutation.mutate()}
-                          >
-                            {t('common.actions.create')}
-                          </Button>
-                          <Button variant="secondary" onClick={() => setBuilder(null)}>
-                            {t('common.actions.cancel')}
-                          </Button>
-                        </div>
-                        {!testForm.title.trim() ? (
-                          <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
-                        ) : null}
-                      </BuilderPanel>
-                    ) : null}
-
-                    {items.map((item, itemIndex) => (
-                      <CourseItemCard
-                        key={item.id}
-                        item={item}
-                        canManageContent={canManageContent}
-                        moveControl={item.kind === 'text' ? null : (
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap gap-3">
                             <Button
-                              disabled={itemIndex === 0}
-                              variant="ghost"
-                              onClick={() => void moveCourseItemWithinTopic(topic.id, itemIndex, -1)}
+                              disabled={!assignmentForm.title.trim() || !assignmentForm.deadline || createAssignmentMutation.isPending}
+                              onClick={() => createAssignmentMutation.mutate()}
                             >
-                              <ArrowUp className="h-4 w-4" />
+                              {t('common.actions.create')}
                             </Button>
-                            <Button
-                              disabled={itemIndex === items.length - 1}
-                              variant="ghost"
-                              onClick={() => void moveCourseItemWithinTopic(topic.id, itemIndex, 1)}
-                            >
-                              <ArrowDown className="h-4 w-4" />
+                            <Button variant="secondary" onClick={() => setBuilder(null)}>
+                              {t('common.actions.cancel')}
                             </Button>
-                            <Select
-                              value={item.topicId ?? topic.id}
-                              onChange={(event) => void moveCourseItemToTopic(item, event.target.value)}
-                            >
-                              {topics.map((targetTopic) => (
-                                <option key={targetTopic.id} value={targetTopic.id}>
-                                  {targetTopic.title}
-                                </option>
-                              ))}
-                            </Select>
                           </div>
-                        )}
-                      />
-                    ))}
-                  </CourseSection>
-                )
-              })
-            )}
-          </div>
+                          {!assignmentForm.title.trim() || !assignmentForm.deadline ? (
+                            <p className="text-sm text-text-secondary">{t('courseBuilder.assignmentRequired')}</p>
+                          ) : null}
+                        </BuilderPanel>
+                      ) : null}
+
+                      {builder?.mode === 'lecture' && builder.topicId === topic.id ? (
+                        <BuilderPanel
+                          title={t('education.createLecture')}
+                          onCancel={() => setBuilder(null)}
+                        >
+                          <FormField label={t('common.labels.title')}>
+                            <Input
+                              value={lectureForm.title}
+                              onChange={(event) => setLectureForm((current) => ({ ...current, title: event.target.value }))}
+                            />
+                          </FormField>
+                          <FormField label={t('common.labels.description')}>
+                            <Textarea
+                              value={lectureForm.content}
+                              onChange={(event) => setLectureForm((current) => ({ ...current, content: event.target.value }))}
+                            />
+                          </FormField>
+                          <div className="flex flex-wrap gap-3">
+                            <Button
+                              disabled={!lectureForm.title.trim() || createLectureMutation.isPending}
+                              onClick={() => createLectureMutation.mutate()}
+                            >
+                              {t('common.actions.create')}
+                            </Button>
+                            <Button variant="secondary" onClick={() => setBuilder(null)}>
+                              {t('common.actions.cancel')}
+                            </Button>
+                          </div>
+                          {!lectureForm.title.trim() ? (
+                            <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
+                          ) : null}
+                        </BuilderPanel>
+                      ) : null}
+
+                      {builder?.mode === 'material' && builder.topicId === topic.id ? (
+                        <BuilderPanel
+                          title={t('education.addMaterial')}
+                          onCancel={() => setBuilder(null)}
+                        >
+                          <FormField label={t('education.materialTitle')}>
+                            <Input
+                              value={materialForm.title}
+                              onChange={(event) => setMaterialForm((current) => ({ ...current, title: event.target.value }))}
+                            />
+                          </FormField>
+                          <FormField label={t('education.materialType')}>
+                            <Select
+                              value={materialForm.type}
+                              onChange={(event) => setMaterialForm((current) => ({ ...current, type: event.target.value as TopicMaterialType }))}
+                            >
+                              <option value="TEXT">{t('education.textMaterial')}</option>
+                              <option value="LINK">{t('education.linkMaterial')}</option>
+                              <option value="FILE">{t('education.fileMaterial')}</option>
+                            </Select>
+                          </FormField>
+                          <FormField label={t('education.materialDescription')}>
+                            <Textarea
+                              value={materialForm.description}
+                              onChange={(event) => setMaterialForm((current) => ({ ...current, description: event.target.value }))}
+                            />
+                          </FormField>
+                          {materialForm.type === 'LINK' ? (
+                            <FormField label={t('education.materialUrl')}>
+                              <Input
+                                value={materialForm.url}
+                                onChange={(event) => setMaterialForm((current) => ({ ...current, url: event.target.value }))}
+                              />
+                            </FormField>
+                          ) : null}
+                          {materialForm.type === 'FILE' ? (
+                            <FormField label={t('education.uploadFile')}>
+                              <Input type="file" onChange={(event) => setMaterialFile(event.target.files?.[0] ?? null)} />
+                            </FormField>
+                          ) : null}
+                          <div className="flex items-center gap-2">
+                            <input
+                              id={`material-visible-${topic.id}`}
+                              checked={materialForm.visible}
+                              type="checkbox"
+                              onChange={(event) => setMaterialForm((current) => ({ ...current, visible: event.target.checked }))}
+                            />
+                            <label htmlFor={`material-visible-${topic.id}`} className="text-sm text-text-secondary">
+                              {t('education.visibleToStudents')}
+                            </label>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <Button
+                              disabled={
+                                !materialForm.title.trim()
+                                || (materialForm.type === 'FILE' && !materialFile)
+                                || (materialForm.type === 'LINK' && !materialForm.url.trim())
+                                || (materialForm.type === 'TEXT' && !materialForm.description.trim())
+                                || createMaterialMutation.isPending
+                              }
+                              onClick={() => createMaterialMutation.mutate()}
+                            >
+                              {t('common.actions.create')}
+                            </Button>
+                            <Button variant="secondary" onClick={() => setBuilder(null)}>
+                              {t('common.actions.cancel')}
+                            </Button>
+                          </div>
+                        </BuilderPanel>
+                      ) : null}
+
+                      {builder?.mode === 'test' && builder.topicId === topic.id ? (
+                        <BuilderPanel
+                          title={t('testing.createTest')}
+                          onCancel={() => setBuilder(null)}
+                        >
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <FormField label={t('common.labels.title')}>
+                              <Input
+                                value={testForm.title}
+                                onChange={(event) => setTestForm((current) => ({ ...current, title: event.target.value }))}
+                              />
+                            </FormField>
+                            <FormField label={t('testing.availableUntil')}>
+                              <Input
+                                type="datetime-local"
+                                value={testForm.availableUntil}
+                                onChange={(event) => setTestForm((current) => ({ ...current, availableUntil: event.target.value }))}
+                              />
+                            </FormField>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-3">
+                            <FormField label={t('testing.maxPoints')}>
+                              <Input
+                                type="number"
+                                value={testForm.maxPoints}
+                                onChange={(event) => setTestForm((current) => ({ ...current, maxPoints: Number(event.target.value) }))}
+                              />
+                            </FormField>
+                            <FormField label={t('testing.maxAttempts')}>
+                              <Input
+                                type="number"
+                                value={testForm.maxAttempts}
+                                onChange={(event) => setTestForm((current) => ({ ...current, maxAttempts: Number(event.target.value) }))}
+                              />
+                            </FormField>
+                            <FormField label={t('testing.timeLimitMinutes')}>
+                              <Input
+                                type="number"
+                                value={testForm.timeLimitMinutes}
+                                onChange={(event) => setTestForm((current) => ({ ...current, timeLimitMinutes: Number(event.target.value) }))}
+                              />
+                            </FormField>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <Button
+                              disabled={!testForm.title.trim() || createTestMutation.isPending}
+                              onClick={() => createTestMutation.mutate()}
+                            >
+                              {t('common.actions.create')}
+                            </Button>
+                            <Button variant="secondary" onClick={() => setBuilder(null)}>
+                              {t('common.actions.cancel')}
+                            </Button>
+                          </div>
+                          {!testForm.title.trim() ? (
+                            <p className="text-sm text-text-secondary">{t('courseBuilder.titleRequired')}</p>
+                          ) : null}
+                        </BuilderPanel>
+                      ) : null}
+
+                      {items.map((item, itemIndex) => (
+                        <CourseItemCard
+                          key={item.id}
+                          item={item}
+                          canManageContent={canManageContent}
+                          moveControl={item.kind === 'text' ? null : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                disabled={itemIndex === 0}
+                                variant="ghost"
+                                onClick={() => void moveCourseItemWithinTopic(topic.id, itemIndex, -1)}
+                              >
+                                <ArrowUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                disabled={itemIndex === items.length - 1}
+                                variant="ghost"
+                                onClick={() => void moveCourseItemWithinTopic(topic.id, itemIndex, 1)}
+                              >
+                                <ArrowDown className="h-4 w-4" />
+                              </Button>
+                              <Select
+                                value={item.topicId ?? topic.id}
+                                onChange={(event) => void moveCourseItemToTopic(item, event.target.value)}
+                              >
+                                {topics.map((targetTopic) => (
+                                  <option key={targetTopic.id} value={targetTopic.id}>
+                                    {targetTopic.title}
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+                          )}
+                        />
+                      ))}
+                    </CourseSection>
+                  )
+                })
+              )}
+            </div>
+          ) : null}
+
+          {activeTab === 'assignments' ? (
+            <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('education.subjectTabs.assignments')} />
+              {latestAssignments.length === 0 ? (
+                <EmptyState description={t('assignments.empty')} title={t('education.subjectTabs.assignments')} />
+              ) : (
+                <div className="space-y-3">
+                  {latestAssignments.map((assignment) => (
+                    <Link key={assignment.id} to={`/assignments/${assignment.id}`} className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 transition hover:border-border-strong">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-text-primary">{assignment.title}</p>
+                          <p className="mt-1 text-xs text-text-muted">{formatDateTime(assignment.deadline)}</p>
+                        </div>
+                        <StatusBadge value={assignment.status} />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ) : null}
+
+          {activeTab === 'tests' ? (
+            <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('education.subjectTabs.tests')} />
+              {latestTests.length === 0 ? (
+                <EmptyState description={t('testing.empty')} title={t('education.subjectTabs.tests')} />
+              ) : (
+                <div className="space-y-3">
+                  {latestTests.map((test) => (
+                    <Link key={test.id} to={`/tests/${test.id}`} className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 transition hover:border-border-strong">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-text-primary">{test.title}</p>
+                          <p className="mt-1 text-xs text-text-muted">
+                            {test.availableUntil ? formatDateTime(test.availableUntil) : t('education.availabilityUnavailable')}
+                          </p>
+                        </div>
+                        <StatusBadge value={test.status} />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ) : null}
+
+          {activeTab === 'materials' ? (
+            <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('education.subjectTabs.materials')} />
+              {latestMaterials.length === 0 ? (
+                <EmptyState description={t('education.noContentAvailable')} title={t('education.subjectTabs.materials')} />
+              ) : (
+                <div className="space-y-3">
+                  {latestMaterials.map((material) => (
+                    <Link key={material.id} to={`/materials/${material.id}`} className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 transition hover:border-border-strong">
+                      <p className="font-semibold text-text-primary">{material.title}</p>
+                      <p className="mt-1 text-xs text-text-muted">
+                        {t(`education.materialTypeLabels.${material.type}`)} · {formatDateTime(material.updatedAt)}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ) : null}
+
+          {activeTab === 'students' ? (
+            <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('education.subjectTabs.students')} />
+              {groupsQuery.data?.length ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {groupsQuery.data.map((group) => (
+                    <div key={group.id} className="rounded-[14px] border border-border bg-surface-muted px-4 py-3">
+                      <p className="font-semibold text-text-primary">{group.name}</p>
+                      <p className="mt-1 text-xs text-text-muted">{t('education.groupStudentCountSummary')}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState description={t('education.noGroups')} title={t('education.subjectTabs.students')} />
+              )}
+            </Card>
+          ) : null}
+
+          {activeTab === 'analytics' ? (
+            <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('education.subjectTabs.analytics')} />
+              {sidebarAnalyticsRow ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <SidebarLine
+                    label={t('dashboard.metrics.averageScore')}
+                    value={sidebarAnalyticsRow.averageScore == null ? '-' : `${sidebarAnalyticsRow.averageScore}`}
+                  />
+                  <SidebarLine
+                    label={t('analytics.completionRate')}
+                    value={`${Math.round(sidebarAnalyticsRow.completionRate * 100)}%`}
+                  />
+                </div>
+              ) : (
+                <EmptyState description={t('education.emptyAnalytics')} title={t('education.subjectTabs.analytics')} />
+              )}
+            </Card>
+          ) : null}
+
+          {activeTab === 'settings' ? (
+            canManageSettings ? (
+              <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+                <PageHeader
+                  title={t('education.subjectTabs.settings')}
+                  description={t('education.settingsDescription')}
+                />
+                <Button variant="secondary" onClick={openSettingsPanel}>
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  {t('education.manageSubjectSettings')}
+                </Button>
+              </Card>
+            ) : (
+              <AccessDeniedPage />
+            )
+          ) : null}
         </main>
 
         <aside className="space-y-5">
           <Card className="space-y-4">
-            <PageHeader title={t('education.sidebarPeopleTitle')} />
+            <PageHeader title={t('education.courseTeachers')} />
             {teacherNames.length > 0 ? (
               <div className="space-y-3">
                 {teacherNames.map((teacherName) => (
@@ -1164,128 +1454,59 @@ export function SubjectDetailPage() {
               <EmptyState description={t('education.noTeachersAssigned')} title={t('education.subjectTeachers')} />
             )}
           </Card>
-
-          {isStudent ? (
-            <>
-              <Card className="space-y-4">
-                <PageHeader title={t('education.sidebarProgressTitle')} />
-                {studentDashboardQuery.data ? (
-                  <div className="grid gap-4">
-                    <MetricCard title={t('dashboard.metrics.averageScore')} value={studentDashboardQuery.data.progressSummary.averageScore ?? '-'} />
-                    <MetricCard title={t('education.sidebarSubmittedAssignments')} value={studentDashboardQuery.data.progressSummary.assignmentsSubmittedCount} />
-                    <MetricCard title={t('education.sidebarCompletedTests')} value={studentDashboardQuery.data.progressSummary.testsCompletedCount} />
-                  </div>
-                ) : (
-                  <EmptyState description={t('education.emptyAnalytics')} title={t('education.progressTitle')} />
-                )}
-              </Card>
-              <Card className="space-y-4">
-                <PageHeader title={t('education.sidebarTimelineTitle')} />
-                <SidebarLine
-                  label={t('education.nextLesson')}
-                  value={nextLesson ? formatDate(nextLesson.date) : t('education.noUpcomingLesson')}
-                />
-                <SidebarLine
-                  label={t('education.nearestDeadline')}
-                  value={studentUpcomingDeadlines[0] ? formatDateTime(studentUpcomingDeadlines[0].deadline) : t('education.noUpcomingDeadline')}
-                />
-                <SidebarLine
-                  label={t('education.sidebarLatestGrade')}
-                  value={studentRecentGrades[0] ? `${studentRecentGrades[0].score}` : t('education.noRecentGrade')}
-                />
-                {studentSubjectAnalyticsQuery.data ? (
-                  <SidebarLine
-                    label={t('analytics.completionRate')}
-                    value={`${Math.round(studentSubjectAnalyticsQuery.data.completionRate * 100)}%`}
-                  />
-                ) : null}
-              </Card>
-            </>
-          ) : null}
-
-          {isAssignedTeacher ? (
-            <>
-              <Card className="space-y-4">
-                <PageHeader title={t('education.sidebarTeachingTitle')} />
-                <SidebarLine label={t('education.subjectGroupsLabel')} value={`${subject.groupIds.length}`} />
-                <SidebarLine
-                  label={t('education.sidebarPendingReview')}
-                  value={`${(teacherDashboardQuery.data?.pendingSubmissionsToReview ?? []).filter((item) => assignments.some((assignment) => assignment.id === item.assignmentId)).length}`}
-                />
-                <SidebarLine
-                  label={t('education.nextLesson')}
-                  value={nextLesson ? formatDate(nextLesson.date) : t('education.noUpcomingLesson')}
-                />
-                <SidebarLine
-                  label={t('education.sidebarActiveWork')}
-                  value={`${assignments.filter((assignment) => assignment.status === 'PUBLISHED').length + tests.filter((test) => test.status === 'PUBLISHED').length}`}
-                />
-              </Card>
-              <Card className="space-y-3">
-                <PageHeader title={t('education.courseManagementActions')} />
-                <Button fullWidth variant="secondary" onClick={openTopicBuilder}>
-                  {t('education.createTopic')}
-                </Button>
-                {topics[0] ? (
-                  <Button fullWidth variant="secondary" onClick={() => openAssignmentBuilder(topics[0].id)}>
-                    {t('assignments.createAssignment')}
-                  </Button>
-                ) : null}
-                {topics[0] ? (
-                  <Button fullWidth variant="secondary" onClick={() => openTestBuilder(topics[0].id)}>
-                    {t('testing.createTest')}
-                  </Button>
-                ) : null}
-              </Card>
-            </>
-          ) : null}
-
-          {isAdmin ? (
-            <>
-              <Card className="space-y-4">
-                <PageHeader title={t('education.sidebarAdminTitle')} />
-                <SidebarLine label={t('education.subjectGroupsLabel')} value={`${subject.groupIds.length}`} />
-                <SidebarLine label={t('education.subjectTeachersLabel')} value={`${subject.teacherIds.length}`} />
-                <SidebarLine
-                  label={t('education.sidebarLastUpdated')}
-                  value={formatDateTime(subject.updatedAt)}
-                />
-                <SidebarLine
-                  label={t('education.sidebarSubjectStatus')}
-                  value={sidebarMetrics ? t('common.status.ACTIVE') : t('education.statusUnavailable')}
-                />
-              </Card>
-              <Card className="space-y-3">
-                <PageHeader title={t('education.sidebarAdminActionsTitle')} />
-                <Button fullWidth variant="secondary" onClick={openSettingsPanel}>
-                  {t('education.manageSubjectSettings')}
-                </Button>
-                {subject.groupIds[0] ? (
-                  <Link to={`/groups/${subject.groupIds[0]}`}>
-                    <Button fullWidth variant="secondary">{t('navigation.shared.groups')}</Button>
+          <Card className="space-y-4">
+            <PageHeader title={t('education.courseGroups')} />
+            {groupsQuery.data?.length ? (
+              <div className="space-y-2">
+                {groupsQuery.data.map((group) => (
+                  <Link
+                    key={group.id}
+                    to={`/groups/${group.id}`}
+                    className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 text-sm text-text-secondary transition hover:border-border-strong"
+                  >
+                    {group.name}
                   </Link>
-                ) : null}
-              </Card>
-            </>
-          ) : null}
-
-          {!isStudent && !isAssignedTeacher && !isAdmin && sidebarAnalyticsRow ? (
-            <Card className="space-y-4">
-              <PageHeader title={t('education.progressTitle')} />
-              <SidebarLine
-                label={t('dashboard.metrics.averageScore')}
-                value={sidebarAnalyticsRow.averageScore == null ? '-' : `${sidebarAnalyticsRow.averageScore}`}
-              />
-              <SidebarLine
-                label={t('analytics.completionRate')}
-                value={`${Math.round(sidebarAnalyticsRow.completionRate * 100)}%`}
-              />
+                ))}
+              </div>
+            ) : (
+              <EmptyState description={t('education.noGroups')} title={t('education.courseGroups')} />
+            )}
+          </Card>
+          <Card className="space-y-4">
+            <PageHeader title={t('education.courseMetadata')} />
+            <SidebarLine label={t('education.subjectStatus')} value={sidebarMetrics ? t('common.status.ACTIVE') : t('education.statusUnavailable')} />
+            <SidebarLine label={t('education.lastUpdated')} value={formatDateTime(subject.updatedAt)} />
+            <SidebarLine label={t('education.nextLesson')} value={nextLesson ? formatDate(nextLesson.date) : t('education.noUpcomingLesson')} />
+            <SidebarLine
+              label={t('education.nearestDeadline')}
+              value={nearestDeadline ? formatDateTime(nearestDeadline) : t('education.noUpcomingDeadline')}
+            />
+          </Card>
+          {(isAssignedTeacher || isAdmin) ? (
+            <Card className="space-y-3">
+              <PageHeader title={t('education.management')} />
+              <Button fullWidth variant="secondary" onClick={openTopicBuilder}>
+                <Layers3 className="mr-2 h-4 w-4" />
+                {t('education.createTopic')}
+              </Button>
+              {topics[0] ? (
+                <Button fullWidth variant="secondary" onClick={() => openAssignmentBuilder(topics[0].id)}>
+                  <ClipboardCheck className="mr-2 h-4 w-4" />
+                  {t('assignments.createAssignment')}
+                </Button>
+              ) : null}
+              {topics[0] ? (
+                <Button fullWidth variant="secondary" onClick={() => openTestBuilder(topics[0].id)}>
+                  <TestTube2 className="mr-2 h-4 w-4" />
+                  {t('testing.createTest')}
+                </Button>
+              ) : null}
             </Card>
           ) : null}
         </aside>
       </div>
 
-      {canManageSettings && settingsOpen ? (
+      {canManageSettings && settingsOpen && activeTab === 'settings' ? (
         <Card className="space-y-5">
           <PageHeader
             actions={(

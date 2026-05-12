@@ -2,11 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, LockKeyhole, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
 import { loadAccessibleGroups, loadAccessibleSubjects, loadManagedSubjects } from '@/pages/education/helpers'
-import { dashboardService, educationService, testingService, userDirectoryService } from '@/shared/api/services'
+import { dashboardService, educationService, testingService } from '@/shared/api/services'
 import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { cn } from '@/shared/lib/cn'
 import { formatDateTime } from '@/shared/lib/format'
@@ -34,6 +34,8 @@ import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { Textarea } from '@/shared/ui/Textarea'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
+import { TestResultReviewPage } from '@/pages/testing/TestResultReviewPage'
+import { TestResultsPage } from '@/pages/testing/TestResultsPage'
 
 interface TestManagementRow {
   id: string
@@ -103,6 +105,9 @@ interface QuestionEditorItem {
   hasInvalidConfiguration: boolean
 }
 
+type TeacherTestTab = 'general' | 'questions' | 'settings' | 'access' | 'results'
+const teacherTestTabs: TeacherTestTab[] = ['general', 'questions', 'settings', 'access', 'results']
+
 const questionTypes: QuestionType[] = [
   'SINGLE_CHOICE',
   'MULTIPLE_CHOICE',
@@ -119,7 +124,16 @@ const questionTypes: QuestionType[] = [
 
 export function TestsPage() {
   const { primaryRole } = useAuth()
-  const { testId } = useParams()
+  const { testId, resultId } = useParams()
+  const location = useLocation()
+
+  if (testId && resultId && location.pathname.includes('/results/')) {
+    return <TestResultReviewPage resultId={resultId} testId={testId} />
+  }
+
+  if (testId && location.pathname.endsWith('/results')) {
+    return <Navigate replace to={`/tests/${testId}?tab=results`} />
+  }
 
   if (testId) {
     return <TestDetailPage testId={testId} />
@@ -287,6 +301,7 @@ function TestDetailPage({ testId }: { testId: string }) {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const isStudent = primaryRole === 'STUDENT'
   const isTeacher = primaryRole === 'TEACHER'
   const [availabilityGroupSearch, setAvailabilityGroupSearch] = useState('')
@@ -301,10 +316,24 @@ function TestDetailPage({ testId }: { testId: string }) {
   })
   const [questionDrafts, setQuestionDrafts] = useState<QuestionEditorItem[]>([])
   const [selectedQuestionDraftId, setSelectedQuestionDraftId] = useState('')
-  const [resultOverrideForm, setResultOverrideForm] = useState({ resultId: '', score: 0, reason: '' })
   const [questionEditorError, setQuestionEditorError] = useState('')
   const [finishErrorMessage, setFinishErrorMessage] = useState('')
   const autoFinishTriggeredRef = useRef(false)
+  const activeTeacherTab = teacherTestTabs.includes(searchParams.get('tab') as TeacherTestTab)
+    ? searchParams.get('tab') as TeacherTestTab
+    : 'questions'
+
+  const handleTeacherTabChange = (nextTab: TeacherTestTab) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (nextTab === 'questions') {
+        next.delete('tab')
+      } else {
+        next.set('tab', nextTab)
+      }
+      return next
+    }, { replace: true })
+  }
 
   const testQuery = useQuery({
     queryKey: ['tests', testId],
@@ -393,20 +422,6 @@ function TestDetailPage({ testId }: { testId: string }) {
     queryKey: ['education', 'test-connected-groups', testSubjectQuery.data?.groupIds.join(',')],
     queryFn: async () => Promise.all((testSubjectQuery.data?.groupIds ?? []).map((groupId) => educationService.getGroup(groupId))),
     enabled: Boolean(!isStudent && testSubjectQuery.data?.groupIds.length),
-  })
-  const testResultsQuery = useQuery({
-    queryKey: ['tests', testId, 'results'],
-    queryFn: () => testingService.getTestResultsByTest(testId, { page: 0, size: 50 }),
-    enabled: !isStudent,
-  })
-  const resultStudentIds = useMemo(
-    () => Array.from(new Set((testResultsQuery.data?.items ?? []).map((result) => result.userId))),
-    [testResultsQuery.data?.items],
-  )
-  const resultStudentsQuery = useQuery({
-    queryKey: ['tests', testId, 'result-students', resultStudentIds.join(',')],
-    queryFn: () => userDirectoryService.lookup(resultStudentIds),
-    enabled: resultStudentIds.length > 0,
   })
   const seededQuestionDrafts = useMemo(
     () => (isStudent ? [] : (questionsQuery.data ?? []).map((question) => toQuestionEditorItem(question))),
@@ -570,22 +585,10 @@ function TestDetailPage({ testId }: { testId: string }) {
       window.location.assign('/tests')
     },
   })
-  const overrideResultMutation = useMutation({
-    mutationFn: () => testingService.overrideTestResultScore(resultOverrideForm.resultId, {
-      score: resultOverrideForm.score,
-      reason: resultOverrideForm.reason.trim() || undefined,
-    }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['tests', testId, 'results'] })
-      setResultOverrideForm({ resultId: '', score: 0, reason: '' })
-    },
-  })
-
   const test = testQuery.data ?? null
   const selectedQuestionDraft = editorQuestionDrafts.find((item) => item.localId === activeQuestionDraftId) ?? null
   const availabilityRows = availabilityQuery.data ?? []
   const availabilityByGroupId = new Map(availabilityRows.map((availability) => [availability.groupId, availability]))
-  const resultStudentById = new Map((resultStudentsQuery.data ?? []).map((student) => [student.id, student]))
   const availabilityGroupCards = (connectedGroupsQuery.data?.length ? connectedGroupsQuery.data : availabilityGroupsQuery.data ?? [])
     .map((group) => ({
       group,
@@ -647,6 +650,16 @@ function TestDetailPage({ testId }: { testId: string }) {
     if (!activeAttempt || finishMutation.isPending || !studentViewQuery.data) {
       return
     }
+    const unansweredCount = studentViewQuery.data.questions.filter((question) => {
+      const parsedConfiguration = parseQuestionConfigurationSafe(question.presentationJson)
+      return !isAnswerProvided(question, activeAttempt.answers[question.id], parsedConfiguration.config)
+    }).length
+    if (unansweredCount > 0) {
+      const shouldFinish = window.confirm(t('testing.confirmFinishWithUnanswered', { count: unansweredCount }))
+      if (!shouldFinish) {
+        return
+      }
+    }
     setFinishErrorMessage('')
     finishMutation.mutate()
   }
@@ -678,8 +691,6 @@ function TestDetailPage({ testId }: { testId: string }) {
       || subjectScopeQuery.isLoading
       || testSubjectQuery.isLoading
       || connectedGroupsQuery.isLoading
-      || testResultsQuery.isLoading
-      || resultStudentsQuery.isLoading
     ))
   ) {
     return <LoadingState />
@@ -694,8 +705,6 @@ function TestDetailPage({ testId }: { testId: string }) {
       || subjectScopeQuery.isError
       || testSubjectQuery.isError
       || connectedGroupsQuery.isError
-      || testResultsQuery.isError
-      || resultStudentsQuery.isError
     ))
     || !test
   ) {
@@ -709,9 +718,7 @@ function TestDetailPage({ testId }: { testId: string }) {
             ?? availabilityQuery.error
             ?? subjectScopeQuery.error
             ?? testSubjectQuery.error
-            ?? connectedGroupsQuery.error
-            ?? testResultsQuery.error
-            ?? resultStudentsQuery.error,
+            ?? connectedGroupsQuery.error,
           t,
         )}
         onRetry={() => {
@@ -731,6 +738,7 @@ function TestDetailPage({ testId }: { testId: string }) {
           ? [
               { label: t('navigation.shared.subjects'), to: '/subjects' },
               { label: testSubjectQuery.data.name, to: `/subjects/${testSubjectQuery.data.id}` },
+              { label: t('navigation.shared.tests'), to: `/subjects/${testSubjectQuery.data.id}?tab=tests` },
               { label: test.title },
             ]
           : [{ label: t('navigation.shared.tests'), to: '/tests' }, { label: test.title }]}
@@ -753,6 +761,33 @@ function TestDetailPage({ testId }: { testId: string }) {
         {backLabel}
       </Button>
       <PageHeader description={t('testing.detailDescription')} title={test.title} />
+      {!isStudent ? (
+        <div className="overflow-x-auto pb-1">
+          <div className="inline-flex min-w-full gap-2 rounded-2xl border border-border bg-surface p-1">
+            {([
+              { id: 'general', label: t('testing.builderTabs.general') },
+              { id: 'questions', label: t('testing.builderTabs.questions') },
+              { id: 'settings', label: t('testing.builderTabs.settings') },
+              { id: 'access', label: t('testing.builderTabs.access') },
+              { id: 'results', label: t('testing.builderTabs.results') },
+            ] as Array<{ id: TeacherTestTab; label: string }>).map((tab) => (
+              <button
+                key={tab.id}
+                className={cn(
+                  'whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition',
+                  activeTeacherTab === tab.id
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-text-secondary hover:bg-surface-muted',
+                )}
+                type="button"
+                onClick={() => handleTeacherTabChange(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <Card className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge value={test.status} />
@@ -859,134 +894,159 @@ function TestDetailPage({ testId }: { testId: string }) {
                 view={previewQuery.data}
               />
             ) : null}
-
-            <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-              <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <PageHeader title={t('testing.questions')} />
-                  <Button
-                    disabled={structureLocked}
-                    variant="secondary"
-                    onClick={() => {
-                      const nextItem = createQuestionEditorItem()
-                      updateEditorQuestionDrafts((current) => [...current, nextItem])
-                      setSelectedQuestionDraftId(nextItem.localId)
-                    }}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    {t('testing.addQuestion')}
-                  </Button>
-                </div>
-                <div className="grid gap-3">
+            {activeTeacherTab === 'general' ? (
+              <div className="rounded-[16px] border border-border bg-surface-muted p-4">
+                <PageHeader title={t('testing.generalOverview')} />
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <MetricRow label={t('testing.questions')} value={editorQuestionDrafts.length} />
                   <MetricRow label={t('testing.maxPoints')} value={test.maxPoints} />
                   <MetricRow label={t('testing.usedPoints')} value={usedPoints} />
                   <MetricRow label={t('testing.remainingPoints')} value={Math.max(remainingPoints, 0)} />
                 </div>
-                {editorQuestionDrafts.length === 0 ? (
-                  <p className="text-sm leading-6 text-text-secondary">{t('testing.noQuestions')}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {editorQuestionDrafts.map((item, index) => (
-                      <div
-                        key={item.localId}
-                        className={cn(
-                          'rounded-[14px] border bg-surface px-3 py-3',
-                          item.localId === activeQuestionDraftId ? 'border-accent shadow-soft' : 'border-border',
-                        )}
-                      >
-                        <button
-                          className="block w-full text-left"
-                          type="button"
-                          onClick={() => setSelectedQuestionDraftId(item.localId)}
-                        >
-                          <p className="line-clamp-2 text-sm font-semibold text-text-primary">
-                            {getQuestionPrompt(item.draft) || t('testing.untitledQuestion', { number: index + 1 })}
-                          </p>
-                          <p className="mt-1 text-xs text-text-secondary">
-                            {t('testing.questionProgress', { current: index + 1, total: editorQuestionDrafts.length })}
-                            {' · '}
-                            {t(`testing.questionType.${item.draft.type}`)}
-                            {' · '}
-                            {t('testing.pointsValue', { count: item.draft.points })}
-                          </p>
-                        </button>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            disabled={structureLocked || index === 0}
-                            variant="ghost"
-                            onClick={() => {
-                              updateEditorQuestionDrafts((current) => moveQuestionEditorItem(current, index, index - 1))
-                            }}
-                          >
-                            {t('common.actions.moveUp')}
-                          </Button>
-                          <Button
-                            disabled={structureLocked || index === editorQuestionDrafts.length - 1}
-                            variant="ghost"
-                            onClick={() => {
-                              updateEditorQuestionDrafts((current) => moveQuestionEditorItem(current, index, index + 1))
-                            }}
-                          >
-                            {t('common.actions.moveDown')}
-                          </Button>
-                          <Button
-                            disabled={structureLocked}
-                            variant="ghost"
-                            onClick={() => {
-                              const nextDrafts = editorQuestionDrafts.filter((question) => question.localId !== item.localId)
-                              setQuestionDrafts(nextDrafts)
-                              if (activeQuestionDraftId === item.localId) {
-                                setSelectedQuestionDraftId(nextDrafts[Math.max(0, index - 1)]?.localId ?? nextDrafts[0]?.localId ?? '')
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+            ) : null}
 
-              <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
-                <PageHeader title={t('testing.questionEditor')} />
-                {selectedQuestionDraft ? (
-                  <QuestionTypeEditor
-                    disabled={structureLocked}
-                    draft={selectedQuestionDraft.draft}
-                    onChange={(nextDraft) => {
-                      updateEditorQuestionDrafts((current) => current.map((item) => item.localId === selectedQuestionDraft.localId
-                        ? { ...item, draft: nextDraft }
-                        : item))
-                    }}
-                    totalQuestions={editorQuestionDrafts.length}
-                  />
-                ) : (
-                  <EmptyState description={t('testing.addQuestionToStart')} title={t('testing.questionEditor')} />
-                )}
-                {remainingPoints < 0 ? (
-                  <p className="text-sm font-semibold text-danger">{t('testing.pointsExceeded')}</p>
-                ) : null}
-                {questionValidationReason && selectedQuestionDraft ? (
-                  <p className="text-sm font-semibold text-warning">{questionValidationReason}</p>
-                ) : null}
-                {selectedQuestionDraft?.hasInvalidConfiguration ? (
-                  <p className="text-sm font-semibold text-warning">{t('testing.invalidConfigurationWarning')}</p>
-                ) : null}
-                {questionEditorError ? <p className="text-sm font-semibold text-danger">{questionEditorError}</p> : null}
-                <Button
-                  disabled={structureLocked || Boolean(publishDisabledReason) || saveQuestionsMutation.isPending}
-                  onClick={() => saveQuestionsMutation.mutate()}
-                >
-                  {t('common.actions.save')}
-                </Button>
+            {activeTeacherTab === 'settings' ? (
+              <div className="rounded-[16px] border border-border bg-surface-muted p-4">
+                <PageHeader title={t('testing.settingsOverview')} />
+                <div className="mt-4 grid gap-3 text-sm text-text-secondary md:grid-cols-2">
+                  <p>{t('testing.maxAttempts')}: {test.maxAttempts}</p>
+                  <p>{t('testing.timeLimitMinutes')}: {test.timeLimitMinutes ?? t('testing.noTimeLimit')}</p>
+                  <p>{t('testing.availableFrom')}: {formatDateTime(test.availableFrom)}</p>
+                  <p>{t('testing.availableUntil')}: {formatDateTime(test.availableUntil)}</p>
+                </div>
               </div>
-            </div>
+            ) : null}
+
+            {activeTeacherTab === 'questions' ? (
+              <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <PageHeader title={t('testing.questions')} />
+                    <Button
+                      disabled={structureLocked}
+                      variant="secondary"
+                      onClick={() => {
+                        const nextItem = createQuestionEditorItem()
+                        updateEditorQuestionDrafts((current) => [...current, nextItem])
+                        setSelectedQuestionDraftId(nextItem.localId)
+                      }}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      {t('testing.addQuestion')}
+                    </Button>
+                  </div>
+                  <div className="grid gap-3">
+                    <MetricRow label={t('testing.maxPoints')} value={test.maxPoints} />
+                    <MetricRow label={t('testing.usedPoints')} value={usedPoints} />
+                    <MetricRow label={t('testing.remainingPoints')} value={Math.max(remainingPoints, 0)} />
+                  </div>
+                  {editorQuestionDrafts.length === 0 ? (
+                    <p className="text-sm leading-6 text-text-secondary">{t('testing.noQuestions')}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {editorQuestionDrafts.map((item, index) => (
+                        <div
+                          key={item.localId}
+                          className={cn(
+                            'rounded-[14px] border bg-surface px-3 py-3',
+                            item.localId === activeQuestionDraftId ? 'border-accent shadow-soft' : 'border-border',
+                          )}
+                        >
+                          <button
+                            className="block w-full text-left"
+                            type="button"
+                            onClick={() => setSelectedQuestionDraftId(item.localId)}
+                          >
+                            <p className="line-clamp-2 text-sm font-semibold text-text-primary">
+                              {getQuestionPrompt(item.draft) || t('testing.untitledQuestion', { number: index + 1 })}
+                            </p>
+                            <p className="mt-1 text-xs text-text-secondary">
+                              {t('testing.questionProgress', { current: index + 1, total: editorQuestionDrafts.length })}
+                              {' · '}
+                              {t(`testing.questionType.${item.draft.type}`)}
+                              {' · '}
+                              {t('testing.pointsValue', { count: item.draft.points })}
+                            </p>
+                          </button>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              disabled={structureLocked || index === 0}
+                              variant="ghost"
+                              onClick={() => {
+                                updateEditorQuestionDrafts((current) => moveQuestionEditorItem(current, index, index - 1))
+                              }}
+                            >
+                              {t('common.actions.moveUp')}
+                            </Button>
+                            <Button
+                              disabled={structureLocked || index === editorQuestionDrafts.length - 1}
+                              variant="ghost"
+                              onClick={() => {
+                                updateEditorQuestionDrafts((current) => moveQuestionEditorItem(current, index, index + 1))
+                              }}
+                            >
+                              {t('common.actions.moveDown')}
+                            </Button>
+                            <Button
+                              disabled={structureLocked}
+                              variant="ghost"
+                              onClick={() => {
+                                const nextDrafts = editorQuestionDrafts.filter((question) => question.localId !== item.localId)
+                                setQuestionDrafts(nextDrafts)
+                                if (activeQuestionDraftId === item.localId) {
+                                  setSelectedQuestionDraftId(nextDrafts[Math.max(0, index - 1)]?.localId ?? nextDrafts[0]?.localId ?? '')
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
+                  <PageHeader title={t('testing.questionEditor')} />
+                  {selectedQuestionDraft ? (
+                    <QuestionTypeEditor
+                      disabled={structureLocked}
+                      draft={selectedQuestionDraft.draft}
+                      onChange={(nextDraft) => {
+                        updateEditorQuestionDrafts((current) => current.map((item) => item.localId === selectedQuestionDraft.localId
+                          ? { ...item, draft: nextDraft }
+                          : item))
+                      }}
+                      totalQuestions={editorQuestionDrafts.length}
+                    />
+                  ) : (
+                    <EmptyState description={t('testing.addQuestionToStart')} title={t('testing.questionEditor')} />
+                  )}
+                  {remainingPoints < 0 ? (
+                    <p className="text-sm font-semibold text-danger">{t('testing.pointsExceeded')}</p>
+                  ) : null}
+                  {questionValidationReason && selectedQuestionDraft ? (
+                    <p className="text-sm font-semibold text-warning">{questionValidationReason}</p>
+                  ) : null}
+                  {selectedQuestionDraft?.hasInvalidConfiguration ? (
+                    <p className="text-sm font-semibold text-warning">{t('testing.invalidConfigurationWarning')}</p>
+                  ) : null}
+                  {questionEditorError ? <p className="text-sm font-semibold text-danger">{questionEditorError}</p> : null}
+                  <Button
+                    disabled={structureLocked || Boolean(publishDisabledReason) || saveQuestionsMutation.isPending}
+                    onClick={() => saveQuestionsMutation.mutate()}
+                  >
+                    {t('common.actions.save')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </Card>
-      {!isStudent ? (
+      {!isStudent && activeTeacherTab === 'access' ? (
         <Card className="space-y-4">
           <PageHeader description={t('availability.testDescription')} title={t('availability.title')} />
           {availabilityGroupCards.length === 0 ? (
@@ -1059,70 +1119,8 @@ function TestDetailPage({ testId }: { testId: string }) {
           </Button>
         </Card>
       ) : null}
-      {!isStudent ? (
-        <Card className="space-y-4">
-          <PageHeader description={t('testing.resultReviewDescription')} title={t('testing.resultReview')} />
-          {(testResultsQuery.data?.items ?? []).length === 0 ? (
-            <EmptyState description={t('testing.noResultsToReview')} title={t('testing.resultReview')} />
-          ) : (
-            <DataTable
-              columns={[
-                { key: 'userId', header: t('testing.student'), render: (item) => resultStudentById.get(item.userId)?.username ?? t('education.unknownStudent') },
-                { key: 'score', header: t('common.labels.score'), render: (item) => `${item.score}/${test.maxPoints}` },
-                { key: 'autoScore', header: t('testing.autoScore'), render: (item) => item.autoScore },
-                { key: 'reviewedAt', header: t('testing.reviewedAt'), render: (item) => item.reviewedAt ? formatDateTime(item.reviewedAt) : t('testing.notReviewed') },
-                {
-                  key: 'actions',
-                  header: t('common.labels.actions'),
-                  render: (item) => (
-                    <Button
-                      variant="secondary"
-                      onClick={() => setResultOverrideForm({
-                        resultId: item.id,
-                        score: item.score,
-                        reason: item.manualOverrideReason ?? '',
-                      })}
-                    >
-                      {t('testing.reviewResult')}
-                    </Button>
-                  ),
-                },
-              ]}
-              rows={testResultsQuery.data?.items ?? []}
-            />
-          )}
-          {resultOverrideForm.resultId ? (
-            <div className="grid gap-4 xl:grid-cols-3">
-              <FormField label={t('common.labels.score')}>
-                <Input
-                  max={test.maxPoints}
-                  min={0}
-                  type="number"
-                  value={resultOverrideForm.score}
-                  onChange={(event) => setResultOverrideForm((current) => ({ ...current, score: Number(event.target.value) }))}
-                />
-              </FormField>
-              <FormField label={t('testing.overrideReason')}>
-                <Input
-                  value={resultOverrideForm.reason}
-                  onChange={(event) => setResultOverrideForm((current) => ({ ...current, reason: event.target.value }))}
-                />
-              </FormField>
-              <div className="flex items-end gap-3">
-                <Button
-                  disabled={resultOverrideForm.score < 0 || resultOverrideForm.score > test.maxPoints || overrideResultMutation.isPending}
-                  onClick={() => overrideResultMutation.mutate()}
-                >
-                  {t('testing.saveReview')}
-                </Button>
-                <Button variant="secondary" onClick={() => setResultOverrideForm({ resultId: '', score: 0, reason: '' })}>
-                  {t('common.actions.cancel')}
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          <p className="text-sm text-text-secondary">{t('testing.perQuestionReviewUnavailable')}</p>
-        </Card>
+      {!isStudent && activeTeacherTab === 'results' ? (
+        <TestResultsPage embedded testId={testId} />
       ) : null}
     </div>
   )
@@ -1160,7 +1158,7 @@ function QuestionTypeEditor({
           </select>
         </FormField>
         <FormField label={t('testing.points')}>
-          <Input disabled={disabled} min={0} type="number" value={draft.points} onChange={(event) => update({ points: Number(event.target.value) })} />
+          <Input disabled={disabled} min={1} type="number" value={draft.points} onChange={(event) => update({ points: Number(event.target.value) })} />
         </FormField>
       </div>
       <FormField label={draft.type === 'TRUE_FALSE' ? t('testing.statement') : draft.type === 'FILL_IN_THE_BLANK' ? t('testing.blankText') : t('testing.questionText')}>
@@ -1504,12 +1502,18 @@ function StudentTestViewPanel({
 }) {
   const { t } = useTranslation()
   const now = useNow(view.timeLimitMinutes && attemptStartedAt ? 1000 : null)
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0)
   const timeLeftLabel = view.timeLimitMinutes && attemptStartedAt
     ? formatTimeLeft(Math.max(0, (attemptStartedAt + view.timeLimitMinutes * 60_000) - now), t)
     : view.timeLimitMinutes
       ? t('testing.timeLimitValue', { count: view.timeLimitMinutes })
       : t('testing.noTimeLimit')
   const totalQuestionPoints = view.questions.reduce((sum, question) => sum + question.points, 0)
+  const interactiveMode = !view.preview && Boolean(onAnswerChange)
+  const clampedQuestionIndex = view.questions.length === 0
+    ? 0
+    : Math.min(activeQuestionIndex, view.questions.length - 1)
+  const activeQuestion = view.questions[clampedQuestionIndex] ?? null
 
   return (
     <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
@@ -1531,6 +1535,67 @@ function StudentTestViewPanel({
       </div>
       {view.questions.length === 0 ? (
         <EmptyState description={t('testing.noQuestions')} title={t('testing.questions')} />
+      ) : interactiveMode && activeQuestion ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="space-y-4">
+            <StudentQuestionCard
+              answerValue={answers?.[activeQuestion.id]}
+              index={activeQuestionIndex}
+              onAnswerChange={onAnswerChange}
+              question={activeQuestion}
+              total={view.questions.length}
+            />
+            <div className="flex flex-wrap gap-3">
+              <Button
+                disabled={clampedQuestionIndex === 0}
+                variant="secondary"
+                onClick={() => setActiveQuestionIndex((current) => Math.max(0, current - 1))}
+              >
+                {t('common.actions.previous')}
+              </Button>
+              <Button
+                disabled={clampedQuestionIndex >= view.questions.length - 1}
+                variant="secondary"
+                onClick={() => setActiveQuestionIndex((current) => Math.min(view.questions.length - 1, current + 1))}
+              >
+                {t('common.actions.next')}
+              </Button>
+              {onFinish ? (
+                <Button disabled={finishDisabled} onClick={onFinish}>
+                  {t('testing.finishAttempt')}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          <div className="space-y-2 rounded-[14px] border border-border bg-surface p-3">
+            <p className="text-sm font-semibold text-text-primary">{t('testing.questionNavigator')}</p>
+            <div className="grid grid-cols-4 gap-2">
+              {view.questions.map((question, index) => {
+                const presentationJson = 'presentationJson' in question ? question.presentationJson : question.configurationJson
+                const parsedConfiguration = parseQuestionConfigurationSafe(presentationJson)
+                const answered = isAnswerProvided(question, answers?.[question.id], parsedConfiguration.config)
+                const active = index === clampedQuestionIndex
+                return (
+                  <button
+                    className={cn(
+                      'rounded-[10px] border px-2 py-1 text-xs font-semibold transition',
+                      active
+                        ? 'border-accent bg-accent text-accent-foreground'
+                        : answered
+                          ? 'border-success/40 bg-success/10 text-success'
+                          : 'border-border bg-surface-muted text-text-secondary hover:border-border-strong',
+                    )}
+                    key={question.id}
+                    type="button"
+                    onClick={() => setActiveQuestionIndex(index)}
+                  >
+                    {index + 1}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="space-y-3">
           {view.questions.map((question, index) => (
@@ -1545,7 +1610,7 @@ function StudentTestViewPanel({
           ))}
         </div>
       )}
-      {!view.preview && onFinish ? (
+      {!view.preview && onFinish && !interactiveMode ? (
         <div className="flex flex-wrap gap-3 pt-2">
           <Button disabled={finishDisabled} onClick={onFinish}>
             {t('testing.finishAttempt')}
@@ -1883,7 +1948,7 @@ function validateQuestionDraft(draft: QuestionDraft, t: (key: string) => string)
   if (!getQuestionPrompt(draft)) {
     return t('testing.validation.questionTextRequired')
   }
-  if (draft.points < 0) {
+  if (draft.points <= 0) {
     return t('testing.validation.pointsInvalid')
   }
   if (draft.type === 'SINGLE_CHOICE') {
@@ -2154,6 +2219,41 @@ function hasIncompleteStudentConfiguration(question: RenderableStudentQuestion, 
   }
   if (question.type === 'FILL_IN_THE_BLANK') {
     return !Array.isArray(config.blanks) || config.blanks.length === 0
+  }
+  return false
+}
+
+function isAnswerProvided(
+  question: RenderableStudentQuestion,
+  value: StudentAnswerValue | undefined,
+  config: Record<string, unknown>,
+) {
+  if (value == null) {
+    return false
+  }
+  if (question.type === 'SINGLE_CHOICE' || question.type === 'TRUE_FALSE' || question.type === 'SHORT_ANSWER' || question.type === 'NUMERIC' || question.type === 'LONG_TEXT' || question.type === 'MANUAL_GRADING') {
+    return typeof value === 'string' && value.trim().length > 0
+  }
+  if (question.type === 'MULTIPLE_CHOICE' || question.type === 'ORDERING') {
+    return Array.isArray(value) && value.length > 0
+  }
+  if (question.type === 'MATCHING' || question.type === 'FILL_IN_THE_BLANK') {
+    if (typeof value !== 'object' || value == null || Array.isArray(value)) {
+      return false
+    }
+    const recordValue = value as Record<string, string>
+    if (question.type === 'MATCHING') {
+      const leftItems = Array.isArray(config.leftItems) ? config.leftItems : []
+      return leftItems.length > 0 && leftItems.every((item, index) => {
+        const key = typeof item === 'object' && item !== null && 'id' in item ? String((item as { id?: string }).id ?? `${index}`) : `${index}`
+        return Boolean(recordValue[key])
+      })
+    }
+    const blanks = Array.isArray(config.blanks) ? config.blanks : []
+    return blanks.length > 0 && blanks.every((blank, index) => {
+      const key = typeof blank === 'object' && blank !== null && 'id' in blank ? String((blank as { id?: string }).id ?? `${index}`) : `${index}`
+      return Boolean(recordValue[key]?.trim())
+    })
   }
   return false
 }

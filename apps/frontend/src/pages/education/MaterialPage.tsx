@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, ExternalLink, Eye, Save, Trash2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Save, Trash2 } from 'lucide-react'
 
 import { useAuth } from '@/features/auth/useAuth'
+import { FileAttachmentList, FilePreviewPanel, detectFilePreviewMode } from '@/features/files/preview'
+import type { FileAttachmentItem } from '@/features/files/preview'
 import { educationService } from '@/shared/api/services'
 import { isAccessDeniedApiError } from '@/shared/lib/api-errors'
 import { downloadBlob } from '@/shared/lib/download'
@@ -105,23 +107,6 @@ export function MaterialPage() {
     },
   })
 
-  const previewMutation = useMutation({
-    mutationFn: () => educationService.previewTopicMaterialFile(materialId),
-    onSuccess: (blob) => {
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank', 'noopener,noreferrer')
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    },
-  })
-
-  const downloadMutation = useMutation({
-    mutationFn: () => educationService.downloadTopicMaterialFile(materialId),
-    onSuccess: (blob) => {
-      const fallbackName = materialQuery.data?.originalFileName ?? 'material-file'
-      downloadBlob(blob, fallbackName)
-    },
-  })
-
   const statusActions = useMemo(() => {
     if (!materialQuery.data || !canManage) {
       return [] as Array<'publish' | 'hide' | 'archive' | 'restore'>
@@ -153,6 +138,24 @@ export function MaterialPage() {
   const editableType = getEditableString(material.id, material.type, formState.materialId, formState.type) as TopicMaterialType
   const editableUrl = getEditableString(material.id, material.url ?? '', formState.materialId, formState.url)
   const editableVisible = getEditableBoolean(material.id, material.visible, formState.materialId, formState.visible)
+  const materialFileMode = material.originalFileName
+    ? detectFilePreviewMode({
+        originalFileName: material.originalFileName,
+        contentType: material.contentType,
+      })
+    : 'unsupported'
+  const materialFileItem: FileAttachmentItem | null = material.type === 'FILE' && material.originalFileName
+    ? {
+        id: material.id,
+        fileId: material.fileId,
+        displayName: material.title,
+        originalFileName: material.originalFileName,
+        contentType: material.contentType,
+        sizeBytes: material.sizeBytes,
+        previewAvailable: materialFileMode === 'image' || materialFileMode === 'pdf',
+        createdAt: material.createdAt,
+      }
+    : null
 
   return (
     <div className="space-y-6">
@@ -269,18 +272,6 @@ export function MaterialPage() {
               </Button>
             </a>
           ) : null}
-          {material.type === 'FILE' ? (
-            <>
-              <Button variant="secondary" onClick={() => previewMutation.mutate()}>
-                <Eye className="mr-2 h-4 w-4" />
-                {t('education.previewFile')}
-              </Button>
-              <Button variant="secondary" onClick={() => downloadMutation.mutate()}>
-                <Download className="mr-2 h-4 w-4" />
-                {t('education.downloadFile')}
-              </Button>
-            </>
-          ) : null}
           {canManage ? (
             <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 className="mr-2 h-4 w-4" />
@@ -293,6 +284,33 @@ export function MaterialPage() {
           {t('education.updatedLabel')}: {formatDateTime(material.updatedAt)}
         </div>
       </Card>
+
+      {materialFileItem ? (
+        <Card className="space-y-4">
+          <PageHeader title={t('education.materialFile')} />
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+            <FileAttachmentList
+              defaultExpanded
+              files={[materialFileItem]}
+              selectedFileId={materialFileItem.id}
+              onDownload={async (attachment) => {
+                const blob = await educationService.downloadTopicMaterialFile(materialId)
+                downloadBlob(blob, attachment.originalFileName)
+              }}
+              onSelect={() => undefined}
+            />
+            <FilePreviewPanel
+              fetchDownloadBlob={() => educationService.downloadTopicMaterialFile(materialId)}
+              fetchPreviewBlob={() => educationService.previewTopicMaterialFile(materialId)}
+              selectedFile={materialFileItem}
+              onDownload={async (attachment) => {
+                const blob = await educationService.downloadTopicMaterialFile(materialId)
+                downloadBlob(blob, attachment.originalFileName)
+              }}
+            />
+          </div>
+        </Card>
+      ) : null}
 
       {canManage ? (
         <Card className="space-y-4">

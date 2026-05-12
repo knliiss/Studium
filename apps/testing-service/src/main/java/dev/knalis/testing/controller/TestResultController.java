@@ -3,7 +3,11 @@ package dev.knalis.testing.controller;
 import dev.knalis.shared.security.user.CurrentUserService;
 import dev.knalis.testing.dto.request.CreateTestResultRequest;
 import dev.knalis.testing.dto.request.OverrideTestResultScoreRequest;
+import dev.knalis.testing.dto.request.UpdateTestResultQuestionScoreRequest;
 import dev.knalis.testing.dto.response.TestResultPageResponse;
+import dev.knalis.testing.dto.response.TestResultQuestionResponse;
+import dev.knalis.testing.dto.response.TestResultReviewResponse;
+import dev.knalis.testing.dto.response.TestQuestionStatisticsResponse;
 import dev.knalis.testing.dto.response.TestResultResponse;
 import dev.knalis.testing.service.result.TestResultService;
 import jakarta.validation.Valid;
@@ -20,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -69,6 +74,29 @@ public class TestResultController {
         );
     }
 
+    @GetMapping("/{id}/review")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestResultReviewResponse getTestResultReview(Authentication authentication, @PathVariable("id") UUID resultId) {
+        return testResultService.getTestResultReview(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                resultId
+        );
+    }
+
+    @GetMapping("/test/{testId}/question-stats")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public List<TestQuestionStatisticsResponse> getQuestionStatisticsByTest(
+            Authentication authentication,
+            @PathVariable("testId") UUID testId
+    ) {
+        return testResultService.getQuestionStatisticsByTest(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                testId
+        );
+    }
+
     @PatchMapping("/{id}/score")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public TestResultResponse overrideTestResultScore(
@@ -81,6 +109,33 @@ public class TestResultController {
                 hasManagementBypass(authentication),
                 resultId,
                 request
+        );
+    }
+
+    @PatchMapping("/{id}/questions/{questionId}/score")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestResultQuestionResponse updateQuestionScore(
+            Authentication authentication,
+            @PathVariable("id") UUID resultId,
+            @PathVariable("questionId") UUID questionId,
+            @Valid @RequestBody UpdateTestResultQuestionScoreRequest request
+    ) {
+        return testResultService.updateQuestionScore(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                resultId,
+                questionId,
+                request
+        );
+    }
+
+    @PatchMapping("/{id}/approve")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public TestResultResponse approveResult(Authentication authentication, @PathVariable("id") UUID resultId) {
+        return testResultService.approveResult(
+                currentUserService.getCurrentUserId(authentication),
+                hasManagementBypass(authentication),
+                resultId
         );
     }
 

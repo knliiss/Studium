@@ -7,7 +7,11 @@ import dev.knalis.testing.dto.request.CreateTestResultRequest;
 import dev.knalis.testing.dto.request.QuestionAnswerSubmissionRequest;
 import dev.knalis.testing.dto.request.OverrideTestResultScoreRequest;
 import dev.knalis.testing.dto.request.SubmitTestAttemptRequest;
+import dev.knalis.testing.dto.request.UpdateTestResultQuestionScoreRequest;
+import dev.knalis.testing.dto.response.TestQuestionStatisticsResponse;
 import dev.knalis.testing.dto.response.TestResultPageResponse;
+import dev.knalis.testing.dto.response.TestResultQuestionResponse;
+import dev.knalis.testing.dto.response.TestResultReviewResponse;
 import dev.knalis.testing.dto.response.TestResultResponse;
 import dev.knalis.testing.entity.Answer;
 import dev.knalis.testing.entity.Question;
@@ -15,8 +19,10 @@ import dev.knalis.testing.entity.QuestionType;
 import dev.knalis.testing.entity.Test;
 import dev.knalis.testing.entity.TestAttempt;
 import dev.knalis.testing.entity.TestResult;
+import dev.knalis.testing.entity.TestResultQuestion;
 import dev.knalis.testing.entity.TestStatus;
 import dev.knalis.testing.exception.ActiveTestAttemptNotFoundException;
+import dev.knalis.testing.exception.QuestionNotFoundException;
 import dev.knalis.testing.exception.TestInvalidStateException;
 import dev.knalis.testing.exception.TestAccessDeniedException;
 import dev.knalis.testing.exception.TestNotFoundException;
@@ -28,6 +34,7 @@ import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.AnswerRepository;
 import dev.knalis.testing.repository.QuestionRepository;
 import dev.knalis.testing.repository.TestRepository;
+import dev.knalis.testing.repository.TestResultQuestionRepository;
 import dev.knalis.testing.repository.TestResultRepository;
 import dev.knalis.testing.service.common.TestingAuditService;
 import dev.knalis.testing.service.common.TestingEventPublisher;
@@ -41,7 +48,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
@@ -55,12 +61,21 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class TestResultService {
+
+    private record EvaluatedQuestion(
+            Question question,
+            JsonNode submittedValue,
+            String correctValueJson,
+            int autoScore,
+            int score
+    ) {}
     
     private final TestResultRepository testResultRepository;
     private final TestRepository testRepository;
     private final TestAttemptRepository testAttemptRepository;
     private final TestResultFactory testResultFactory;
     private final TestResultMapper testResultMapper;
+    private final TestResultQuestionRepository testResultQuestionRepository;
     private final TestingEventPublisher testingEventPublisher;
     private final EducationServiceClient educationServiceClient;
     private final TestingAuditService testingAuditService;
@@ -143,9 +158,14 @@ public class TestResultService {
             return testResultMapper.toResponse(existingResult);
         }
 
-        int score = calculateScore(testId, request);
-        TestResult testResult = testResultFactory.newTestResult(testId, userId, attempt.getId(), Math.min(score, test.getMaxPoints()));
+        List<EvaluatedQuestion> evaluations = evaluateQuestions(testId, request);
+        int autoScore = evaluations.stream()
+                .mapToInt(EvaluatedQuestion::autoScore)
+                .sum();
+        int score = Math.min(autoScore, test.getMaxPoints());
+        TestResult testResult = testResultFactory.newTestResult(testId, userId, attempt.getId(), score);
         TestResult savedTestResult = testResultRepository.save(testResult);
+        saveResultQuestions(savedTestResult, evaluations);
         Instant completedAt = resolveCompletedAt(test, attempt, now);
         attempt.setCompletedAt(completedAt);
         testAttemptRepository.save(attempt);
@@ -219,6 +239,101 @@ public class TestResultService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public TestResultReviewResponse getTestResultReview(
+            UUID currentUserId,
+            boolean privilegedAccess,
+            UUID resultId
+    ) {
+        TestResult testResult = testResultRepository.findById(resultId)
+                .orElseThrow(() -> new TestNotFoundException(resultId));
+        Test test = testRepository.findById(testResult.getTestId())
+                .orElseThrow(() -> new TestNotFoundException(testResult.getTestId()));
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+
+        TestAttempt attempt = testResult.getAttemptId() == null
+                ? null
+                : testAttemptRepository.findById(testResult.getAttemptId()).orElse(null);
+        List<TestResultQuestionResponse> questionResponses = testResultQuestionRepository
+                .findAllByResultIdOrderByQuestionOrderIndexAscCreatedAtAsc(resultId)
+                .stream()
+                .map(this::toQuestionResponse)
+                .toList();
+        Integer totalTimeSpentSeconds = attempt != null && attempt.getCompletedAt() != null
+                ? Math.toIntExact(Math.max(0, attempt.getCompletedAt().getEpochSecond() - attempt.getStartedAt().getEpochSecond()))
+                : null;
+
+        return new TestResultReviewResponse(
+                testResult.getId(),
+                testResult.getTestId(),
+                testResult.getAttemptId(),
+                testResult.getUserId(),
+                test.getTitle(),
+                test.getStatus(),
+                test.getMaxPoints(),
+                testResult.getScore(),
+                testResult.getAutoScore(),
+                attempt == null ? null : attempt.getStartedAt(),
+                attempt == null ? null : attempt.getCompletedAt(),
+                totalTimeSpentSeconds,
+                testResult.getCreatedAt(),
+                testResult.getReviewedByUserId(),
+                testResult.getReviewedAt(),
+                questionResponses
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<TestQuestionStatisticsResponse> getQuestionStatisticsByTest(
+            UUID currentUserId,
+            boolean privilegedAccess,
+            UUID testId
+    ) {
+        Test test = testRepository.findById(testId)
+                .orElseThrow(() -> new TestNotFoundException(testId));
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+
+        Page<TestResult> resultsPage = testResultRepository.findAllByTestId(
+                testId,
+                PageRequest.of(0, 500, Sort.by(Sort.Direction.DESC, "createdAt"))
+        );
+        if (resultsPage.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> resultIds = resultsPage.getContent().stream()
+                .map(TestResult::getId)
+                .toList();
+        Map<UUID, List<TestResultQuestion>> rowsByQuestionId = testResultQuestionRepository
+                .findAllByResultIdIn(resultIds)
+                .stream()
+                .collect(Collectors.groupingBy(TestResultQuestion::getQuestionId, LinkedHashMap::new, Collectors.toList()));
+
+        List<Question> questions = questionRepository.findAllByTestIdOrderByOrderIndexAscCreatedAtAsc(testId);
+        List<TestQuestionStatisticsResponse> responses = new ArrayList<>();
+        for (Question question : questions) {
+            List<TestResultQuestion> rows = rowsByQuestionId.getOrDefault(question.getId(), List.of());
+            long attemptsCount = rows.size();
+            double averageScore = attemptsCount == 0
+                    ? 0d
+                    : rows.stream().mapToInt(TestResultQuestion::getScore).average().orElse(0d);
+            long zeroScoreCount = rows.stream().filter(row -> row.getScore() == 0).count();
+            long fullScoreCount = rows.stream().filter(row -> row.getScore() >= row.getMaxPoints()).count();
+            responses.add(new TestQuestionStatisticsResponse(
+                    question.getId(),
+                    question.getType(),
+                    question.getText(),
+                    question.getOrderIndex(),
+                    question.getPoints(),
+                    attemptsCount,
+                    averageScore,
+                    zeroScoreCount,
+                    fullScoreCount
+            ));
+        }
+        return responses;
+    }
+
     @Transactional
     public TestResultResponse overrideTestResultScore(
             UUID currentUserId,
@@ -250,6 +365,76 @@ public class TestResultService {
         return response;
     }
 
+    @Transactional
+    public TestResultQuestionResponse updateQuestionScore(
+            UUID currentUserId,
+            boolean privilegedAccess,
+            UUID resultId,
+            UUID questionId,
+            UpdateTestResultQuestionScoreRequest request
+    ) {
+        TestResult testResult = testResultRepository.findById(resultId)
+                .orElseThrow(() -> new TestNotFoundException(resultId));
+        Test test = testRepository.findById(testResult.getTestId())
+                .orElseThrow(() -> new TestNotFoundException(testResult.getTestId()));
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+
+        TestResultQuestion row = testResultQuestionRepository.findByResultIdAndQuestionId(resultId, questionId)
+                .or(() -> testResultQuestionRepository.findById(questionId)
+                        .filter(candidate -> candidate.getResultId().equals(resultId)))
+                .orElseThrow(() -> new QuestionNotFoundException(questionId));
+        if (request.score() > row.getMaxPoints()) {
+            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Question score cannot exceed max points");
+        }
+
+        row.setScore(request.score());
+        row.setReviewComment(request.comment() == null || request.comment().isBlank()
+                ? null
+                : request.comment().trim());
+        row.setReviewedByUserId(currentUserId);
+        row.setReviewedAt(Instant.now());
+        TestResultQuestion savedRow = testResultQuestionRepository.save(row);
+
+        int totalScore = testResultQuestionRepository.findAllByResultIdOrderByQuestionOrderIndexAscCreatedAtAsc(resultId)
+                .stream()
+                .mapToInt(TestResultQuestion::getScore)
+                .sum();
+        testResult.setScore(Math.min(totalScore, test.getMaxPoints()));
+        testResult.setManualOverrideScore(null);
+        testResult.setManualOverrideReason(null);
+        testResultRepository.save(testResult);
+
+        return toQuestionResponse(savedRow);
+    }
+
+    @Transactional
+    public TestResultResponse approveResult(
+            UUID currentUserId,
+            boolean privilegedAccess,
+            UUID resultId
+    ) {
+        TestResult testResult = testResultRepository.findById(resultId)
+                .orElseThrow(() -> new TestNotFoundException(resultId));
+        Test test = testRepository.findById(testResult.getTestId())
+                .orElseThrow(() -> new TestNotFoundException(testResult.getTestId()));
+        assertTeacherOwnership(test, currentUserId, privilegedAccess);
+
+        int totalScore = testResultQuestionRepository.findAllByResultIdOrderByQuestionOrderIndexAscCreatedAtAsc(resultId)
+                .stream()
+                .mapToInt(TestResultQuestion::getScore)
+                .sum();
+        TestResultResponse oldValue = testResultMapper.toResponse(testResult);
+
+        testResult.setScore(Math.min(totalScore, test.getMaxPoints()));
+        testResult.setReviewedByUserId(currentUserId);
+        testResult.setReviewedAt(Instant.now());
+        TestResult savedResult = testResultRepository.save(testResult);
+
+        TestResultResponse response = testResultMapper.toResponse(savedResult);
+        testingAuditService.record(currentUserId, "TEST_RESULT_APPROVED", "TEST_RESULT", response.id(), oldValue, response);
+        return response;
+    }
+
     private void assertTeacherOwnership(Test test, UUID currentUserId, boolean privilegedAccess) {
         if (privilegedAccess) {
             return;
@@ -264,7 +449,7 @@ public class TestResultService {
         throw new TestAccessDeniedException(test.getId(), currentUserId);
     }
 
-    private int calculateScore(UUID testId, SubmitTestAttemptRequest request) {
+    private List<EvaluatedQuestion> evaluateQuestions(UUID testId, SubmitTestAttemptRequest request) {
         List<Question> questions = questionRepository.findAllByTestIdOrderByOrderIndexAscCreatedAtAsc(testId);
         List<UUID> questionIds = questions.stream().map(Question::getId).toList();
         Map<UUID, List<Answer>> answersByQuestionId = questionIds.isEmpty()
@@ -284,18 +469,43 @@ public class TestResultService {
                                 (left, right) -> right,
                                 HashMap::new
                         ));
-
-        int total = 0;
+        List<EvaluatedQuestion> evaluated = new ArrayList<>();
         for (Question question : questions) {
             JsonNode submittedValue = submissionsByQuestionId.get(question.getId());
-            if (submittedValue == null) {
-                continue;
-            }
-            if (isCorrectAnswer(question, submittedValue, answersByQuestionId.getOrDefault(question.getId(), List.of()))) {
-                total += question.getPoints();
-            }
+            List<Answer> answers = answersByQuestionId.getOrDefault(question.getId(), List.of());
+            boolean correct = submittedValue != null && isCorrectAnswer(question, submittedValue, answers);
+            int awardedScore = correct ? question.getPoints() : 0;
+            evaluated.add(new EvaluatedQuestion(
+                    question,
+                    submittedValue,
+                    toCorrectValueJson(question, answers),
+                    awardedScore,
+                    awardedScore
+            ));
         }
-        return total;
+        return evaluated;
+    }
+
+    private void saveResultQuestions(TestResult result, List<EvaluatedQuestion> evaluations) {
+        if (evaluations.isEmpty()) {
+            return;
+        }
+        List<TestResultQuestion> rows = new ArrayList<>(evaluations.size());
+        for (EvaluatedQuestion evaluation : evaluations) {
+            TestResultQuestion row = new TestResultQuestion();
+            row.setResultId(result.getId());
+            row.setQuestionId(evaluation.question().getId());
+            row.setQuestionType(evaluation.question().getType());
+            row.setQuestionText(evaluation.question().getText());
+            row.setQuestionOrderIndex(evaluation.question().getOrderIndex());
+            row.setMaxPoints(evaluation.question().getPoints());
+            row.setSubmittedValueJson(toJsonOrNull(evaluation.submittedValue()));
+            row.setCorrectValueJson(evaluation.correctValueJson());
+            row.setAutoScore(evaluation.autoScore());
+            row.setScore(evaluation.score());
+            rows.add(row);
+        }
+        testResultQuestionRepository.saveAll(rows);
     }
 
     private boolean isCorrectAnswer(Question question, JsonNode submittedValue, List<Answer> answers) {
@@ -474,6 +684,60 @@ public class TestResultService {
             }
         }
         return false;
+    }
+
+    private String toCorrectValueJson(Question question, List<Answer> answers) {
+        return switch (question.getType()) {
+            case SINGLE_CHOICE, TRUE_FALSE -> toJsonOrNull(answers.stream()
+                    .filter(Answer::isCorrect)
+                    .findFirst()
+                    .map(answer -> answer.getId().toString())
+                    .orElse(null));
+            case MULTIPLE_CHOICE -> toJsonOrNull(answers.stream()
+                    .filter(Answer::isCorrect)
+                    .map(answer -> answer.getId().toString())
+                    .toList());
+            case SHORT_ANSWER -> toJsonOrNull(answers.stream()
+                    .map(Answer::getText)
+                    .toList());
+            case NUMERIC, MATCHING, ORDERING, FILL_IN_THE_BLANK, FILE_ANSWER, LONG_TEXT, MANUAL_GRADING -> toJsonOrNull(parseConfiguration(question));
+        };
+    }
+
+    private String toJsonOrNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            if (value instanceof JsonNode jsonNode) {
+                return objectMapper.writeValueAsString(jsonNode);
+            }
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private TestResultQuestionResponse toQuestionResponse(TestResultQuestion row) {
+        return new TestResultQuestionResponse(
+                row.getId(),
+                row.getResultId(),
+                row.getQuestionId(),
+                row.getQuestionType(),
+                row.getQuestionText(),
+                row.getQuestionOrderIndex(),
+                row.getMaxPoints(),
+                row.getSubmittedValueJson(),
+                row.getCorrectValueJson(),
+                row.getAutoScore(),
+                row.getScore(),
+                row.getReviewComment(),
+                row.getReviewedByUserId(),
+                row.getReviewedAt(),
+                row.getTimeSpentSeconds(),
+                row.getCreatedAt(),
+                row.getUpdatedAt()
+        );
     }
 
     private JsonNode parseConfiguration(Question question) {

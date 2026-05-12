@@ -46,7 +46,10 @@ import type {
   TeacherDashboardResponse,
   TestResponse,
   TestGroupAvailabilityResponse,
+  TestQuestionStatisticsResponse,
   TestPreviewViewResponse,
+  TestResultQuestionResponse,
+  TestResultReviewResponse,
   TestResultResponse,
   TestStudentViewResponse,
   TopicMaterialResponse,
@@ -909,8 +912,31 @@ export const testingService = {
     const response = await apiClient.get(`/api/v1/testing/results/test/${testId}`, { params })
     return normalizePage<TestResultResponse>(response.data)
   },
+  async getTestResultReview(id: string) {
+    const response = await apiClient.get<TestResultReviewResponse>(`/api/v1/testing/results/${id}/review`)
+    return response.data
+  },
+  async getTestQuestionStatistics(testId: string) {
+    const response = await apiClient.get<TestQuestionStatisticsResponse[]>(`/api/v1/testing/results/test/${testId}/question-stats`)
+    return response.data
+  },
+  async updateTestResultQuestionScore(
+    resultId: string,
+    questionId: string,
+    payload: { score: number; comment?: string },
+  ) {
+    const response = await apiClient.patch<TestResultQuestionResponse>(
+      `/api/v1/testing/results/${resultId}/questions/${questionId}/score`,
+      payload,
+    )
+    return response.data
+  },
   async overrideTestResultScore(id: string, payload: { score: number; reason?: string }) {
     const response = await apiClient.patch<TestResultResponse>(`/api/v1/testing/results/${id}/score`, payload)
+    return response.data
+  },
+  async approveTestResult(id: string) {
+    const response = await apiClient.patch<TestResultResponse>(`/api/v1/testing/results/${id}/approve`)
     return response.data
   },
 }

@@ -75,10 +75,48 @@ app:
         - image/jpeg
         - image/png
         - image/webp
+        - image/gif
+        - image/svg+xml
         - application/pdf
         - text/plain
+        - text/markdown
+        - text/csv
         - application/zip
+        - application/x-zip-compressed
+        - application/x-rar-compressed
+        - application/x-7z-compressed
+        - application/gzip
+        - application/x-tar
         - application/json
+        - application/xml
+        - text/xml
+        - application/yaml
+        - text/yaml
+        - application/x-yaml
+        - text/x-yaml
+        - text/html
+        - text/css
+        - text/javascript
+        - application/javascript
+        - application/typescript
+        - application/x-sh
+        - application/sql
+        - application/msword
+        - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+        - application/vnd.ms-excel
+        - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+        - application/vnd.ms-powerpoint
+        - application/vnd.openxmlformats-officedocument.presentationml.presentation
+        - application/vnd.oasis.opendocument.text
+        - application/vnd.oasis.opendocument.spreadsheet
+        - application/vnd.oasis.opendocument.presentation
+        - video/mp4
+        - video/webm
+        - video/quicktime
+        - audio/mpeg
+        - audio/wav
+        - audio/ogg
+        - application/octet-stream
     quota:
       max-files-per-user: ${FILE_MAX_FILES_PER_USER:500}
       max-avatar-files-per-user: ${FILE_MAX_AVATAR_FILES_PER_USER:10}

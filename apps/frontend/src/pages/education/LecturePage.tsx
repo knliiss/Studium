@@ -2,11 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, Eye, Save, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, Upload } from 'lucide-react'
 
 import { useAuth } from '@/features/auth/useAuth'
+import { FileAttachmentList, FilePreviewPanel } from '@/features/files/preview'
+import type { FileAttachmentItem } from '@/features/files/preview'
 import { educationService, fileService } from '@/shared/api/services'
-import { isAccessDeniedApiError } from '@/shared/lib/api-errors'
+import { isAccessDeniedApiError, normalizeApiError } from '@/shared/lib/api-errors'
 import { downloadBlob } from '@/shared/lib/download'
 import { formatDateTime } from '@/shared/lib/format'
 import { hasAnyRole } from '@/shared/lib/roles'
@@ -44,6 +46,8 @@ export function LecturePage() {
   const [formState, setFormState] = useState({ lectureId: '', title: '', content: '' })
   const [attachmentName, setAttachmentName] = useState('')
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [attachmentUploadError, setAttachmentUploadError] = useState('')
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [attachmentToRemove, setAttachmentToRemove] = useState<{ id: string; name: string } | null>(null)
 
@@ -82,8 +86,17 @@ export function LecturePage() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['education', 'lecture-attachments', lectureId] })
+      setAttachmentUploadError('')
       setAttachmentName('')
       setAttachmentFile(null)
+    },
+    onError: (error) => {
+      const normalized = normalizeApiError(error)
+      if (normalized?.status === 415) {
+        setAttachmentUploadError(t('files.unsupportedUploadType'))
+        return
+      }
+      setAttachmentUploadError(t('files.uploadFailed'))
     },
   })
 
@@ -169,6 +182,19 @@ export function LecturePage() {
   const editableTitle = getEditableTitle(lecture, formState)
   const editableContent = getEditableContent(lecture, formState)
   const attachments = attachmentsQuery.data ?? []
+  const attachmentItems: FileAttachmentItem[] = attachments.map((attachment) => ({
+    id: attachment.id,
+    fileId: attachment.fileId,
+    displayName: attachment.displayName,
+    originalFileName: attachment.originalFileName,
+    contentType: attachment.contentType,
+    sizeBytes: attachment.sizeBytes,
+    previewAvailable: attachment.previewAvailable,
+    createdAt: attachment.createdAt,
+  }))
+  const selectedAttachment = attachmentItems.find((attachment) => attachment.id === selectedAttachmentId)
+    ?? attachmentItems[0]
+    ?? null
 
   return (
     <div className="space-y-6">
@@ -262,69 +288,42 @@ export function LecturePage() {
 
           <Card className="space-y-4">
             <PageHeader title={t('education.lectureAttachments')} />
-            {attachments.length === 0 ? (
-              <div className="text-sm text-text-secondary">{t('education.noLectureAttachments')}</div>
-            ) : (
-              <div className="space-y-3">
-                {attachments.map((attachment) => (
-                  <div
-                    key={attachment.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-border bg-surface-muted px-4 py-3"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-text-primary">
-                        {attachment.displayName?.trim() || attachment.originalFileName}
-                      </div>
-                      <div className="text-xs text-text-secondary">
-                        {attachment.originalFileName} · {attachment.contentType ?? 'application/octet-stream'} · {formatBytes(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {attachment.previewAvailable ? (
-                        <Button
-                          variant="ghost"
-                          onClick={async () => {
-                            const blob = await educationService.previewLectureAttachment(lectureId, attachment.id)
-                            openPreview(blob)
-                          }}
-                        >
-                          <Eye className="mr-2 h-4 w-4" />
-                          {t('common.actions.preview')}
-                        </Button>
-                      ) : null}
-                      <Button
-                        variant="secondary"
-                        onClick={async () => {
-                          const blob = await educationService.downloadLectureAttachment(lectureId, attachment.id)
-                          downloadBlob(blob, attachment.originalFileName)
-                        }}
-                      >
-                        <Download className="mr-2 h-4 w-4" />
-                        {t('common.actions.download')}
-                      </Button>
-                      {canManage ? (
-                        <Button
-                          variant="ghost"
-                          disabled={!canEditLecture || removeAttachmentMutation.isPending}
-                          onClick={() => {
-                            if (isPublishedOrClosed) {
-                              setAttachmentToRemove({
-                                id: attachment.id,
-                                name: attachment.displayName?.trim() || attachment.originalFileName,
-                              })
-                              return
-                            }
-                            removeAttachmentMutation.mutate({ attachmentId: attachment.id })
-                          }}
-                        >
-                          {t('common.actions.remove')}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+              <FileAttachmentList
+                canRemove={canManage}
+                collapsible
+                defaultExpanded
+                emptyMessage={t('education.noLectureAttachments')}
+                files={attachmentItems}
+                removeDisabled={!canEditLecture || removeAttachmentMutation.isPending}
+                selectedFileId={selectedAttachment?.id ?? null}
+                onDownload={async (attachment) => {
+                  const blob = await educationService.downloadLectureAttachment(lectureId, attachment.id)
+                  downloadBlob(blob, attachment.originalFileName)
+                }}
+                onRemove={(attachment) => {
+                  if (isPublishedOrClosed) {
+                    setAttachmentToRemove({
+                      id: attachment.id,
+                      name: attachment.displayName?.trim() || attachment.originalFileName,
+                    })
+                    return
+                  }
+                  removeAttachmentMutation.mutate({ attachmentId: attachment.id })
+                }}
+                onSelect={(attachment) => setSelectedAttachmentId(attachment.id)}
+              />
+              <FilePreviewPanel
+                fetchDownloadBlob={(attachment) => educationService.downloadLectureAttachment(lectureId, attachment.id)}
+                fetchPreviewBlob={(attachment) => educationService.previewLectureAttachment(lectureId, attachment.id)}
+                selectedFile={selectedAttachment}
+                title={t('assignments.filePreview')}
+                onDownload={async (attachment) => {
+                  const blob = await educationService.downloadLectureAttachment(lectureId, attachment.id)
+                  downloadBlob(blob, attachment.originalFileName)
+                }}
+              />
+            </div>
             {canManage ? (
               <div className="space-y-3">
                 <FormField label={t('education.attachmentDisplayName')}>
@@ -339,8 +338,12 @@ export function LecturePage() {
                   <Input
                     disabled={!canEditLecture}
                     type="file"
-                    onChange={(event) => setAttachmentFile(event.target.files?.[0] ?? null)}
+                    onChange={(event) => {
+                      setAttachmentFile(event.target.files?.[0] ?? null)
+                      setAttachmentUploadError('')
+                    }}
                   />
+                  <p className="text-xs text-text-muted">{t('files.allowedFileTypesHint')}</p>
                 </FormField>
                 <Button
                   disabled={!canEditLecture || !attachmentFile || attachmentUploadMutation.isPending}
@@ -349,6 +352,9 @@ export function LecturePage() {
                   <Upload className="mr-2 h-4 w-4" />
                   {t('education.addAttachment')}
                 </Button>
+                {attachmentUploadError ? (
+                  <p className="text-sm text-danger">{attachmentUploadError}</p>
+                ) : null}
               </div>
             ) : null}
           </Card>
@@ -410,24 +416,6 @@ export function LecturePage() {
       />
     </div>
   )
-}
-
-function openPreview(blob: Blob) {
-  const url = URL.createObjectURL(blob)
-  window.open(url, '_blank', 'noopener,noreferrer')
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) {
-    return `${value} B`
-  }
-  const kb = value / 1024
-  if (kb < 1024) {
-    return `${kb.toFixed(1)} KB`
-  }
-  const mb = kb / 1024
-  return `${mb.toFixed(1)} MB`
 }
 
 function getEditableTitle(

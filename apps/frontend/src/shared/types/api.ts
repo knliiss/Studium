@@ -620,6 +620,57 @@ export interface TestResultResponse {
   updatedAt: string
 }
 
+export interface TestResultQuestionResponse {
+  id: string
+  resultId: string
+  questionId: string
+  questionType: QuestionType
+  questionText: string
+  questionOrderIndex: number
+  maxPoints: number
+  submittedValueJson: string | null
+  correctValueJson: string | null
+  autoScore: number
+  score: number
+  reviewComment: string | null
+  reviewedByUserId: string | null
+  reviewedAt: string | null
+  timeSpentSeconds: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestResultReviewResponse {
+  resultId: string
+  testId: string
+  attemptId: string | null
+  userId: string
+  testTitle: string
+  testStatus: string
+  maxPoints: number
+  score: number
+  autoScore: number
+  attemptStartedAt: string | null
+  attemptCompletedAt: string | null
+  totalTimeSpentSeconds: number | null
+  submittedAt: string
+  reviewedByUserId: string | null
+  reviewedAt: string | null
+  questions: TestResultQuestionResponse[]
+}
+
+export interface TestQuestionStatisticsResponse {
+  questionId: string
+  questionType: QuestionType
+  questionText: string
+  orderIndex: number
+  maxPoints: number
+  attemptsCount: number
+  averageScore: number
+  zeroScoreCount: number
+  fullScoreCount: number
+}
+
 export interface StoredFileResponse {
   id: string
   fileId: string

@@ -253,7 +253,7 @@ export function AssignmentAccessPanel({
         onUpdateForm={(updater) => setBulkAvailabilityForm((current) => updater(current))}
       />
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <EntityPicker
           label={t('navigation.shared.groups')}
           value={availabilityForm.groupId}

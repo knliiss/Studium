@@ -15,8 +15,8 @@ export function SectionTabs({
   onChange: (id: string) => void
 }) {
   return (
-    <div className="rounded-[20px] border border-border bg-surface p-2 shadow-[var(--shadow-card)]">
-      <div className="flex flex-wrap gap-2">
+    <div className="overflow-x-auto rounded-[20px] border border-border bg-surface p-2 shadow-[var(--shadow-card)]">
+      <div className="flex min-w-max flex-nowrap gap-2">
         {items.map((item) => (
           <button
             key={item.id}

@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import type { TFunction } from 'i18next'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { convertToHtml } from 'mammoth/mammoth.browser'
+import { UploadCloud } from 'lucide-react'
 
 import { useAuth } from '@/features/auth/useAuth'
 import { AssignmentAccessPanel } from '@/features/assignments/access/AssignmentAccessPanel'
+import { FileAttachmentList, FilePreviewPanel } from '@/features/files/preview'
+import type { FileAttachmentItem } from '@/features/files/preview'
+import { AssignmentSubmissionReviewPage } from '@/pages/assignments/AssignmentSubmissionReviewPage'
 import { assignmentService, dashboardService, educationService, fileService, userDirectoryService } from '@/shared/api/services'
 import { getLocalizedRequestErrorMessage, normalizeApiError } from '@/shared/lib/api-errors'
 import { downloadBlob } from '@/shared/lib/download'
@@ -18,6 +22,7 @@ import { DataTable } from '@/shared/ui/DataTable'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
+import { SectionTabs } from '@/shared/ui/SectionTabs'
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { DeadlineBadge } from '@/widgets/common/DeadlineBadge'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
@@ -31,9 +36,15 @@ interface AssignmentManagementRow {
   deadline: string
 }
 
+type AssignmentTab = 'overview' | 'submissions' | 'grades' | 'settings'
+
 export function AssignmentsPage() {
   const { primaryRole } = useAuth()
-  const { assignmentId } = useParams()
+  const { assignmentId, submissionId } = useParams()
+
+  if (assignmentId && submissionId) {
+    return <AssignmentSubmissionReviewPage assignmentId={assignmentId} submissionId={submissionId} />
+  }
 
   if (assignmentId) {
     return <AssignmentDetailPage assignmentId={assignmentId} />
@@ -213,10 +224,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   const isStudent = primaryRole === 'STUDENT'
   const isTeacher = primaryRole === 'TEACHER'
   const [searchParams, setSearchParams] = useSearchParams()
+  const [renderNow] = useState(() => Date.now())
   const [submissionSearch, setSubmissionSearch] = useState('')
   const debouncedSubmissionSearch = useDebouncedValue(submissionSearch.trim(), 250)
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState('')
-  const requestedSubmissionId = searchParams.get('submissionId') ?? ''
   const assignmentQuery = useQuery({
     queryKey: ['assignment', assignmentId],
     queryFn: () => assignmentService.getAssignment(assignmentId),
@@ -242,12 +252,11 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     enabled: isStudent,
   })
   const [upload, setUpload] = useState<File | null>(null)
+  const [submissionUploadError, setSubmissionUploadError] = useState('')
   const [assignmentAttachmentUpload, setAssignmentAttachmentUpload] = useState<File | null>(null)
   const [assignmentAttachmentName, setAssignmentAttachmentName] = useState('')
-  const [submissionAttachmentUpload, setSubmissionAttachmentUpload] = useState<File | null>(null)
-  const [submissionAttachmentName, setSubmissionAttachmentName] = useState('')
-  const [selectedSubmissionAttachmentId, setSelectedSubmissionAttachmentId] = useState('')
-  const [gradeDraftBySubmissionId, setGradeDraftBySubmissionId] = useState<Record<string, { score: number; feedback: string }>>({})
+  const [assignmentAttachmentUploadError, setAssignmentAttachmentUploadError] = useState('')
+  const [selectedTeacherMaterialId, setSelectedTeacherMaterialId] = useState('')
   const [availabilityGroupSearch, setAvailabilityGroupSearch] = useState('')
   const debouncedAvailabilityGroupSearch = useDebouncedValue(availabilityGroupSearch.trim(), 350)
   const accessibleGroupsQuery = useQuery({
@@ -333,7 +342,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     ),
     enabled: !isStudent && Boolean(connectedGroupsQuery.data?.length),
   })
-  const latestStudentSubmissionId = mySubmissionsQuery.data?.[0]?.id ?? ''
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!upload) {
@@ -346,7 +354,11 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
+      setSubmissionUploadError('')
       setUpload(null)
+    },
+    onError: (error) => {
+      setSubmissionUploadError(getAttachmentUploadErrorMessage(error, t))
     },
   })
   const addAssignmentAttachmentMutation = useMutation({
@@ -362,46 +374,18 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
+      setAssignmentAttachmentUploadError('')
       setAssignmentAttachmentUpload(null)
       setAssignmentAttachmentName('')
+    },
+    onError: (error) => {
+      setAssignmentAttachmentUploadError(getAttachmentUploadErrorMessage(error, t))
     },
   })
   const removeAssignmentAttachmentMutation = useMutation({
     mutationFn: (attachmentId: string) => assignmentService.removeAssignmentAttachment(assignmentId, attachmentId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
-    },
-  })
-  const addSubmissionAttachmentMutation = useMutation({
-    mutationFn: async () => {
-      if (!latestStudentSubmissionId || !submissionAttachmentUpload) {
-        return null
-      }
-      const storedFile = await fileService.uploadFile(submissionAttachmentUpload, 'ATTACHMENT')
-      return assignmentService.addSubmissionAttachment(latestStudentSubmissionId, {
-        fileId: storedFile.id,
-        displayName: submissionAttachmentName.trim() || undefined,
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission-attachments', latestStudentSubmissionId] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', latestStudentSubmissionId] })
-      setSubmissionAttachmentUpload(null)
-      setSubmissionAttachmentName('')
-    },
-  })
-  const removeSubmissionAttachmentMutation = useMutation({
-    mutationFn: (attachmentId: string) => {
-      if (!latestStudentSubmissionId) {
-        return Promise.resolve()
-      }
-      return assignmentService.removeSubmissionAttachment(latestStudentSubmissionId, attachmentId)
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission-attachments', latestStudentSubmissionId] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', latestStudentSubmissionId] })
     },
   })
 
@@ -444,13 +428,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['assignments'] })
       window.location.assign('/assignments')
-    },
-  })
-  const gradeMutation = useMutation({
-    mutationFn: () => assignmentService.createGrade(gradeForm),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submissions'] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', activeSubmissionId] })
     },
   })
   const availabilityMutation = useMutation({
@@ -522,118 +499,56 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       return accumulator
     }, new Map<string, typeof filteredSubmissions>()),
   )
-  const activeSubmissionId = filteredSubmissions.some((submission) => submission.id === selectedSubmissionId)
-    ? selectedSubmissionId
-    : filteredSubmissions.some((submission) => submission.id === requestedSubmissionId)
-      ? requestedSubmissionId
-      : filteredSubmissions[0]?.id ?? ''
-  const selectedSubmissionQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission', activeSubmissionId],
-    queryFn: () => assignmentService.getSubmission(activeSubmissionId),
-    enabled: Boolean(activeSubmissionId),
-  })
-  const studentSubmissionAttachmentsQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission-attachments', latestStudentSubmissionId],
-    queryFn: () => assignmentService.listSubmissionAttachments(latestStudentSubmissionId),
-    enabled: Boolean(isStudent && latestStudentSubmissionId),
-  })
-  const selectedSubmissionAttachmentsQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission-attachments', activeSubmissionId],
-    queryFn: () => assignmentService.listSubmissionAttachments(activeSubmissionId),
-    enabled: Boolean(!isStudent && activeSubmissionId),
-  })
-  const studentSubmissionAttachments = studentSubmissionAttachmentsQuery.data ?? []
-  const selectedSubmissionAttachments = useMemo(
-    () => selectedSubmissionAttachmentsQuery.data ?? [],
-    [selectedSubmissionAttachmentsQuery.data],
-  )
-  const effectiveSelectedSubmissionAttachmentId = selectedSubmissionAttachments.some(
-    (attachment) => attachment.id === selectedSubmissionAttachmentId,
-  )
-    ? selectedSubmissionAttachmentId
-    : selectedSubmissionAttachments[0]?.id ?? ''
-  const selectedSubmissionAttachment = selectedSubmissionAttachments.find(
-    (attachment) => attachment.id === effectiveSelectedSubmissionAttachmentId,
-  ) ?? null
-  const submissionPreviewQuery = useQuery({
-    queryKey: [
-      'assignment',
-      assignmentId,
-      'submission-preview',
-      activeSubmissionId,
-      selectedSubmissionAttachment?.id,
-      selectedSubmissionAttachment?.contentType,
-      selectedSubmissionAttachment?.originalFileName,
-    ],
-    queryFn: async () => {
-      if (!activeSubmissionId || !selectedSubmissionAttachment) {
-        return { type: 'empty' as const }
-      }
-      const contentType = (selectedSubmissionAttachment.contentType ?? '').toLowerCase()
-
-      if (contentType.includes('pdf')) {
-        const fileBlob = await assignmentService.previewSubmissionAttachment(activeSubmissionId, selectedSubmissionAttachment.id)
-        return { type: 'pdf' as const, url: URL.createObjectURL(fileBlob) }
-      }
-
-      if (contentType.startsWith('image/')) {
-        const fileBlob = await assignmentService.previewSubmissionAttachment(activeSubmissionId, selectedSubmissionAttachment.id)
-        return { type: 'image' as const, url: URL.createObjectURL(fileBlob) }
-      }
-
-      if (
-        contentType.includes('wordprocessingml.document')
-        || selectedSubmissionAttachment.originalFileName.toLowerCase().endsWith('.docx')
-      ) {
-        const fileBlob = await assignmentService.downloadSubmissionAttachment(activeSubmissionId, selectedSubmissionAttachment.id)
-        const result = await convertToHtml({ arrayBuffer: await fileBlob.arrayBuffer() })
-        return { type: 'docx' as const, html: result.value }
-      }
-
-      return { type: 'unsupported' as const }
-    },
-    enabled: Boolean(!isStudent && activeSubmissionId && selectedSubmissionAttachment),
-  })
-  const activeGradeDraft = activeSubmissionId ? gradeDraftBySubmissionId[activeSubmissionId] : undefined
-  const gradeForm = {
-    submissionId: activeSubmissionId,
-    score: activeGradeDraft?.score ?? selectedSubmissionQuery.data?.score ?? 0,
-    feedback: activeGradeDraft?.feedback ?? selectedSubmissionQuery.data?.feedback ?? '',
-  }
+  const assignmentMaterialItems: FileAttachmentItem[] = assignmentAttachments.map((attachment) => ({
+    id: attachment.id,
+    fileId: attachment.fileId,
+    displayName: attachment.displayName,
+    originalFileName: attachment.originalFileName,
+    contentType: attachment.contentType,
+    sizeBytes: attachment.sizeBytes,
+    previewAvailable: attachment.previewAvailable,
+    createdAt: attachment.createdAt,
+  }))
+  const selectedTeacherMaterial = assignmentMaterialItems.find((attachment) => attachment.id === selectedTeacherMaterialId)
+    ?? assignmentMaterialItems[0]
+    ?? null
   const backTarget = assignmentSubjectQuery.data ? `/subjects/${assignmentSubjectQuery.data.id}` : '/subjects'
   const backLabel = assignmentSubjectQuery.data
     ? t('assignments.backToCourse')
     : t('assignments.backToAssignments')
-
-  useEffect(() => {
-    if (!activeSubmissionId) {
-      return
-    }
-    if (searchParams.get('submissionId') === activeSubmissionId) {
-      return
-    }
+  const assignmentTabs = [
+    { id: 'overview', label: t('assignments.assignmentOverview') },
+    { id: 'submissions', label: t('assignments.submissions') },
+    { id: 'grades', label: t('assignments.grades') },
+    ...(!isStudent ? [{ id: 'settings', label: t('education.subjectTabs.settings') }] : []),
+  ] as Array<{ id: AssignmentTab; label: string }>
+  const activeTab = assignmentTabs.some((tab) => tab.id === searchParams.get('tab'))
+    ? searchParams.get('tab') as AssignmentTab
+    : 'overview'
+  const changeTab = (nextTab: AssignmentTab) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
-      next.set('submissionId', activeSubmissionId)
+      if (nextTab === 'overview') {
+        next.delete('tab')
+      } else {
+        next.set('tab', nextTab)
+      }
       return next
     }, { replace: true })
-  }, [activeSubmissionId, searchParams, setSearchParams])
-
-  useEffect(() => {
-    const preview = submissionPreviewQuery.data
-    if (!preview || (preview.type !== 'pdf' && preview.type !== 'image')) {
-      return undefined
-    }
-    return () => {
-      URL.revokeObjectURL(preview.url)
-    }
-  }, [submissionPreviewQuery.data])
+  }
+  const studentLatestSubmission = (mySubmissionsQuery.data ?? [])[0] ?? null
+  const assignmentDeadline = new Date(assignment?.deadline ?? renderNow)
+  const deadlineDeltaMs = assignmentDeadline.getTime() - renderNow
+  const isOverdue = deadlineDeltaMs < 0 || assignment?.status === 'CLOSED' || assignment?.status === 'ARCHIVED'
+  const deadlineDays = Math.abs(Math.ceil(deadlineDeltaMs / (1000 * 60 * 60 * 24)))
+  const deadlineLabel = isOverdue
+    ? t('assignments.overdueByDays', { count: deadlineDays })
+    : t('assignments.daysLeft', { count: deadlineDays })
 
   if (
     assignmentQuery.isLoading
     || assignmentAttachmentsQuery.isLoading
     || (isStudent && mySubmissionsQuery.isLoading)
-    || (isStudent && studentSubmissionAttachmentsQuery.isLoading)
     || (!isStudent && (
       submissionsQuery.isLoading
       || availabilityQuery.isLoading
@@ -642,8 +557,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       || connectedGroupsQuery.isLoading
       || submissionStudentsQuery.isLoading
       || groupStudentsQuery.isLoading
-      || selectedSubmissionQuery.isLoading
-      || selectedSubmissionAttachmentsQuery.isLoading
     ))
   ) {
     return <LoadingState />
@@ -654,7 +567,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     || assignmentAttachmentsQuery.isError
     || !assignment
     || (isStudent && mySubmissionsQuery.isError)
-    || (isStudent && studentSubmissionAttachmentsQuery.isError)
     || (!isStudent && (
       submissionsQuery.isError
       || availabilityQuery.isError
@@ -663,8 +575,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       || connectedGroupsQuery.isError
       || submissionStudentsQuery.isError
       || groupStudentsQuery.isError
-      || selectedSubmissionQuery.isError
-      || selectedSubmissionAttachmentsQuery.isError
     ))
   ) {
     const assignmentError = normalizeApiError(assignmentQuery.error)
@@ -694,9 +604,6 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
             ?? submissionStudentsQuery.error
             ?? mySubmissionsQuery.error
             ?? groupStudentsQuery.error
-            ?? selectedSubmissionQuery.error
-            ?? selectedSubmissionAttachmentsQuery.error
-            ?? studentSubmissionAttachmentsQuery.error
             ?? assignmentAttachmentsQuery.error,
           t,
         )}
@@ -716,306 +623,310 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
           ? [
               { label: t('navigation.shared.subjects'), to: '/subjects' },
               { label: assignmentSubjectQuery.data.name, to: `/subjects/${assignmentSubjectQuery.data.id}` },
+              { label: t('navigation.shared.assignments'), to: `/subjects/${assignmentSubjectQuery.data.id}?tab=assignments` },
               { label: assignment.title },
             ]
           : [{ label: t('navigation.shared.assignments'), to: '/assignments' }, { label: assignment.title }]}
       />
-      <Button
-        variant="secondary"
-        onClick={() => {
-          const fromPath = (location.state as { fromPath?: string } | null)?.fromPath
-          if (fromPath && fromPath !== location.pathname) {
-            navigate(fromPath)
-            return
-          }
-          if (window.history.length > 1) {
-            navigate(-1)
-            return
-          }
-          navigate(backTarget)
-        }}
-      >
-        {backLabel}
-      </Button>
-      <PageHeader description={assignment.description ?? ''} title={assignment.title} />
-      <Card className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge value={assignment.status} />
-          <DeadlineBadge deadline={assignment.deadline} />
+
+      <Card className="space-y-4 rounded-2xl border border-border-strong bg-surface p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge value={assignment.status} />
+              <DeadlineBadge deadline={assignment.deadline} />
+            </div>
+            <h1 className="text-2xl font-bold tracking-[-0.03em] text-text-primary">{assignment.title}</h1>
+            <p className="text-sm text-text-secondary">{assignment.description ?? t('assignments.descriptionFallback')}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const fromPath = (location.state as { fromPath?: string } | null)?.fromPath
+                if (fromPath && fromPath !== location.pathname) {
+                  navigate(fromPath)
+                  return
+                }
+                if (window.history.length > 1) {
+                  navigate(-1)
+                  return
+                }
+                navigate(backTarget)
+              }}
+            >
+              {backLabel}
+            </Button>
+            {isStudent ? (
+              <Button
+                disabled={!canSubmitAssignment}
+                onClick={() => changeTab('submissions')}
+              >
+                {studentLatestSubmission ? t('assignments.continueSubmission') : t('assignments.openAssignment')}
+              </Button>
+            ) : (
+              <>
+                {assignment.status === 'DRAFT' ? (
+                  <Button disabled={publishMutation.isPending} variant="secondary" onClick={() => publishMutation.mutate()}>
+                    {t('common.actions.publish')}
+                  </Button>
+                ) : null}
+                {assignment.status === 'PUBLISHED' ? (
+                  <Button disabled={closeMutation.isPending} variant="secondary" onClick={() => closeMutation.mutate()}>
+                    {t('assignments.close')}
+                  </Button>
+                ) : null}
+                {assignment.status === 'CLOSED' ? (
+                  <Button disabled={reopenMutation.isPending} variant="secondary" onClick={() => reopenMutation.mutate()}>
+                    {t('assignments.reopen')}
+                  </Button>
+                ) : null}
+                {assignment.status !== 'ARCHIVED' ? (
+                  <Button disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate()}>
+                    {t('assignments.archive')}
+                  </Button>
+                ) : null}
+                {assignment.status === 'ARCHIVED' ? (
+                  <>
+                    <Button disabled={restoreMutation.isPending} variant="secondary" onClick={() => restoreMutation.mutate()}>
+                      {t('assignments.restore')}
+                    </Button>
+                    <Button
+                      disabled={deleteMutation.isPending}
+                      variant="ghost"
+                      onClick={() => {
+                        if (window.confirm(t('assignments.deletePermanentConfirm'))) {
+                          deleteMutation.mutate()
+                        }
+                      }}
+                    >
+                      {t('assignments.deletePermanently')}
+                    </Button>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-sm text-text-secondary">
-          <p>{t('assignments.allowLateSubmissions')}: {assignment.allowLateSubmissions ? t('assignments.yes') : t('assignments.no')}</p>
-          <p>{t('assignments.maxSubmissions')}: {assignment.maxSubmissions}</p>
-          <p>{t('assignments.allowResubmit')}: {assignment.allowResubmit ? t('assignments.yes') : t('assignments.no')}</p>
-          <p>{t('assignments.maxPoints')}: {assignment.maxPoints}</p>
-          <p>{t('assignments.maxFileSizeMb')}: {assignment.maxFileSizeMb ?? '-'}</p>
-        </div>
-        <p className="text-sm text-text-secondary">{t('assignments.acceptedFileTypes')}: {(assignment.acceptedFileTypes ?? []).join(', ')}</p>
-        {isStudent ? (
+      </Card>
+
+      <SectionTabs
+        activeId={activeTab}
+        items={assignmentTabs}
+        onChange={(tabId) => changeTab(tabId as AssignmentTab)}
+      />
+
+      {activeTab === 'overview' ? (
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-4">
+            <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('assignments.assignmentDescription')} />
+              <p className="text-sm leading-6 text-text-secondary">{assignment.description ?? t('assignments.descriptionFallback')}</p>
+            </Card>
+
+            <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('assignments.teacherMaterials')} />
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+                <FileAttachmentList
+                  canRemove={canManageAssignmentFiles}
+                  collapsible
+                  defaultExpanded
+                  emptyMessage={t('assignments.noFilesAttached')}
+                  files={assignmentMaterialItems}
+                  removeDisabled={!canEditAssignmentFiles || removeAssignmentAttachmentMutation.isPending}
+                  selectedFileId={selectedTeacherMaterial?.id ?? null}
+                  onDownload={async (attachment) => {
+                    const blob = await assignmentService.downloadAssignmentAttachment(assignmentId, attachment.id)
+                    downloadBlob(blob, attachment.originalFileName)
+                  }}
+                  onRemove={(attachment) => {
+                    if (
+                      shouldWarnAssignmentAttachmentRemoval
+                      && !window.confirm(t('assignments.removeAssignmentFileWarning'))
+                    ) {
+                      return
+                    }
+                    removeAssignmentAttachmentMutation.mutate(attachment.id)
+                  }}
+                  onSelect={(attachment) => setSelectedTeacherMaterialId(attachment.id)}
+                />
+                <FilePreviewPanel
+                  fetchDownloadBlob={(attachment) => assignmentService.downloadAssignmentAttachment(assignmentId, attachment.id)}
+                  fetchPreviewBlob={(attachment) => assignmentService.previewAssignmentAttachment(assignmentId, attachment.id)}
+                  selectedFile={selectedTeacherMaterial}
+                  title={t('assignments.filePreview')}
+                  onDownload={async (attachment) => {
+                    const blob = await assignmentService.downloadAssignmentAttachment(assignmentId, attachment.id)
+                    downloadBlob(blob, attachment.originalFileName)
+                  }}
+                />
+              </div>
+              {canManageAssignmentFiles ? (
+                <div className="grid gap-3 rounded-[14px] border border-border bg-surface-muted p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <Input
+                    disabled={!canEditAssignmentFiles}
+                    placeholder={t('assignments.fileName')}
+                    value={assignmentAttachmentName}
+                    onChange={(event) => setAssignmentAttachmentName(event.target.value)}
+                  />
+                  <Input
+                    disabled={!canEditAssignmentFiles}
+                    type="file"
+                    onChange={(event) => {
+                      setAssignmentAttachmentUpload(event.target.files?.[0] ?? null)
+                      setAssignmentAttachmentUploadError('')
+                    }}
+                  />
+                  <p className="text-xs text-text-muted">{t('files.allowedFileTypesHint')}</p>
+                  <Button
+                    disabled={!canEditAssignmentFiles || !assignmentAttachmentUpload || addAssignmentAttachmentMutation.isPending}
+                    onClick={() => addAssignmentAttachmentMutation.mutate()}
+                  >
+                    <UploadCloud className="mr-2 h-4 w-4" />
+                    {t('assignments.addFile')}
+                  </Button>
+                </div>
+              ) : null}
+              {assignmentAttachmentUploadError ? (
+                <p className="text-sm text-danger">{assignmentAttachmentUploadError}</p>
+              ) : null}
+            </Card>
+
+            <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('assignments.gradingCriteria')} />
+              <div className="grid gap-3 text-sm text-text-secondary md:grid-cols-2">
+                <p>{t('assignments.maxPoints')}: <span className="font-semibold text-text-primary">{assignment.maxPoints}</span></p>
+                <p>{t('assignments.allowedSubmissions')}: <span className="font-semibold text-text-primary">{assignment.maxSubmissions}</span></p>
+                <p>{t('assignments.lateSubmissions')}: <span className="font-semibold text-text-primary">{assignment.allowLateSubmissions ? t('assignments.yes') : t('assignments.no')}</span></p>
+                <p>{t('assignments.maxFileSize')}: <span className="font-semibold text-text-primary">{assignment.maxFileSizeMb ?? '-'}</span></p>
+              </div>
+              <p className="text-sm text-text-secondary">
+                {t('assignments.acceptedFileTypes')}: {(assignment.acceptedFileTypes ?? []).join(', ') || t('files.allowedFileTypesHint')}
+              </p>
+            </Card>
+
+            {isStudent ? (
+              <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+                <PageHeader title={t('assignments.mySubmission')} />
+                {studentLatestSubmission ? (
+                  <div className="space-y-2 rounded-[12px] border border-border bg-surface-muted p-3">
+                    <p className="text-sm text-text-secondary">{formatDateTime(studentLatestSubmission.submittedAt)}</p>
+                    <p className="text-sm font-semibold text-text-primary">
+                      {studentLatestSubmission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
+                    </p>
+                    {studentLatestSubmission.score != null ? (
+                      <p className="text-sm text-text-secondary">{t('common.labels.score')}: {studentLatestSubmission.score}/{assignment.maxPoints}</p>
+                    ) : null}
+                    {studentLatestSubmission.feedback ? (
+                      <p className="text-sm text-text-secondary">{studentLatestSubmission.feedback}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-sm text-text-secondary">{t('assignments.noSubmissionYet')}</p>
+                )}
+              </Card>
+            ) : null}
+          </div>
+
+          <div className="space-y-4">
+            <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('assignments.details')} />
+              <SidebarInfo label={t('assignments.type')} value={t('dashboard.deadlineType.ASSIGNMENT')} />
+              <SidebarInfo label={t('assignments.maxPoints')} value={`${assignment.maxPoints}`} />
+              <SidebarInfo label={t('assignments.allowedSubmissions')} value={`${assignment.maxSubmissions}`} />
+              <SidebarInfo label={t('assignments.lateSubmissions')} value={assignment.allowLateSubmissions ? t('assignments.yes') : t('assignments.no')} />
+              <SidebarInfo label={t('common.labels.status')} value={assignment.status} />
+              <SidebarInfo label={t('education.subjectGroupsLabel')} value={`${assignmentSubjectQuery.data?.groupIds.length ?? 0}`} />
+            </Card>
+            <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('assignments.deadline')} />
+              <p className="text-sm font-semibold text-text-primary">{formatDateTime(assignment.deadline)}</p>
+              <p className={`text-sm font-semibold ${isOverdue ? 'text-danger' : 'text-warning'}`}>{deadlineLabel}</p>
+            </Card>
+            <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+              <PageHeader title={t('assignments.progress')} />
+              {isStudent ? (
+                <>
+                  <SidebarInfo label={t('assignments.submissions')} value={`${(mySubmissionsQuery.data ?? []).length}`} />
+                  <SidebarInfo label={t('assignments.grades')} value={studentLatestSubmission?.score == null ? '-' : `${studentLatestSubmission.score}/${assignment.maxPoints}`} />
+                </>
+              ) : (
+                <>
+                  <SidebarInfo label={t('assignments.submissions')} value={`${submissionsQuery.data?.items.length ?? 0}`} />
+                  <SidebarInfo label={t('assignments.gradedSubmissions')} value={`${(submissionsQuery.data?.items ?? []).filter((submission) => submission.reviewed).length}`} />
+                </>
+              )}
+            </Card>
+            {!isStudent ? (
+              <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+                <PageHeader title={t('assignments.groupAvailability')} />
+                {availabilityGroupCards.length === 0 ? (
+                  <p className="text-sm text-text-secondary">{t('availability.noConnectedGroups')}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {availabilityGroupCards.slice(0, 4).map(({ availability, group }) => (
+                      <div key={group.id} className="rounded-[12px] border border-border bg-surface-muted px-3 py-2">
+                        <p className="text-sm font-semibold text-text-primary">{group.name}</p>
+                        <p className="text-xs text-text-muted">
+                          {availability?.visible ? t('availability.visible') : t('availability.hidden')} · {formatDateTime(availability?.deadline ?? assignment.deadline)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === 'submissions' ? (
+        isStudent ? (
+          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+            <PageHeader title={t('assignments.mySubmission')} />
             {canSubmitAssignment ? null : (
               <div className="rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
                 <p className="text-sm font-semibold text-warning">{t('assignments.submissionClosed')}</p>
               </div>
             )}
             <FormField label={t('assignments.uploadSubmission')}>
-              <Input type="file" onChange={(event) => setUpload(event.target.files?.[0] ?? null)} />
+              <Input
+                type="file"
+                onChange={(event) => {
+                  setUpload(event.target.files?.[0] ?? null)
+                  setSubmissionUploadError('')
+                }}
+              />
+              <p className="text-xs text-text-muted">{t('files.allowedFileTypesHint')}</p>
             </FormField>
+            {submissionUploadError ? (
+              <p className="text-sm text-danger">{submissionUploadError}</p>
+            ) : null}
             <Button disabled={!upload || submitMutation.isPending || !canSubmitAssignment} onClick={() => submitMutation.mutate()}>
               {t('assignments.submitAssignment')}
             </Button>
-            {(mySubmissionsQuery.data ?? []).length > 0 ? (
-              <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
-                <PageHeader title={t('assignments.mySubmissions')} />
+            {(mySubmissionsQuery.data ?? []).length === 0 ? (
+              <EmptyState description={t('assignments.noSubmissionYet')} title={t('assignments.mySubmissions')} />
+            ) : (
+              <div className="space-y-3">
                 {(mySubmissionsQuery.data ?? []).map((submission) => (
-                  <div key={submission.id} className="rounded-[14px] border border-border bg-surface p-4">
+                  <div key={submission.id} className="rounded-[14px] border border-border bg-surface-muted px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-text-primary">{t('assignments.submission')}</p>
-                        <p className="mt-1 text-sm text-text-secondary">{formatDateTime(submission.submittedAt)}</p>
-                      </div>
+                      <p className="font-semibold text-text-primary">{formatDateTime(submission.submittedAt)}</p>
                       <span className={submission.reviewed ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
                         {submission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
                       </span>
                     </div>
                     {submission.score !== null ? (
-                      <p className="mt-2 text-sm font-semibold text-text-primary">
-                        {t('common.labels.score')}: {submission.score}/{assignment.maxPoints}
-                      </p>
+                      <p className="mt-1 text-sm text-text-secondary">{t('common.labels.score')}: {submission.score}/{assignment.maxPoints}</p>
                     ) : null}
-                    {submission.feedback ? <p className="mt-2 text-sm text-text-secondary">{submission.feedback}</p> : null}
                   </div>
                 ))}
-                <div className="space-y-3 rounded-[14px] border border-border bg-surface p-4">
-                  <PageHeader title={t('assignments.submissionFiles')} />
-                  {studentSubmissionAttachments.length === 0 ? (
-                    <p className="text-sm text-text-secondary">{t('assignments.noFilesAttached')}</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {studentSubmissionAttachments.map((attachment) => (
-                        <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-muted px-3 py-2">
-                          <div>
-                            <p className="text-sm font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
-                            <p className="text-xs text-text-muted">
-                              {formatFileType(attachment.contentType, attachment.originalFileName)} · {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {attachment.previewAvailable ? (
-                              <Button
-                                variant="ghost"
-                                onClick={async () => {
-                                  if (!latestStudentSubmissionId) {
-                                    return
-                                  }
-                                  const blob = await assignmentService.previewSubmissionAttachment(latestStudentSubmissionId, attachment.id)
-                                  openBlobPreview(blob)
-                                }}
-                              >
-                                {t('assignments.previewFile')}
-                              </Button>
-                            ) : null}
-                            <Button
-                              variant="secondary"
-                              onClick={async () => {
-                                if (!latestStudentSubmissionId) {
-                                  return
-                                }
-                                const blob = await assignmentService.downloadSubmissionAttachment(latestStudentSubmissionId, attachment.id)
-                                downloadBlob(blob, attachment.originalFileName)
-                              }}
-                            >
-                              {t('assignments.downloadFile')}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              disabled={!canSubmitAssignment || removeSubmissionAttachmentMutation.isPending}
-                              onClick={() => {
-                                if (window.confirm(t('assignments.removeSubmissionFileWarning'))) {
-                                  removeSubmissionAttachmentMutation.mutate(attachment.id)
-                                }
-                              }}
-                            >
-                              {t('assignments.removeFile')}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <FormField label={t('assignments.fileName')}>
-                    <Input value={submissionAttachmentName} onChange={(event) => setSubmissionAttachmentName(event.target.value)} />
-                  </FormField>
-                  <FormField label={t('assignments.attachFile')}>
-                    <Input
-                      disabled={!canSubmitAssignment}
-                      type="file"
-                      onChange={(event) => setSubmissionAttachmentUpload(event.target.files?.[0] ?? null)}
-                    />
-                  </FormField>
-                  <Button
-                    disabled={!canSubmitAssignment || !latestStudentSubmissionId || !submissionAttachmentUpload || addSubmissionAttachmentMutation.isPending}
-                    onClick={() => addSubmissionAttachmentMutation.mutate()}
-                  >
-                    {t('assignments.attachFile')}
-                  </Button>
-                </div>
               </div>
-            ) : null}
-          </div>
+            )}
+          </Card>
         ) : (
-          <div className="flex flex-wrap gap-3">
-            {assignment.status === 'DRAFT' ? (
-              <Button disabled={publishMutation.isPending} variant="secondary" onClick={() => publishMutation.mutate()}>
-                {t('common.actions.publish')}
-              </Button>
-            ) : null}
-            {assignment.status === 'PUBLISHED' ? (
-              <Button disabled={closeMutation.isPending} variant="secondary" onClick={() => closeMutation.mutate()}>
-                {t('assignments.close')}
-              </Button>
-            ) : null}
-            {assignment.status === 'CLOSED' ? (
-              <Button disabled={reopenMutation.isPending} variant="secondary" onClick={() => reopenMutation.mutate()}>
-                {t('assignments.reopen')}
-              </Button>
-            ) : null}
-            {assignment.status !== 'ARCHIVED' ? (
-              <Button disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate()}>
-                {t('assignments.archive')}
-              </Button>
-            ) : null}
-            {assignment.status === 'ARCHIVED' ? (
-              <>
-                <Button disabled={restoreMutation.isPending} variant="secondary" onClick={() => restoreMutation.mutate()}>
-                  {t('assignments.restore')}
-                </Button>
-                <Button
-                  disabled={deleteMutation.isPending}
-                  variant="ghost"
-                  onClick={() => {
-                    if (window.confirm(t('assignments.deletePermanentConfirm'))) {
-                      deleteMutation.mutate()
-                    }
-                  }}
-                >
-                  {t('assignments.deletePermanently')}
-                </Button>
-              </>
-            ) : null}
-          </div>
-        )}
-      </Card>
-
-      <Card className="space-y-4">
-        <PageHeader title={t('assignments.taskFiles')} />
-        {assignmentAttachments.length === 0 ? (
-          <EmptyState title={t('assignments.taskFiles')} description={t('assignments.noFilesAttached')} />
-        ) : (
-          <div className="space-y-3">
-            {assignmentAttachments.map((attachment) => (
-              <div key={attachment.id} className="rounded-[14px] border border-border bg-surface-muted px-4 py-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
-                    <p className="mt-1 text-sm text-text-secondary">{attachment.originalFileName}</p>
-                    <p className="mt-1 text-xs text-text-muted">
-                      {formatFileType(attachment.contentType, attachment.originalFileName)} · {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {attachment.previewAvailable ? (
-                      <Button
-                        variant="ghost"
-                        onClick={async () => {
-                          const blob = await assignmentService.previewAssignmentAttachment(assignmentId, attachment.id)
-                          openBlobPreview(blob)
-                        }}
-                      >
-                        {t('assignments.previewFile')}
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="secondary"
-                      onClick={async () => {
-                        const blob = await assignmentService.downloadAssignmentAttachment(assignmentId, attachment.id)
-                        downloadBlob(blob, attachment.originalFileName)
-                      }}
-                    >
-                      {t('assignments.downloadFile')}
-                    </Button>
-                    {canManageAssignmentFiles ? (
-                      <Button
-                        variant="ghost"
-                        disabled={!canEditAssignmentFiles || removeAssignmentAttachmentMutation.isPending}
-                        onClick={() => {
-                          if (
-                            shouldWarnAssignmentAttachmentRemoval
-                            && !window.confirm(t('assignments.removeAssignmentFileWarning'))
-                          ) {
-                            return
-                          }
-                          removeAssignmentAttachmentMutation.mutate(attachment.id)
-                        }}
-                      >
-                        {t('assignments.removeFile')}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {canManageAssignmentFiles ? (
-          <div className="space-y-3 rounded-[14px] border border-border bg-surface-muted p-4">
-            <FormField label={t('assignments.fileName')}>
-              <Input
-                disabled={!canEditAssignmentFiles}
-                value={assignmentAttachmentName}
-                onChange={(event) => setAssignmentAttachmentName(event.target.value)}
-              />
-            </FormField>
-            <FormField label={t('assignments.attachFile')}>
-              <Input
-                disabled={!canEditAssignmentFiles}
-                type="file"
-                onChange={(event) => setAssignmentAttachmentUpload(event.target.files?.[0] ?? null)}
-              />
-            </FormField>
-            <Button
-              disabled={!canEditAssignmentFiles || !assignmentAttachmentUpload || addAssignmentAttachmentMutation.isPending}
-              onClick={() => addAssignmentAttachmentMutation.mutate()}
-            >
-              {t('assignments.attachFile')}
-            </Button>
-          </div>
-        ) : null}
-      </Card>
-
-      {!isStudent ? (
-        <Card className="space-y-4">
-          <AssignmentAccessPanel
-            assignment={assignment}
-            availabilityGroupCards={availabilityGroupCards}
-            availabilityRows={availabilityRows}
-            connectedGroupOptions={connectedGroupOptions}
-            connectedGroups={connectedGroups}
-            groupOptions={groupOptions}
-            isBulkSaving={bulkAvailabilityMutation.isPending}
-            isSaving={availabilityMutation.isPending}
-            isTeacher={isTeacher}
-            searchValue={availabilityGroupSearch}
-            onBulkUpsertAvailability={(items) => bulkAvailabilityMutation.mutateAsync(items)}
-            onSearchChange={setAvailabilityGroupSearch}
-            onUpsertAvailability={(payload) => availabilityMutation.mutateAsync(payload)}
-          />
-        </Card>
-      ) : null}
-
-      {!isStudent ? (
-        <>
-          <Card className="space-y-4">
+          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
             <PageHeader description={t('assignments.submissionsDescription')} title={t('assignments.submissions')} />
             <FormField label={t('common.actions.search')}>
               <Input value={submissionSearch} onChange={(event) => setSubmissionSearch(event.target.value)} />
@@ -1023,186 +934,132 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
             {groupedSubmissions.length === 0 ? (
               <EmptyState description={t('assignments.noSubmissionsToGrade')} title={t('assignments.submissions')} />
             ) : (
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-                <div className="space-y-4">
-                  {groupedSubmissions.map(([groupName, submissions]) => (
-                    <div key={groupName} className="space-y-3">
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-text-muted">{groupName}</h3>
+              <div className="space-y-4">
+                {groupedSubmissions.map(([groupName, submissions]) => (
+                  <div key={groupName} className="space-y-3">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-text-muted">{groupName}</h3>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {submissions.map((submission) => (
-                        <button
+                        <div
                           key={submission.id}
-                          className={`w-full rounded-[14px] border px-4 py-3 text-left ${activeSubmissionId === submission.id ? 'border-accent bg-accent/5' : 'border-border bg-surface'}`}
-                          type="button"
-                          onClick={() => setSelectedSubmissionId(submission.id)}
+                          className="space-y-3 rounded-[14px] border border-border bg-surface-muted px-4 py-3"
                         >
-                          <p className="font-semibold text-text-primary">{submissionStudentById.get(submission.userId)?.username ?? t('education.unknownStudent')}</p>
-                          <p className="mt-1 text-sm text-text-secondary">{formatDateTime(submission.submittedAt)}</p>
-                          <p className="mt-2 text-xs text-text-muted">
+                          <p className="font-semibold text-text-primary">
+                            {submissionStudentById.get(submission.userId)?.username ?? t('education.unknownStudent')}
+                          </p>
+                          <p className="text-sm text-text-secondary">{formatDateTime(submission.submittedAt)}</p>
+                          <p className="text-xs text-text-muted">
                             {submission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
                           </p>
-                        </button>
+                          <Link to={`/assignments/${assignmentId}/submissions/${submission.id}/review`}>
+                            <Button fullWidth variant="secondary">{t('assignments.openSubmissionReview')}</Button>
+                          </Link>
+                        </div>
                       ))}
                     </div>
-                  ))}
-                </div>
-                {selectedSubmissionQuery.data ? (
-                  <div className="space-y-4 rounded-[16px] border border-border bg-surface-muted p-4">
-                    <PageHeader title={t('assignments.gradeSubmission')} />
-                    <div className="space-y-2 text-sm text-text-secondary">
-                      <p>{t('testing.student')}: {submissionStudentById.get(selectedSubmissionQuery.data.userId)?.username ?? t('education.unknownStudent')}</p>
-                      <p>{t('assignments.submittedAt')}: {formatDateTime(selectedSubmissionQuery.data.submittedAt)}</p>
-                    </div>
-                    <div className="space-y-2 rounded-[14px] border border-border bg-surface p-3">
-                      <p className="text-sm font-semibold text-text-primary">{t('assignments.submissionFiles')}</p>
-                      {selectedSubmissionAttachments.length === 0 ? (
-                        <p className="text-sm text-text-secondary">{t('assignments.noFilesAttached')}</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {selectedSubmissionAttachments.map((attachment) => (
-                            <button
-                              key={attachment.id}
-                              className={`w-full rounded-[12px] border px-3 py-2 text-left ${
-                                selectedSubmissionAttachment?.id === attachment.id
-                                  ? 'border-accent bg-accent/5'
-                                  : 'border-border bg-surface-muted'
-                              }`}
-                              type="button"
-                              onClick={() => setSelectedSubmissionAttachmentId(attachment.id)}
-                            >
-                              <p className="text-sm font-semibold text-text-primary">{attachment.displayName?.trim() || attachment.originalFileName}</p>
-                              <p className="text-xs text-text-muted">
-                                {formatFileType(attachment.contentType, attachment.originalFileName)} · {formatFileSize(attachment.sizeBytes)} · {formatDateTime(attachment.createdAt)}
-                              </p>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-2 rounded-[14px] border border-border bg-surface p-3">
-                      <p className="text-sm font-semibold text-text-primary">{t('assignments.filePreview')}</p>
-                      {submissionPreviewQuery.isLoading ? <p className="text-sm text-text-secondary">{t('common.states.loading')}</p> : null}
-                      {submissionPreviewQuery.data?.type === 'pdf' ? (
-                        <iframe className="h-[480px] w-full rounded-[10px] border border-border" src={submissionPreviewQuery.data.url} title={t('assignments.filePreview')} />
-                      ) : null}
-                      {submissionPreviewQuery.data?.type === 'image' ? (
-                        <img className="max-h-[520px] w-full rounded-[10px] border border-border object-contain" src={submissionPreviewQuery.data.url} alt={t('assignments.filePreview')} />
-                      ) : null}
-                      {submissionPreviewQuery.data?.type === 'docx' ? (
-                        <div
-                          className="prose max-w-none rounded-[10px] border border-border bg-surface-muted p-4 text-sm text-text-primary"
-                          dangerouslySetInnerHTML={{ __html: submissionPreviewQuery.data.html }}
-                        />
-                      ) : null}
-                      {!submissionPreviewQuery.isLoading
-                      && submissionPreviewQuery.data?.type !== 'pdf'
-                      && submissionPreviewQuery.data?.type !== 'docx'
-                      && submissionPreviewQuery.data?.type !== 'image' ? (
-                        <p className="text-sm text-text-secondary">
-                          {submissionPreviewQuery.isError ? t('common.states.error') : t('assignments.previewUnavailable')}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        disabled={!selectedSubmissionAttachment}
-                        variant="secondary"
-                        onClick={async () => {
-                          if (!selectedSubmissionAttachment) {
-                            return
-                          }
-                          const fileBlob = await assignmentService.downloadSubmissionAttachment(
-                            selectedSubmissionQuery.data.id,
-                            selectedSubmissionAttachment.id,
-                          )
-                          downloadBlob(fileBlob, selectedSubmissionAttachment.originalFileName)
-                        }}
-                      >
-                        {t('assignments.downloadFile')}
-                      </Button>
-                    </div>
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      <FormField label={t('common.labels.score')}>
-                        <Input
-                          max={assignment.maxPoints}
-                          min={0}
-                          type="number"
-                          value={gradeForm.score}
-                          onChange={(event) => {
-                            if (!gradeForm.submissionId) {
-                              return
-                            }
-                            setGradeDraftBySubmissionId((current) => ({
-                              ...current,
-                              [gradeForm.submissionId]: {
-                                score: Number(event.target.value),
-                                feedback: gradeForm.feedback,
-                              },
-                            }))
-                          }}
-                        />
-                      </FormField>
-                      <FormField label={t('assignments.feedback')}>
-                        <Input
-                          value={gradeForm.feedback}
-                          onChange={(event) => {
-                            if (!gradeForm.submissionId) {
-                              return
-                            }
-                            setGradeDraftBySubmissionId((current) => ({
-                              ...current,
-                              [gradeForm.submissionId]: {
-                                score: gradeForm.score,
-                                feedback: event.target.value,
-                              },
-                            }))
-                          }}
-                        />
-                      </FormField>
-                    </div>
-                    <Button disabled={!gradeForm.submissionId || gradeForm.score > assignment.maxPoints} onClick={() => gradeMutation.mutate()}>
-                      {t('assignments.gradeSubmission')}
-                    </Button>
                   </div>
-                ) : (
-                  <EmptyState description={t('assignments.selectSubmissionToReview')} title={t('assignments.gradeSubmission')} />
-                )}
+                ))}
               </div>
             )}
           </Card>
-        </>
+        )
+      ) : null}
+
+      {activeTab === 'grades' ? (
+        isStudent ? (
+          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+            <PageHeader title={t('assignments.grades')} />
+            {(mySubmissionsQuery.data ?? []).filter((submission) => submission.reviewed).length === 0 ? (
+              <EmptyState description={t('assignments.noGradesYet')} title={t('assignments.grades')} />
+            ) : (
+              <div className="space-y-2">
+                {(mySubmissionsQuery.data ?? [])
+                  .filter((submission) => submission.reviewed)
+                  .map((submission) => (
+                    <div key={submission.id} className="rounded-[12px] border border-border bg-surface-muted px-4 py-3">
+                      <p className="text-sm font-semibold text-text-primary">{formatDateTime(submission.submittedAt)}</p>
+                      <p className="text-sm text-text-secondary">{t('common.labels.score')}: {submission.score ?? '-'} / {assignment.maxPoints}</p>
+                      {submission.feedback ? <p className="mt-1 text-sm text-text-secondary">{submission.feedback}</p> : null}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Card>
+        ) : (
+          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+            <PageHeader title={t('assignments.grades')} />
+            <DataTable
+              columns={[
+                {
+                  key: 'student',
+                  header: t('testing.student'),
+                  render: (submission) => submissionStudentById.get(submission.userId)?.username ?? t('education.unknownStudent'),
+                },
+                {
+                  key: 'submittedAt',
+                  header: t('assignments.submittedAt'),
+                  render: (submission) => formatDateTime(submission.submittedAt),
+                },
+                {
+                  key: 'score',
+                  header: t('common.labels.score'),
+                  render: (submission) => submission.score == null ? '-' : `${submission.score}/${assignment.maxPoints}`,
+                },
+                {
+                  key: 'reviewed',
+                  header: t('assignments.reviewed'),
+                  render: (submission) => submission.reviewed ? t('assignments.yes') : t('assignments.no'),
+                },
+              ]}
+              rows={submissionsQuery.data?.items ?? []}
+            />
+          </Card>
+        )
+      ) : null}
+
+      {activeTab === 'settings' && !isStudent ? (
+        <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+          <PageHeader title={t('assignments.manageAvailability')} />
+          <details className="rounded-[14px] border border-border bg-surface-muted p-3">
+            <summary className="cursor-pointer text-sm font-semibold text-text-primary">{t('assignments.bulkAvailability')}</summary>
+            <div className="mt-3">
+              <AssignmentAccessPanel
+                assignment={assignment}
+                availabilityGroupCards={availabilityGroupCards}
+                availabilityRows={availabilityRows}
+                connectedGroupOptions={connectedGroupOptions}
+                connectedGroups={connectedGroups}
+                groupOptions={groupOptions}
+                isBulkSaving={bulkAvailabilityMutation.isPending}
+                isSaving={availabilityMutation.isPending}
+                isTeacher={isTeacher}
+                searchValue={availabilityGroupSearch}
+                onBulkUpsertAvailability={(items) => bulkAvailabilityMutation.mutateAsync(items)}
+                onSearchChange={setAvailabilityGroupSearch}
+                onUpsertAvailability={(payload) => availabilityMutation.mutateAsync(payload)}
+              />
+            </div>
+          </details>
+        </Card>
       ) : null}
     </div>
   )
 }
 
-function openBlobPreview(blob: Blob) {
-  const previewUrl = URL.createObjectURL(blob)
-  window.open(previewUrl, '_blank', 'noopener,noreferrer')
-  window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000)
+function getAttachmentUploadErrorMessage(error: unknown, t: TFunction) {
+  const normalized = normalizeApiError(error)
+  if (normalized?.status === 415) {
+    return t('files.unsupportedUploadType')
+  }
+
+  return t('files.uploadFailed')
 }
 
-function formatFileSize(sizeBytes: number) {
-  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
-    return '0 B'
-  }
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = sizeBytes
-  let unitIndex = 0
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex += 1
-  }
-  const precision = unitIndex === 0 ? 0 : value >= 10 ? 1 : 2
-  return `${value.toFixed(precision)} ${units[unitIndex]}`
-}
-
-function formatFileType(contentType: string | null, originalFileName: string) {
-  if (contentType && contentType.trim().length > 0) {
-    return contentType
-  }
-  const extensionIndex = originalFileName.lastIndexOf('.')
-  if (extensionIndex <= 0 || extensionIndex === originalFileName.length - 1) {
-    return originalFileName
-  }
-  return originalFileName.slice(extensionIndex + 1).toUpperCase()
+function SidebarInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[12px] border border-border bg-surface-muted px-3 py-2">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</p>
+      <p className="mt-1 text-sm font-medium text-text-primary">{value}</p>
+    </div>
+  )
 }

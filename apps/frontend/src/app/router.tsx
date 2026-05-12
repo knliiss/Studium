@@ -95,8 +95,11 @@ export function AppRouter() {
           </Route>
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/assignments/:assignmentId" element={<AssignmentsPage />} />
+          <Route path="/assignments/:assignmentId/submissions/:submissionId/review" element={<AssignmentsPage />} />
           <Route path="/tests" element={<TestsPage />} />
           <Route path="/tests/:testId" element={<TestsPage />} />
+          <Route path="/tests/:testId/results" element={<TestsPage />} />
+          <Route path="/tests/:testId/results/:resultId/review" element={<TestsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
         </Route>
 
