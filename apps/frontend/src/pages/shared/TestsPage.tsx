@@ -623,7 +623,9 @@ function TestDetailPage({ testId }: { testId: string }) {
     ? Math.max(0, (activeAttempt.startedAt + timeLimitMinutes * 60_000) - now)
     : null
   const isTimeExpired = Boolean(activeAttempt && attemptTimeLeftMs === 0)
-  const backTarget = testSubjectQuery.data ? `/subjects/${testSubjectQuery.data.id}` : '/subjects'
+  const backTarget = testSubjectQuery.data
+    ? `/subjects/${testSubjectQuery.data.id}?tab=tests`
+    : '/subjects'
   const backLabel = testSubjectQuery.data
     ? t('testing.backToCourse')
     : t('testing.backToTests')

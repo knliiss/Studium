@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 
+import { AuthPasswordField } from '@/pages/auth/AuthPasswordField'
 import { authApi } from '@/shared/api/auth'
 import {
   getLocalizedApiErrorMessage,
@@ -52,9 +54,9 @@ export function PasswordResetPage() {
   }
 
   return (
-    <Card className="w-full max-w-xl space-y-6 rounded-[24px] p-8">
+    <Card className="w-full space-y-5 rounded-[18px] border border-border bg-surface p-5 sm:p-6">
       <div className="space-y-2">
-        <h2 className="text-3xl font-bold tracking-[-0.04em] text-text-primary">
+        <h2 className="text-2xl font-bold tracking-[-0.03em] text-text-primary sm:text-[1.75rem]">
           {t('auth.passwordReset.title')}
         </h2>
         <p className="text-sm leading-6 text-text-secondary">{t('auth.passwordReset.description')}</p>
@@ -80,6 +82,7 @@ export function PasswordResetPage() {
           <FormField label={t('common.labels.email')}>
             <Input
               autoComplete="email"
+              placeholder={t('auth.passwordReset.emailPlaceholder')}
               type="email"
               value={requestEmail}
               onChange={(event) => setRequestEmail(event.target.value)}
@@ -94,14 +97,20 @@ export function PasswordResetPage() {
       ) : (
         <form className="space-y-4" onSubmit={handleConfirm}>
           <FormField label={t('auth.passwordReset.resetToken')}>
-            <Input value={resetToken} onChange={(event) => setResetToken(event.target.value)} />
-          </FormField>
-          <FormField label={t('auth.passwordReset.newPassword')}>
             <Input
+              placeholder={t('auth.passwordReset.resetTokenPlaceholder')}
+              value={resetToken}
+              onChange={(event) => setResetToken(event.target.value)}
+            />
+          </FormField>
+          <FormField hint={t('validation:password')} label={t('auth.passwordReset.newPassword')}>
+            <AuthPasswordField
               autoComplete="new-password"
-              type="password"
+              hideLabel={t('auth.common.hidePassword')}
+              placeholder={t('auth.passwordReset.newPasswordPlaceholder')}
+              showLabel={t('auth.common.showPassword')}
               value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
+              onChange={setNewPassword}
             />
           </FormField>
           {error ? <p className="text-sm text-danger">{error}</p> : null}
@@ -111,6 +120,12 @@ export function PasswordResetPage() {
           </Button>
         </form>
       )}
+      <p className="text-sm text-text-secondary">
+        {t('auth.passwordReset.loginPrompt')}{' '}
+        <Link className="font-medium text-accent" to="/login">
+          {t('auth.passwordReset.loginAction')}
+        </Link>
+      </p>
     </Card>
   )
 }

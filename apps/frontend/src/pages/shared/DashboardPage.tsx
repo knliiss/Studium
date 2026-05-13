@@ -396,7 +396,7 @@ function AdminDashboard() {
             { to: '/academic/groups', label: t('navigation.shared.groups') },
             { to: '/subjects', label: t('navigation.shared.subjects') },
             { to: '/teachers', label: t('navigation.shared.teachers') },
-            { to: '/academic/rooms', label: t('navigation.shared.rooms') },
+            { to: '/rooms', label: t('navigation.shared.rooms') },
           ].map((item) => (
             <Link key={item.to} className="rounded-[12px] border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-text-primary transition hover:border-border-strong" to={item.to}>
               {item.label}

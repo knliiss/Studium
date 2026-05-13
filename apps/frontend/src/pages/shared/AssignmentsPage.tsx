@@ -512,7 +512,9 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
   const selectedTeacherMaterial = assignmentMaterialItems.find((attachment) => attachment.id === selectedTeacherMaterialId)
     ?? assignmentMaterialItems[0]
     ?? null
-  const backTarget = assignmentSubjectQuery.data ? `/subjects/${assignmentSubjectQuery.data.id}` : '/subjects'
+  const backTarget = assignmentSubjectQuery.data
+    ? `/subjects/${assignmentSubjectQuery.data.id}?tab=assignments`
+    : '/subjects'
   const backLabel = assignmentSubjectQuery.data
     ? t('assignments.backToCourse')
     : t('assignments.backToAssignments')

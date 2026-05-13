@@ -27,6 +27,7 @@ import { TeachersPage } from '@/pages/education/TeachersPage'
 import { TopicDetailPage } from '@/pages/education/TopicDetailPage'
 import { LecturePage } from '@/pages/education/LecturePage'
 import { MaterialPage } from '@/pages/education/MaterialPage'
+import { RoomsPage } from '@/pages/education/RoomsPage'
 import { NotificationsPage } from '@/pages/notifications/NotificationsPage'
 import { ProfilePage } from '@/pages/profile/ProfilePage'
 import { SchedulePage } from '@/pages/schedule/SchedulePage'
@@ -91,7 +92,8 @@ export function AppRouter() {
             <Route path="/curriculum-plans" element={<Navigate replace to="/academic/specialties" />} />
           </Route>
           <Route element={<RequireRole allowedRoles={['OWNER', 'ADMIN']} />}>
-            <Route path="/academic/rooms" element={<Navigate replace to="/schedule/rooms" />} />
+            <Route path="/rooms" element={<RoomsPage />} />
+            <Route path="/academic/rooms" element={<Navigate replace to="/rooms" />} />
           </Route>
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/assignments/:assignmentId" element={<AssignmentsPage />} />
@@ -160,7 +162,7 @@ export function AppRouter() {
           <Route path="/admin/curriculum-plans" element={<Navigate replace to="/academic/specialties" />} />
           <Route path="/admin/topics" element={<Navigate replace to="/subjects" />} />
           <Route path="/admin/schedule" element={<Navigate replace to="/schedule" />} />
-          <Route path="/admin/rooms" element={<Navigate replace to="/schedule/rooms" />} />
+          <Route path="/admin/rooms" element={<Navigate replace to="/rooms" />} />
           <Route path="/admin/lesson-slots" element={<Navigate replace to="/schedule" />} />
           <Route path="/admin/assignments" element={<Navigate replace to="/assignments" />} />
           <Route path="/admin/assignments/:assignmentId" element={<ParamRedirect to="/assignments/:assignmentId" />} />

@@ -42,6 +42,7 @@
       "collapse": "Zwiń"
     },
     "labels": {
+      "all": "Wszystkie",
       "actions": "Działania",
       "dateFrom": "Data od",
       "dateTo": "Data do",
@@ -183,11 +184,18 @@
     }
   },
   "auth": {
+    "common": {
+      "showPassword": "Pokaż hasło",
+      "hidePassword": "Ukryj hasło"
+    },
     "login": {
-      "description": "Zaloguj się, aby przejść do swojego panelu nauki.",
+      "description": "Zaloguj się, aby kontynuować pracę w swoim panelu.",
       "passwordResetAction": "Zresetuj hasło",
       "registerAction": "Zarejestruj się",
       "registerPrompt": "Nie masz konta?",
+      "submitAction": "Zaloguj się",
+      "usernamePlaceholder": "Wpisz nazwę użytkownika",
+      "passwordPlaceholder": "Wpisz hasło",
       "title": "Logowanie do Studium"
     },
     "layout": {
@@ -224,18 +232,26 @@
     "passwordReset": {
       "confirmAction": "Potwierdź reset",
       "description": "Poproś o link resetujący lub potwierdź nowe hasło, aby odzyskać dostęp.",
+      "emailPlaceholder": "Wpisz adres e-mail",
+      "loginAction": "Zaloguj się",
+      "loginPrompt": "Pamiętasz hasło?",
       "newPassword": "Nowe hasło",
+      "newPasswordPlaceholder": "Wpisz nowe hasło",
       "requestAction": "Poproś o reset",
       "requestSuccess": "Jeśli istnieje konto powiązane z tym adresem, instrukcje resetu zostały wysłane.",
       "resetToken": "Token resetu",
+      "resetTokenPlaceholder": "Wklej token resetu",
       "success": "Reset hasła został potwierdzony.",
       "title": "Reset hasła"
     },
     "register": {
-      "description": "Wypełnij dane, aby uzyskać dostęp do platformy.",
+      "description": "Utwórz konto, aby rozpocząć pracę w Studium.",
+      "emailPlaceholder": "Wpisz adres e-mail",
       "loginAction": "Zaloguj się",
       "loginPrompt": "Masz już konto?",
       "submitAction": "Utwórz konto",
+      "passwordPlaceholder": "Utwórz hasło",
+      "usernamePlaceholder": "Utwórz nazwę użytkownika",
       "title": "Utwórz konto"
     }
   },
@@ -768,6 +784,50 @@
       "subjectsDescription": "Strony przedmiotów z tematami, zadaniami, testami, planem i treściami dydaktycznymi.",
       "groupsDescription": "Centra grup ze składem studentów, planem i analityką.",
       "teachersDescription": "Profile prowadzących z przypisanymi przedmiotami, grupami, planem i kontekstem analitycznym."
+    },
+    "rooms": {
+      "title": "Sale",
+      "description": "Twórz, edytuj i archiwizuj sale przed użyciem ich w konstruktorze planu.",
+      "hubDescription": "Zarządzaj salami używanymi w konstruktorze planu i planowaniu tygodniowym.",
+      "searchPlaceholder": "Szukaj sal po kodzie, budynku lub piętrze",
+      "create": "Utwórz salę",
+      "edit": "Edytuj salę",
+      "createDescription": "Dodaj salę z budynkiem, piętrem i pojemnością.",
+      "editDescription": "Zaktualizuj dane sali i jej dostępność dla nowych zajęć.",
+      "code": "Kod sali",
+      "building": "Budynek",
+      "floor": "Piętro",
+      "floorValue": "Piętro {{floor}}",
+      "capacity": "Pojemność",
+      "type": "Typ sali",
+      "allBuildings": "Wszystkie budynki",
+      "supportedLessonTypes": "Obsługiwane typy zajęć",
+      "noCapabilities": "Profil możliwości nie został jeszcze skonfigurowany.",
+      "openSchedule": "Otwórz plan sali",
+      "empty": "Żadna sala nie pasuje do wybranych filtrów.",
+      "selectorEmpty": "Brak aktywnych sal dla tego wyszukiwania.",
+      "archivedRoomSelected": "Wybrano zarchiwizowaną salę. Aby zapisać zmiany, wybierz aktywną salę.",
+      "capabilityDivider": "·",
+      "metrics": {
+        "total": "Wszystkie sale",
+        "active": "Aktywne sale",
+        "archived": "Zarchiwizowane sale",
+        "capacity": "Aktywne miejsca"
+      },
+      "types": {
+        "ALL": "Wszystkie typy sal",
+        "LECTURE": "Sala wykładowa",
+        "LAB": "Sala laboratoryjna",
+        "COMPUTER_LAB": "Laboratorium komputerowe",
+        "ONLINE": "Online / zdalnie",
+        "OTHER": "Inne"
+      },
+      "validation": {
+        "codeRequired": "Podaj kod sali.",
+        "buildingRequired": "Podaj nazwę budynku.",
+        "floorRequired": "Podaj poprawny numer piętra.",
+        "capacityPositive": "Pojemność musi być dodatnią liczbą."
+      }
     },
     "blocks": {
       "subjects": {

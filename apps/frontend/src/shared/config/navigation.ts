@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   BarChart3,
   Bell,
+  Building2,
   BookOpen,
   CalendarDays,
   ClipboardCheck,
@@ -260,6 +261,13 @@ export const navigationGroups: NavigationGroup[] = [
         icon: BookOpen,
         roles: ['ADMIN', 'OWNER'],
         matchPrefixes: ['/academic/specialties', '/specialties', '/streams', '/curriculum-plans'],
+      },
+      {
+        to: '/rooms',
+        labelKey: 'navigation.shared.rooms',
+        icon: Building2,
+        roles: ['ADMIN', 'OWNER'],
+        matchPrefixes: ['/rooms', '/academic/rooms', '/admin/rooms'],
       },
       {
         to: '/schedule',

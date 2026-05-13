@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
+import { AuthPasswordField } from '@/pages/auth/AuthPasswordField'
 import {
   getLocalizedApiErrorMessage,
   normalizeApiError,
@@ -63,9 +64,9 @@ export function LoginPage() {
   }
 
   return (
-    <Card className="w-full max-w-xl space-y-6 rounded-[24px] p-8">
+    <Card className="w-full space-y-5 rounded-[18px] border border-border bg-surface p-5 sm:p-6">
       <div className="space-y-2">
-        <h2 className="text-3xl font-bold tracking-[-0.04em] text-text-primary">
+        <h2 className="text-2xl font-bold tracking-[-0.03em] text-text-primary sm:text-[1.75rem]">
           {t('auth.login.title')}
         </h2>
         <p className="text-sm leading-6 text-text-secondary">{t('auth.login.description')}</p>
@@ -77,23 +78,26 @@ export function LoginPage() {
             aria-invalid={Boolean(error)}
             autoComplete="username"
             className={error ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
+            placeholder={t('auth.login.usernamePlaceholder')}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />
         </FormField>
         <FormField label={t('common.labels.password')}>
-          <Input
+          <AuthPasswordField
             aria-invalid={Boolean(error)}
             autoComplete="current-password"
-            className={error ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
-            type="password"
+            hideLabel={t('auth.common.hidePassword')}
+            inputClassName={error ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
+            placeholder={t('auth.login.passwordPlaceholder')}
+            showLabel={t('auth.common.showPassword')}
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={setPassword}
           />
         </FormField>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <Button disabled={submitting} fullWidth type="submit">
-          {submitting ? t('common.states.loading') : t('common.actions.login')}
+          {submitting ? t('common.states.loading') : t('auth.login.submitAction')}
         </Button>
       </form>
 

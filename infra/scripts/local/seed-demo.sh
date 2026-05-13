@@ -1099,17 +1099,19 @@ slot_five_id="$(ensure_schedule_slot 5 "14:50:00" "16:10:00")"
 slot_six_id="$(ensure_schedule_slot 6 "16:25:00" "17:45:00")"
 slot_seven_id="$(ensure_schedule_slot 7 "18:00:00" "19:20:00")"
 slot_eight_id="$(ensure_schedule_slot 8 "19:35:00" "20:55:00")"
-room_one_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "A-101" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"A-101","building":"North Campus","floor":1,"capacity":32,"active":true}')" | json_get id)"
-room_two_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "B-202" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"B-202","building":"South Campus","floor":2,"capacity":28,"active":true}')" | json_get id)"
-room_three_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "C-303" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"C-303","building":"South Campus","floor":3,"capacity":26,"active":true}')" | json_get id)"
+room_one_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "101" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"101","building":"Main Building","floor":1,"capacity":40,"active":true}')" | json_get id)"
+room_two_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "203" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"203","building":"Main Building","floor":2,"capacity":36,"active":true}')" | json_get id)"
+room_three_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "Computer Lab 1" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"Computer Lab 1","building":"Tech Building","floor":3,"capacity":24,"active":true}')" | json_get id)"
+room_four_id="$(printf '%s' "$(ensure_entity "${SCHEDULE_DB_SCHEMA:-schedule}.rooms" "code" "Online / Remote" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/schedule/rooms" "$admin_token" '{"code":"Online / Remote","building":"Virtual","floor":0,"capacity":300,"active":false}')" | json_get id)"
 
-ensure_room_capabilities "$admin_token" "$room_one_id" '[{"lessonType":"LECTURE","priority":100,"active":true},{"lessonType":"PRACTICAL","priority":40,"active":true}]'
-ensure_room_capabilities "$admin_token" "$room_two_id" '[{"lessonType":"LABORATORY","priority":100,"active":true},{"lessonType":"PRACTICAL","priority":60,"active":true}]'
-ensure_room_capabilities "$admin_token" "$room_three_id" '[{"lessonType":"LECTURE","priority":60,"active":true},{"lessonType":"PRACTICAL","priority":80,"active":true},{"lessonType":"LABORATORY","priority":30,"active":true}]'
+ensure_room_capabilities "$admin_token" "$room_one_id" '[{"lessonType":"LECTURE","priority":100,"active":true},{"lessonType":"PRACTICAL","priority":70,"active":true}]'
+ensure_room_capabilities "$admin_token" "$room_two_id" '[{"lessonType":"LECTURE","priority":60,"active":true},{"lessonType":"PRACTICAL","priority":80,"active":true}]'
+ensure_room_capabilities "$admin_token" "$room_three_id" '[{"lessonType":"LABORATORY","priority":100,"active":true},{"lessonType":"PRACTICAL","priority":50,"active":true}]'
+ensure_room_capabilities "$admin_token" "$room_four_id" '[]'
 
 ensure_schedule_template "$admin_token" "$semester_id" "$group_one_id" "$programming_subject_id" "$teacher_alpha_id" "MONDAY" "$slot_one_id" "ODD" "ALL" "LECTURE" "OFFLINE" "$room_one_id" "" "Odd week in-person lecture." >/dev/null
 ensure_schedule_template "$admin_token" "$semester_id" "$group_one_id" "$databases_subject_id" "$teacher_alpha_id" "TUESDAY" "$slot_two_id" "EVEN" "ALL" "PRACTICAL" "ONLINE" "" "https://meet.studium.local/sql-demo" "Even week online practical." >/dev/null
-ensure_schedule_template "$admin_token" "$semester_id" "$group_two_id" "$networks_subject_id" "$teacher_beta_id" "WEDNESDAY" "$slot_three_id" "ALL" "ALL" "LABORATORY" "OFFLINE" "$room_two_id" "" "Weekly lab for second group." >/dev/null
+ensure_schedule_template "$admin_token" "$semester_id" "$group_two_id" "$networks_subject_id" "$teacher_beta_id" "WEDNESDAY" "$slot_three_id" "ALL" "ALL" "LABORATORY" "OFFLINE" "$room_three_id" "" "Weekly lab for second group." >/dev/null
 
 ensure_schedule_extra_override "$admin_token" "$semester_id" "$TODAY" "$group_one_id" "$programming_subject_id" "$teacher_alpha_id" "$slot_one_id" "ALL" "LECTURE" "ONLINE" "https://meet.studium.local/extra-lecture" "Extra live dashboard lesson." >/dev/null
 

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
+import { AuthPasswordField } from '@/pages/auth/AuthPasswordField'
 import {
   buildApiFieldErrors,
   getLocalizedApiErrorMessage,
@@ -62,9 +63,9 @@ export function RegisterPage() {
   }
 
   return (
-    <Card className="w-full max-w-xl space-y-6 rounded-[24px] p-8">
+    <Card className="w-full space-y-5 rounded-[18px] border border-border bg-surface p-5 sm:p-6">
       <div className="space-y-2">
-        <h2 className="text-3xl font-bold tracking-[-0.04em] text-text-primary">
+        <h2 className="text-2xl font-bold tracking-[-0.03em] text-text-primary sm:text-[1.75rem]">
           {t('auth.register.title')}
         </h2>
         <p className="text-sm leading-6 text-text-secondary">{t('auth.register.description')}</p>
@@ -76,6 +77,7 @@ export function RegisterPage() {
             aria-invalid={Boolean(fieldErrors.username)}
             autoComplete="username"
             className={fieldErrors.username ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
+            placeholder={t('auth.register.usernamePlaceholder')}
             value={form.username}
             onChange={(event) =>
               setForm((current) => ({ ...current, username: event.target.value }))
@@ -87,21 +89,22 @@ export function RegisterPage() {
             aria-invalid={Boolean(fieldErrors.email)}
             autoComplete="email"
             className={fieldErrors.email ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
+            placeholder={t('auth.register.emailPlaceholder')}
             type="email"
             value={form.email}
             onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
           />
         </FormField>
-        <FormField error={fieldErrors.password} label={t('common.labels.password')}>
-          <Input
+        <FormField error={fieldErrors.password} hint={t('validation:password')} label={t('common.labels.password')}>
+          <AuthPasswordField
             aria-invalid={Boolean(fieldErrors.password)}
             autoComplete="new-password"
-            className={fieldErrors.password ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
-            type="password"
+            hideLabel={t('auth.common.hidePassword')}
+            inputClassName={fieldErrors.password ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
+            placeholder={t('auth.register.passwordPlaceholder')}
+            showLabel={t('auth.common.showPassword')}
             value={form.password}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, password: event.target.value }))
-            }
+            onChange={(value) => setForm((current) => ({ ...current, password: value }))}
           />
         </FormField>
         {error ? <p className="text-sm text-danger">{error}</p> : null}

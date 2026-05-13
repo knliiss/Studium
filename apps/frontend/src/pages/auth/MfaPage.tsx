@@ -78,9 +78,9 @@ export function MfaPage() {
   }
 
   return (
-    <Card className="w-full max-w-xl space-y-6 rounded-[24px] p-8">
+    <Card className="w-full space-y-5 rounded-[18px] border border-border bg-surface p-5 sm:p-6">
       <div className="space-y-2">
-        <h2 className="text-3xl font-bold tracking-[-0.04em] text-text-primary">
+        <h2 className="text-2xl font-bold tracking-[-0.03em] text-text-primary sm:text-[1.75rem]">
           {t('auth.mfa.title')}
         </h2>
         <p className="text-sm leading-6 text-text-secondary">{t('auth.mfa.description')}</p>

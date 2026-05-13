@@ -42,9 +42,9 @@ export function EducationCenterPage() {
       icon: GraduationCap,
     },
     ...(canManageAcademicStructure ? [{
-      to: '/academic/rooms',
+      to: '/rooms',
       titleKey: 'navigation.shared.rooms',
-      descriptionKey: 'academic.roomCapabilities.hubDescription',
+      descriptionKey: 'education.rooms.hubDescription',
       icon: CalendarDays,
     }] : []),
   ]

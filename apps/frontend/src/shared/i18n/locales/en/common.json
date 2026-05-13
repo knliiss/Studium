@@ -42,6 +42,7 @@
       "collapse": "Collapse"
     },
     "labels": {
+      "all": "All",
       "actions": "Actions",
       "dateFrom": "Date from",
       "dateTo": "Date to",
@@ -183,11 +184,18 @@
     }
   },
   "auth": {
+    "common": {
+      "showPassword": "Show password",
+      "hidePassword": "Hide password"
+    },
     "login": {
-      "description": "Sign in to continue to your Studium dashboard.",
+      "description": "Use your account credentials to open your workspace.",
       "passwordResetAction": "Reset password",
       "registerAction": "Create one",
       "registerPrompt": "Don't have an account?",
+      "submitAction": "Sign in",
+      "usernamePlaceholder": "Enter username",
+      "passwordPlaceholder": "Enter password",
       "title": "Sign in to Studium"
     },
     "layout": {
@@ -224,18 +232,26 @@
     "passwordReset": {
       "confirmAction": "Confirm reset",
       "description": "Request a reset link or confirm a new password to restore access.",
+      "emailPlaceholder": "Enter your email",
+      "loginAction": "Sign in",
+      "loginPrompt": "Remembered your password?",
       "newPassword": "New password",
+      "newPasswordPlaceholder": "Enter new password",
       "requestAction": "Request reset",
       "requestSuccess": "If an account matches this email, reset instructions have been sent.",
       "resetToken": "Reset token",
+      "resetTokenPlaceholder": "Paste reset token",
       "success": "Password reset confirmed.",
       "title": "Password reset"
     },
     "register": {
-      "description": "Fill in your details to access the platform.",
+      "description": "Create an account to start working in Studium.",
+      "emailPlaceholder": "Enter email",
       "loginAction": "Sign in",
       "loginPrompt": "Already have an account?",
+      "passwordPlaceholder": "Create password",
       "submitAction": "Create account",
+      "usernamePlaceholder": "Create username",
       "title": "Create your account"
     }
   },
@@ -768,6 +784,50 @@
       "subjectsDescription": "Course spaces with topics, assignments, tests, schedule links, and learning content.",
       "groupsDescription": "Student membership, schedule, and analytics pages for each academic group.",
       "teachersDescription": "Teacher profiles with assigned subjects, groups, schedule, and analytics context."
+    },
+    "rooms": {
+      "title": "Rooms",
+      "description": "Create, edit, and archive rooms before using them in lesson planning.",
+      "hubDescription": "Manage rooms used in the schedule constructor and weekly planning.",
+      "searchPlaceholder": "Search rooms by code, building, or floor",
+      "create": "Create room",
+      "edit": "Edit room",
+      "createDescription": "Add a room with building, floor, and capacity details.",
+      "editDescription": "Update room details and availability for new lessons.",
+      "code": "Room code",
+      "building": "Building",
+      "floor": "Floor",
+      "floorValue": "Floor {{floor}}",
+      "capacity": "Capacity",
+      "type": "Room type",
+      "allBuildings": "All buildings",
+      "supportedLessonTypes": "Supported lesson types",
+      "noCapabilities": "No capability profile configured yet.",
+      "openSchedule": "Open room schedule",
+      "empty": "No rooms matched the selected filters.",
+      "selectorEmpty": "No active rooms matched this search.",
+      "archivedRoomSelected": "Archived room is selected. Choose an active room to save changes.",
+      "capabilityDivider": "·",
+      "metrics": {
+        "total": "Total rooms",
+        "active": "Active rooms",
+        "archived": "Archived rooms",
+        "capacity": "Active seats"
+      },
+      "types": {
+        "ALL": "All room types",
+        "LECTURE": "Lecture room",
+        "LAB": "Lab room",
+        "COMPUTER_LAB": "Computer lab",
+        "ONLINE": "Online / remote",
+        "OTHER": "Other"
+      },
+      "validation": {
+        "codeRequired": "Enter a room code.",
+        "buildingRequired": "Enter a building name.",
+        "floorRequired": "Enter a valid floor number.",
+        "capacityPositive": "Capacity must be a positive number."
+      }
     },
     "blocks": {
       "subjects": {

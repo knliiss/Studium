@@ -316,7 +316,7 @@ export function TestResultsPage({
                 header: t('common.labels.actions'),
                 render: (row) => (
                   <Link to={`/tests/${testId}/results/${row.id}/review`}>
-                    <Button variant="secondary">{t('common.actions.view')}</Button>
+                    <Button variant="secondary">{t('common.actions.viewDetails')}</Button>
                   </Link>
                 ),
               },

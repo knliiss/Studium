@@ -1049,6 +1049,10 @@ function ScheduleDetailPage({
     () => new Map((roomsQuery.data ?? []).map((room) => [room.id, room])),
     [roomsQuery.data],
   )
+  const formatRoomLabelForDisplay = useCallback(
+    (room: RoomResponse) => formatRoomLabelWithStatus(room, t),
+    [t],
+  )
   const subjectNameById = useMemo(
     () => new Map((relatedSubjectsQuery.data ?? []).map((subject) => [subject.id, subject.name])),
     [relatedSubjectsQuery.data],
@@ -1560,10 +1564,10 @@ function ScheduleDetailPage({
         breadcrumbs: [
           { label: t('navigation.shared.schedule'), to: '/schedule' },
           { label: t('schedule.routeCards.roomsTitle'), to: '/schedule/rooms' },
-          { label: formatRoomLabel(selectedRoom) },
+          { label: formatRoomLabelForDisplay(selectedRoom) },
         ],
         description: t('schedule.roomWorkspaceDescription'),
-        title: formatRoomLabel(selectedRoom),
+        title: formatRoomLabelForDisplay(selectedRoom),
       } satisfies ScheduleDetailHeader
     }
 
@@ -1577,7 +1581,7 @@ function ScheduleDetailPage({
       description: t('schedule.myWorkspaceDescription'),
       title: t('schedule.mySchedule'),
     } satisfies ScheduleDetailHeader
-  }, [groupQuery.data, scope, selectedRoom, t, teacherQuery.data])
+  }, [formatRoomLabelForDisplay, groupQuery.data, scope, selectedRoom, t, teacherQuery.data])
 
   const visibleSummaryLessons = filteredLessons.length
   const onlineLessons = filteredLessons.filter((lesson) => lesson.lessonFormat === 'ONLINE').length
@@ -1640,7 +1644,7 @@ function ScheduleDetailPage({
     {
       label: selectedDraft.lessonFormat === 'OFFLINE' ? t('schedule.roomLabel') : t('schedule.onlineMeetingUrl'),
       value: selectedDraft.lessonFormat === 'OFFLINE'
-        ? (selectedDraftRoom ? formatRoomLabel(selectedDraftRoom) : t('schedule.roomAssigned'))
+        ? (selectedDraftRoom ? formatRoomLabelForDisplay(selectedDraftRoom) : t('schedule.roomAssigned'))
         : selectedDraft.onlineMeetingUrl || t('schedule.linkWillBeAddedLater'),
     },
     { label: t('education.subgroup'), value: t(`education.subgroups.${selectedDraft.subgroup}`) },
@@ -2123,7 +2127,7 @@ function ScheduleDetailPage({
                                 selected={selectedDraftId === draft.localId}
                                 subjectNameById={subjectNameById}
                                 teacherById={teacherById}
-                                formatRoomLabel={formatRoomLabel}
+                                formatRoomLabel={formatRoomLabelForDisplay}
                                 getTeacherDisplayName={getTeacherDisplayName}
                                 onEdit={() => {
                                   const pairNumber = slotById.get(draft.slotId)?.number ?? 1
@@ -2213,7 +2217,7 @@ function ScheduleDetailPage({
                         currentUserId={session?.user.id ?? ''}
                         dayLabel={t(`schedule.dayOfWeekValues.${getDayOfWeekValue(date)}`)}
                         date={date}
-                        formatRoomLabel={formatRoomLabel}
+                        formatRoomLabel={formatRoomLabelForDisplay}
                         formatShortTime={formatShortTime}
                         getTeacherDisplayName={getTeacherDisplayName}
                         lessons={lessonsByDate.get(date) ?? []}
@@ -2505,6 +2509,7 @@ function LessonPanelEditor({
 }) {
   const { t } = useTranslation()
   const [state, setState] = useState(editor)
+  const [roomSearch, setRoomSearch] = useState('')
 
   const subject = subjects.find((item) => item.id === state.subjectId)
   const subjectTeacherIds = subject?.teacherIds ?? []
@@ -2572,12 +2577,28 @@ function LessonPanelEditor({
       })
       .map((item) => item.room)
   }, [roomCapabilitiesByRoom, rooms, state.lessonFormat, state.lessonType])
+  const activeSortedRooms = useMemo(
+    () => sortedRooms.filter((room) => room.active),
+    [sortedRooms],
+  )
+  const selectedRoom = useMemo(
+    () => (state.roomId ? rooms.find((room) => room.id === state.roomId) ?? null : null),
+    [rooms, state.roomId],
+  )
+  const filteredActiveRooms = useMemo(() => {
+    const normalizedSearch = roomSearch.trim().toLowerCase()
+    if (!normalizedSearch) {
+      return activeSortedRooms
+    }
+
+    return activeSortedRooms.filter((room) => `${room.code} ${room.building} ${room.floor} ${room.capacity}`.toLowerCase().includes(normalizedSearch))
+  }, [activeSortedRooms, roomSearch])
   const selectedRoomCapability = useMemo(
     () => (state.roomId ? (roomCapabilitiesByRoom.get(state.roomId) ?? [])
       .find((item) => item.lessonType === state.lessonType && item.active) : null),
     [roomCapabilitiesByRoom, state.lessonType, state.roomId],
   )
-  const saveBlockedReason = getLessonEditorValidationReason(state, t)
+  const saveBlockedReason = getLessonEditorValidationReason(state, selectedRoom, t)
 
   return (
     <Card className="h-fit w-full space-y-4 rounded-[12px] border border-border bg-surface p-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:w-[380px] xl:overflow-y-auto">
@@ -2825,21 +2846,61 @@ function LessonPanelEditor({
           </div>
 
           {state.lessonFormat === 'OFFLINE' ? (
-            <FormField label={t('schedule.roomLabel')}>
-              <Select
-                value={state.roomId}
-                onChange={(event) => {
-                  setState((current) => ({ ...current, roomId: event.target.value }))
-                }}
-              >
-                <option value="">{t('schedule.selectRoom')}</option>
-                {sortedRooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {formatRoomLabel(room)}
-                  </option>
-                ))}
-              </Select>
-            </FormField>
+            <div className="space-y-3">
+              <FormField label={t('schedule.roomLabel')}>
+                <Input
+                  placeholder={t('schedule.roomSearchPlaceholder')}
+                  value={roomSearch}
+                  onChange={(event) => setRoomSearch(event.target.value)}
+                />
+              </FormField>
+              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                {filteredActiveRooms.length === 0 ? (
+                  <p className="rounded-[12px] border border-border bg-surface-muted px-3 py-2 text-sm text-text-secondary">
+                    {t('education.rooms.selectorEmpty')}
+                  </p>
+                ) : (
+                  filteredActiveRooms.map((room) => {
+                    const isSelected = state.roomId === room.id
+                    const roomCapabilities = (roomCapabilitiesByRoom.get(room.id) ?? [])
+                      .filter((item) => item.active)
+                      .sort((left, right) => right.priority - left.priority)
+                    const capabilitySummary = roomCapabilities.length > 0
+                      ? roomCapabilities.map((item) => getLessonTypeLabel(item.lessonType)).join(' · ')
+                      : t('education.rooms.noCapabilities')
+
+                    return (
+                      <button
+                        key={room.id}
+                        className={cn(
+                          'w-full rounded-[12px] border px-3 py-2 text-left transition',
+                          isSelected
+                            ? 'border-success/40 bg-success/5'
+                            : 'border-border bg-surface hover:border-border-strong',
+                        )}
+                        type="button"
+                        onClick={() => setState((current) => ({ ...current, roomId: room.id }))}
+                      >
+                        <p className="text-sm font-semibold text-text-primary">{formatRoomLabel(room)}</p>
+                        <p className="text-xs text-text-secondary">
+                          {t('schedule.roomCapacity', { count: room.capacity })}
+                          {' · '}
+                          {t('schedule.floor')} {room.floor}
+                        </p>
+                        <p className="mt-1 text-xs text-text-muted">{capabilitySummary}</p>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+              {selectedRoom && !selectedRoom.active ? (
+                <div className="rounded-[12px] border border-warning/30 bg-warning/5 px-3 py-3">
+                  <p className="text-sm font-semibold text-text-primary">
+                    {t('education.rooms.archivedRoomSelected')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <FormField hint={!state.onlineMeetingUrl.trim() ? t('schedule.linkWillBeAddedLater') : undefined} label={t('schedule.onlineMeetingUrl')}>
               <Input
@@ -2909,6 +2970,7 @@ function LessonPanelEditor({
 
 function getLessonEditorValidationReason(
   editor: DraftEditorState,
+  selectedRoom: RoomResponse | null,
   t: (key: string) => string,
 ) {
   if (!editor.subjectId) {
@@ -2922,6 +2984,9 @@ function getLessonEditorValidationReason(
   }
   if (editor.lessonFormat === 'OFFLINE' && !editor.roomId) {
     return t('schedule.disabledReasons.chooseRoomOffline')
+  }
+  if (editor.lessonFormat === 'OFFLINE' && selectedRoom && !selectedRoom.active) {
+    return t('education.rooms.archivedRoomSelected')
   }
 
   return ''
@@ -3272,6 +3337,15 @@ function resolveRoomCapabilitiesDisabledReason(
 
 function formatRoomLabel(room: RoomResponse) {
   return `${room.building} · ${room.code}`
+}
+
+function formatRoomLabelWithStatus(
+  room: RoomResponse,
+  t: (key: string) => string,
+) {
+  return room.active
+    ? formatRoomLabel(room)
+    : `${formatRoomLabel(room)} · ${t('common.status.ARCHIVED')}`
 }
 
 function scrollCarousel(element: HTMLDivElement | null, direction: -1 | 1) {
