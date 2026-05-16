@@ -50,18 +50,31 @@ public class GroupController {
 
     @GetMapping
     public GroupPageResponse listGroups(
+            Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String direction,
             @RequestParam(required = false) String q
     ) {
-        return groupService.listGroups(page, size, sortBy, direction, q);
+        return groupService.listGroups(
+                currentUserService.getCurrentUserId(authentication),
+                currentRoles(authentication),
+                page,
+                size,
+                sortBy,
+                direction,
+                q
+        );
     }
     
     @GetMapping("/{id}")
-    public GroupResponse getGroup(@PathVariable("id") UUID groupId) {
-        return groupService.getGroup(groupId);
+    public GroupResponse getGroup(Authentication authentication, @PathVariable("id") UUID groupId) {
+        return groupService.getGroup(
+                currentUserService.getCurrentUserId(authentication),
+                currentRoles(authentication),
+                groupId
+        );
     }
 
     @PutMapping("/{id}")
@@ -81,8 +94,15 @@ public class GroupController {
     }
 
     @GetMapping("/{groupId}/students")
-    public List<GroupStudentMembershipResponse> getGroupStudents(@PathVariable UUID groupId) {
-        return groupService.getGroupStudents(groupId);
+    public List<GroupStudentMembershipResponse> getGroupStudents(
+            Authentication authentication,
+            @PathVariable UUID groupId
+    ) {
+        return groupService.getGroupStudents(
+                currentUserService.getCurrentUserId(authentication),
+                currentRoles(authentication),
+                groupId
+        );
     }
 
     @GetMapping("/{groupId}/resolved-subjects")

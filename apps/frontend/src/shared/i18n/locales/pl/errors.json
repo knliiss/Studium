@@ -13,7 +13,7 @@
   "ENTITY_NOT_FOUND": "Nie znaleziono żądanej encji.",
   "FILE_PREVIEW_NOT_AVAILABLE": "Podgląd tego pliku nie jest dostępny.",
   "FILE_TOO_LARGE": "Wybrany plik przekracza dozwolony rozmiar.",
-  "FILE_TYPE_NOT_ALLOWED": "Wybrany typ pliku nie jest dozwolony.",
+  "FILE_TYPE_NOT_ALLOWED": "Ten typ pliku nie jest obsługiwany dla przesłania. Dozwolone: PDF, DOC, DOCX, TXT, obrazy i archiwa.",
   "INVALID_CREDENTIALS": "Nieprawidłowy login lub hasło.",
   "INVALID_DATE_RANGE": "Wybrany zakres dat jest nieprawidłowy.",
   "INVALID_MFA_CODE": "Kod weryfikacyjny jest nieprawidłowy lub wygasł.",

@@ -803,7 +803,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                 <p>{t('assignments.maxFileSize')}: <span className="font-semibold text-text-primary">{assignment.maxFileSizeMb ?? '-'}</span></p>
               </div>
               <p className="text-sm text-text-secondary">
-                {t('assignments.acceptedFileTypes')}: {(assignment.acceptedFileTypes ?? []).join(', ') || t('files.allowedFileTypesHint')}
+                {t('assignments.acceptedFileTypes')}: {t('files.assignmentSubmissionAllowedTypesShort')}
               </p>
             </Card>
 
@@ -1050,11 +1050,35 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
 function getAttachmentUploadErrorMessage(error: unknown, t: TFunction) {
   const normalized = normalizeApiError(error)
+  if (normalized?.code === 'FILE_TYPE_NOT_ALLOWED') {
+    const acceptedFileTypes = readAcceptedFileTypes(normalized.details)
+    if (acceptedFileTypes.length > 0) {
+      return t('files.assignmentSubmissionTypeNotSupportedDetailedWithList', {
+        list: acceptedFileTypes.join(', '),
+      })
+    }
+    return t('files.assignmentSubmissionTypeNotSupportedDetailed')
+  }
   if (normalized?.status === 415) {
     return t('files.unsupportedUploadType')
   }
 
   return t('files.uploadFailed')
+}
+
+function readAcceptedFileTypes(details: unknown) {
+  if (!details || typeof details !== 'object') {
+    return []
+  }
+
+  const accepted = (details as { acceptedFileTypes?: unknown }).acceptedFileTypes
+  if (!Array.isArray(accepted)) {
+    return []
+  }
+
+  return accepted
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim())
 }
 
 function SidebarInfo({ label, value }: { label: string; value: string }) {

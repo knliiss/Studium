@@ -19,7 +19,9 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/schedule/me")
@@ -39,7 +41,8 @@ public class MyScheduleController {
                 UUID.fromString(authentication.getName()),
                 authentication.getToken().getTokenValue(),
                 requestId(exchange),
-                startDate
+                startDate,
+                currentRoles(authentication)
         );
     }
     
@@ -56,7 +59,8 @@ public class MyScheduleController {
                 authentication.getToken().getTokenValue(),
                 requestId(exchange),
                 dateFrom,
-                dateTo
+                dateTo,
+                currentRoles(authentication)
         );
     }
 
@@ -73,7 +77,8 @@ public class MyScheduleController {
                         authentication.getToken().getTokenValue(),
                         requestId(exchange),
                         dateFrom,
-                        dateTo
+                        dateTo,
+                        currentRoles(authentication)
                 )
                 .map(calendar -> ResponseEntity.ok()
                         .contentType(MediaType.parseMediaType("text/calendar"))
@@ -90,5 +95,11 @@ public class MyScheduleController {
             requestId = exchange.getRequest().getHeaders().getFirst(RequestIdFilter.REQUEST_ID_HEADER);
         }
         return requestId == null ? "" : requestId;
+    }
+
+    private Set<String> currentRoles(JwtAuthenticationToken authentication) {
+        return authentication.getAuthorities().stream()
+                .map(grantedAuthority -> grantedAuthority.getAuthority())
+                .collect(Collectors.toSet());
     }
 }

@@ -167,18 +167,40 @@ function StudentTestsPage() {
     )
   }
 
+  const availableTests = dashboardQuery.data.availableTests.filter((item) => isStudentTestActionable(item))
+  const unavailableTests = dashboardQuery.data.availableTests.filter((item) => !isStudentTestActionable(item))
+
   return (
     <div className="space-y-6">
       <PageHeader description={t('testing.studentDescription')} title={t('navigation.shared.tests')} />
-      <DataTable
-        columns={[
-          { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/tests/${item.testId}`} state={{ fromPath: '/tests' }}>{item.title}</Link> },
-          { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
-          { key: 'attempts', header: t('testing.attempts'), render: (item) => `${item.attemptsUsed}/${item.maxAttempts}` },
-          { key: 'availableUntil', header: t('testing.availableUntil'), render: (item) => formatDateTime(item.availableUntil) },
-        ]}
-        rows={dashboardQuery.data.availableTests}
-      />
+      {availableTests.length === 0 ? (
+        <EmptyState title={t('navigation.shared.tests')} description={t('testing.noAvailableTests')} />
+      ) : (
+        <DataTable
+          columns={[
+            { key: 'title', header: t('common.labels.title'), render: (item) => <Link className="font-medium text-accent" to={`/tests/${item.testId}`} state={{ fromPath: '/tests' }}>{item.title}</Link> },
+            { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
+            { key: 'attempts', header: t('testing.attempts'), render: (item) => `${item.attemptsUsed}/${item.maxAttempts}` },
+            { key: 'availableUntil', header: t('testing.availableUntil'), render: (item) => formatDateTime(item.availableUntil) },
+          ]}
+          rows={availableTests}
+        />
+      )}
+
+      {unavailableTests.length > 0 ? (
+        <Card className="space-y-3">
+          <PageHeader title={t('testing.unavailableTestsTitle')} />
+          <DataTable
+            columns={[
+              { key: 'title', header: t('common.labels.title'), render: (item) => <span className="text-text-secondary">{item.title}</span> },
+              { key: 'status', header: t('common.labels.status'), render: (item) => <StatusBadge value={item.status} /> },
+              { key: 'availableUntil', header: t('testing.availableUntil'), render: (item) => formatDateTime(item.availableUntil) },
+              { key: 'reason', header: t('common.labels.reason'), render: () => t('testing.unavailableReasonExpired') },
+            ]}
+            rows={unavailableTests}
+          />
+        </Card>
+      ) : null}
     </div>
   )
 }
@@ -698,6 +720,22 @@ function TestDetailPage({ testId }: { testId: string }) {
     return <LoadingState />
   }
 
+  if (isStudent) {
+    const unavailableError = normalizeApiError(studentViewQuery.error ?? testQuery.error)
+    if (unavailableError?.code === 'TEST_NOT_AVAILABLE') {
+      return (
+        <ErrorState
+          title={t('testing.testUnavailableTitle')}
+          description={t('testing.testUnavailableDescription')}
+          onRetry={() => {
+            void testQuery.refetch()
+            void studentViewQuery.refetch()
+          }}
+        />
+      )
+    }
+  }
+
   if (
     testQuery.isError
     || (!isStudent && questionsQuery.isError)
@@ -1126,6 +1164,17 @@ function TestDetailPage({ testId }: { testId: string }) {
       ) : null}
     </div>
   )
+}
+
+function isStudentTestActionable(item: TestManagementRow | { availableFrom: string | null; availableUntil: string | null }) {
+  const now = Date.now()
+  if (item.availableFrom && Date.parse(item.availableFrom) > now) {
+    return false
+  }
+  if (item.availableUntil && Date.parse(item.availableUntil) < now) {
+    return false
+  }
+  return true
 }
 
 function QuestionTypeEditor({

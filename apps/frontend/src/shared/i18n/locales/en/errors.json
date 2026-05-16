@@ -13,7 +13,7 @@
   "ENTITY_NOT_FOUND": "The requested entity was not found.",
   "FILE_PREVIEW_NOT_AVAILABLE": "Preview is not available for this file.",
   "FILE_TOO_LARGE": "The selected file exceeds the allowed size.",
-  "FILE_TYPE_NOT_ALLOWED": "The selected file type is not allowed.",
+  "FILE_TYPE_NOT_ALLOWED": "This file type is not supported for submission. Allowed: PDF, DOC, DOCX, TXT, images, and archives.",
   "INVALID_CREDENTIALS": "Invalid username or password.",
   "INVALID_DATE_RANGE": "The selected date range is invalid.",
   "INVALID_MFA_CODE": "The verification code is invalid or has expired.",

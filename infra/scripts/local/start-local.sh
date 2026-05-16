@@ -22,6 +22,7 @@ APP_SERVICES=(
   analytics-service
   audit-service
   notification-service
+  telegram-bot-service
   gateway
   frontend
 )

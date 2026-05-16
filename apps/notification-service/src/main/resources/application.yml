@@ -111,4 +111,9 @@ app:
       send-buffer-size-limit-bytes: ${NOTIFICATION_WS_SEND_BUFFER_SIZE_LIMIT_BYTES:1048576}
       message-size-limit-bytes: ${NOTIFICATION_WS_MESSAGE_SIZE_LIMIT_BYTES:65536}
     internal:
-      shared-secret: ${NOTIFICATION_INTERNAL_SHARED_SECRET}
+      shared-secret: ${NOTIFICATION_INTERNAL_SHARED_SECRET:${INTERNAL_SERVICE_TOKEN:change-me-notification-internal}}
+    telegram:
+      enabled: ${TELEGRAM_ENABLED:false}
+      bot-token: ${TELEGRAM_BOT_TOKEN:}
+      bot-username: ${TELEGRAM_BOT_USERNAME:}
+      connect-token-ttl: ${TELEGRAM_CONNECT_TOKEN_TTL:15m}

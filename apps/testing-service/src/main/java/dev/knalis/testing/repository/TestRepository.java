@@ -50,6 +50,8 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
             from Test test
             where test.topicId = :topicId
               and test.status in :statuses
+              and (test.availableFrom is null or test.availableFrom <= :now)
+              and (test.availableUntil is null or test.availableUntil >= :now)
               and exists (
                   select availability.id
                   from TestGroupAvailability availability
@@ -57,6 +59,7 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
                     and availability.groupId in :groupIds
                     and availability.visible = true
                     and (availability.availableFrom is null or availability.availableFrom <= :now)
+                    and (availability.availableUntil is null or availability.availableUntil >= :now)
               )
             """)
     Page<Test> findAvailableByTopicIdForGroups(
@@ -72,6 +75,8 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
             from Test test
             where test.topicId in :topicIds
               and test.status in :statuses
+              and (test.availableFrom is null or test.availableFrom <= :now)
+              and (test.availableUntil is null or test.availableUntil >= :now)
               and exists (
                   select availability.id
                   from TestGroupAvailability availability
@@ -79,6 +84,7 @@ public interface TestRepository extends JpaRepository<Test, UUID> {
                     and availability.groupId in :groupIds
                     and availability.visible = true
                     and (availability.availableFrom is null or availability.availableFrom <= :now)
+                    and (availability.availableUntil is null or availability.availableUntil >= :now)
               )
             """)
     List<Test> findAvailableByTopicIdInForGroups(

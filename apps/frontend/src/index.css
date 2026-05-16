@@ -122,7 +122,7 @@ img {
   display: grid;
   height: 100dvh;
   min-height: 100dvh;
-  grid-template-columns: 288px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 264px) minmax(0, 1fr);
   overflow: hidden;
 }
 

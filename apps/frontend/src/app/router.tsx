@@ -28,6 +28,7 @@ import { TopicDetailPage } from '@/pages/education/TopicDetailPage'
 import { LecturePage } from '@/pages/education/LecturePage'
 import { MaterialPage } from '@/pages/education/MaterialPage'
 import { RoomsPage } from '@/pages/education/RoomsPage'
+import { MyGroupPage } from '@/pages/education/MyGroupPage'
 import { NotificationsPage } from '@/pages/notifications/NotificationsPage'
 import { ProfilePage } from '@/pages/profile/ProfilePage'
 import { SchedulePage } from '@/pages/schedule/SchedulePage'
@@ -76,7 +77,7 @@ export function AppRouter() {
           <Route path="/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/teachers" element={<TeachersPage />} />
           <Route path="/teachers/:teacherId" element={<TeachersPage />} />
-          <Route element={<RequireRole allowedRoles={['OWNER', 'ADMIN', 'TEACHER']} />}>
+          <Route element={<RequireRole allowedRoles={['OWNER', 'ADMIN']} />}>
             <Route path="/academic" element={<EducationCenterPage />} />
             <Route path="/academic/specialties" element={<SpecialtiesPage />} />
             <Route path="/academic/specialties/:specialtyId" element={<SpecialtyDetailPage />} />
@@ -107,6 +108,8 @@ export function AppRouter() {
 
         <Route element={<RequireRole allowedRoles={['STUDENT']} />}>
           <Route path="/grades" element={<GradesPage />} />
+          <Route path="/my-group" element={<MyGroupPage />} />
+          <Route path="/groups/my" element={<Navigate replace to="/my-group" />} />
 
           <Route path="/student/dashboard" element={<Navigate replace to="/dashboard" />} />
           <Route path="/student/schedule" element={<Navigate replace to="/schedule/me" />} />
@@ -120,6 +123,7 @@ export function AppRouter() {
           <Route path="/student/tests" element={<Navigate replace to="/tests" />} />
           <Route path="/student/tests/:testId" element={<ParamRedirect to="/tests/:testId" />} />
           <Route path="/student/grades" element={<Navigate replace to="/grades" />} />
+          <Route path="/student/my-group" element={<Navigate replace to="/my-group" />} />
           <Route path="/student/notifications" element={<Navigate replace to="/notifications" />} />
           <Route path="/student/profile" element={<Navigate replace to="/profile" />} />
           <Route path="/student/analytics" element={<Navigate replace to="/analytics" />} />
@@ -134,7 +138,7 @@ export function AppRouter() {
           <Route path="/teacher/dashboard" element={<Navigate replace to="/dashboard" />} />
           <Route path="/teacher/schedule" element={<Navigate replace to="/schedule/me" />} />
           <Route path="/teacher/subjects" element={<Navigate replace to="/subjects" />} />
-          <Route path="/teacher/education" element={<Navigate replace to="/academic" />} />
+          <Route path="/teacher/education" element={<Navigate replace to="/groups" />} />
           <Route path="/teacher/assignments" element={<Navigate replace to="/assignments" />} />
           <Route path="/teacher/assignments/:assignmentId" element={<ParamRedirect to="/assignments/:assignmentId" />} />
           <Route path="/teacher/submissions" element={<Navigate replace to="/submissions" />} />

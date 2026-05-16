@@ -11,6 +11,7 @@ import dev.knalis.education.entity.GroupStudent;
 import dev.knalis.education.entity.Specialty;
 import dev.knalis.education.entity.Stream;
 import dev.knalis.education.entity.Subgroup;
+import dev.knalis.education.exception.EducationAccessDeniedException;
 import dev.knalis.education.exception.GroupNotFoundException;
 import dev.knalis.education.exception.StreamSpecialtyYearMismatchException;
 import dev.knalis.education.factory.group.GroupFactory;
@@ -31,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -110,6 +112,41 @@ class GroupServiceTest {
         when(groupRepository.findById(groupId)).thenReturn(Optional.empty());
         
         assertThrows(GroupNotFoundException.class, () -> groupService.getGroup(groupId));
+    }
+
+    @Test
+    void getGroupRejectsStudentOutsideMembership() {
+        UUID groupId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+
+        when(groupStudentRepository.existsByUserIdAndGroupId(studentId, groupId)).thenReturn(false);
+
+        assertThrows(
+                EducationAccessDeniedException.class,
+                () -> groupService.getGroup(studentId, Set.of("ROLE_STUDENT"), groupId)
+        );
+    }
+
+    @Test
+    void getGroupAllowsStudentWithinMembership() {
+        UUID groupId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        Instant now = Instant.now();
+        Group group = new Group();
+        group.setId(groupId);
+        group.setName("SE-21");
+        group.setSubgroupMode(GroupSubgroupMode.NONE);
+        group.setCreatedAt(now);
+        group.setUpdatedAt(now);
+        GroupResponse response = new GroupResponse(groupId, "SE-21", null, null, null, GroupSubgroupMode.NONE, now, now);
+
+        when(groupStudentRepository.existsByUserIdAndGroupId(studentId, groupId)).thenReturn(true);
+        when(groupRepository.findById(groupId)).thenReturn(Optional.of(group));
+        when(groupMapper.toResponse(group)).thenReturn(response);
+
+        GroupResponse result = groupService.getGroup(studentId, Set.of("ROLE_STUDENT"), groupId);
+
+        assertEquals(response, result);
     }
     
     @Test

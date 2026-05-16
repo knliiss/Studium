@@ -1,7 +1,6 @@
 package dev.knalis.gateway.service;
 
 import dev.knalis.gateway.client.education.EducationServiceClient;
-import dev.knalis.gateway.client.education.dto.GroupMembershipResponse;
 import dev.knalis.gateway.client.schedule.ScheduleServiceClient;
 import dev.knalis.gateway.client.schedule.dto.LessonSlotResponse;
 import dev.knalis.gateway.dto.ResolvedLessonResponse;
@@ -16,10 +15,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,20 +33,16 @@ public class MyScheduleService {
             UUID userId,
             String bearerToken,
             String requestId,
-            LocalDate startDate
+            LocalDate startDate,
+            Set<String> currentRoles
     ) {
-        return getMySchedule(
+        return getMyRange(
                 userId,
                 bearerToken,
                 requestId,
-                memberships -> Flux.fromIterable(memberships)
-                        .flatMap(groupMembership -> scheduleServiceClient.getGroupWeek(
-                                bearerToken,
-                                requestId,
-                                groupMembership.groupId(),
-                                startDate
-                        ).map(lessons -> filterLessonsBySubgroup(lessons, groupMembership.subgroup())))
-                        .flatMapIterable(items -> items)
+                startDate,
+                startDate.plusDays(6),
+                currentRoles
         );
     }
 
@@ -55,7 +51,8 @@ public class MyScheduleService {
             String bearerToken,
             String requestId,
             LocalDate dateFrom,
-            LocalDate dateTo
+            LocalDate dateTo,
+            Set<String> currentRoles
     ) {
         if (dateTo.isBefore(dateFrom)) {
             throw new InvalidDateRangeException("dateTo must be on or after dateFrom");
@@ -65,16 +62,10 @@ public class MyScheduleService {
                 userId,
                 bearerToken,
                 requestId,
-                memberships -> Flux.fromIterable(memberships)
-                        .flatMap(groupMembership -> scheduleServiceClient.getGroupRange(
-                                bearerToken,
-                                requestId,
-                                groupMembership.groupId(),
-                                dateFrom,
-                                dateTo
-                        ).map(lessons -> filterLessonsBySubgroup(lessons, groupMembership.subgroup())))
-                        .flatMapIterable(items -> items)
-                );
+                dateFrom,
+                dateTo,
+                currentRoles
+        );
     }
 
     public Mono<String> exportMyCalendar(
@@ -82,11 +73,19 @@ public class MyScheduleService {
             String bearerToken,
             String requestId,
             LocalDate dateFrom,
-            LocalDate dateTo
+            LocalDate dateTo,
+            Set<String> currentRoles
     ) {
         return resolveDateRange(bearerToken, requestId, dateFrom, dateTo)
                 .flatMap(dateRange -> Mono.zip(
-                        getMyRange(userId, bearerToken, requestId, dateRange.dateFrom(), dateRange.dateTo()),
+                        getMyRange(
+                                userId,
+                                bearerToken,
+                                requestId,
+                                dateRange.dateFrom(),
+                                dateRange.dateTo(),
+                                currentRoles
+                        ),
                         scheduleServiceClient.getLessonSlots(bearerToken, requestId)
                 ))
                 .map(tuple -> toCalendar(tuple.getT1(), lessonSlotsById(tuple.getT2())));
@@ -96,23 +95,90 @@ public class MyScheduleService {
             UUID userId,
             String bearerToken,
             String requestId,
-            Function<List<GroupMembershipResponse>, Flux<ResolvedLessonResponse>> lessonsSupplier
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            Set<String> currentRoles
     ) {
-        return educationServiceClient.getGroupsByUser(bearerToken, requestId, userId)
+        boolean teacher = currentRoles.contains("ROLE_TEACHER");
+        boolean student = currentRoles.contains("ROLE_STUDENT");
+        boolean loadStudentSchedule = student || !teacher;
+
+        Mono<List<ResolvedLessonResponse>> teacherLessonsMono = teacher
+                ? scheduleServiceClient.getTeacherRange(
+                        bearerToken,
+                        requestId,
+                        userId,
+                        dateFrom,
+                        dateTo
+                )
+                : Mono.just(List.of());
+
+        Mono<List<ResolvedLessonResponse>> studentLessonsMono = loadStudentSchedule
+                ? educationServiceClient.getGroupsByUser(bearerToken, requestId, userId)
                 .flatMap(groupMemberships -> {
                     if (groupMemberships.isEmpty()) {
                         return Mono.just(List.of());
                     }
-
-                    Mono<Map<UUID, Integer>> slotNumbersMono = scheduleServiceClient.getLessonSlots(bearerToken, requestId)
-                            .map(this::slotNumbersById);
-
-                    Mono<List<ResolvedLessonResponse>> lessonsMono = lessonsSupplier.apply(groupMemberships)
+                    return Flux.fromIterable(groupMemberships)
+                            .flatMap(groupMembership -> scheduleServiceClient.getGroupRange(
+                                    bearerToken,
+                                    requestId,
+                                    groupMembership.groupId(),
+                                    dateFrom,
+                                    dateTo
+                            ).map(lessons -> filterLessonsBySubgroup(lessons, groupMembership.subgroup())))
+                            .flatMapIterable(items -> items)
                             .collectList();
+                })
+                : Mono.just(List.of());
 
-                    return Mono.zip(slotNumbersMono, lessonsMono)
-                            .map(tuple -> sortLessons(tuple.getT2(), tuple.getT1()));
+        return Mono.zip(teacherLessonsMono, studentLessonsMono)
+                .flatMap(tuple -> {
+                    List<ResolvedLessonResponse> merged = mergeLessons(tuple.getT1(), tuple.getT2());
+                    if (merged.isEmpty()) {
+                        return Mono.just(List.of());
+                    }
+
+                    return scheduleServiceClient.getLessonSlots(bearerToken, requestId)
+                            .map(this::slotNumbersById)
+                            .map(slotNumbers -> sortLessons(merged, slotNumbers));
                 });
+    }
+
+    private List<ResolvedLessonResponse> mergeLessons(
+            List<ResolvedLessonResponse> teacherLessons,
+            List<ResolvedLessonResponse> studentLessons
+    ) {
+        Map<String, ResolvedLessonResponse> merged = new LinkedHashMap<>();
+        for (ResolvedLessonResponse lesson : teacherLessons) {
+            merged.put(buildLessonKey(lesson), lesson);
+        }
+        for (ResolvedLessonResponse lesson : studentLessons) {
+            merged.put(buildLessonKey(lesson), lesson);
+        }
+        return merged.values().stream().toList();
+    }
+
+    private String buildLessonKey(ResolvedLessonResponse lesson) {
+        return lesson.date()
+                + "|"
+                + lesson.semesterId()
+                + "|"
+                + lesson.templateId()
+                + "|"
+                + lesson.groupId()
+                + "|"
+                + lesson.subjectId()
+                + "|"
+                + lesson.teacherId()
+                + "|"
+                + lesson.slotId()
+                + "|"
+                + lesson.subgroup()
+                + "|"
+                + lesson.sourceType()
+                + "|"
+                + lesson.overrideType();
     }
 
     private Map<UUID, Integer> slotNumbersById(List<LessonSlotResponse> lessonSlots) {

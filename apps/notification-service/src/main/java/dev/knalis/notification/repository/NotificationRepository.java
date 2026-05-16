@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,6 +29,8 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     );
     
     long countByUserIdAndStatus(UUID userId, NotificationStatus status);
+
+    List<Notification> findTop5ByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, NotificationStatus status);
     
     @Modifying
     @Query("""
@@ -43,4 +46,11 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             @Param("readStatus") NotificationStatus readStatus,
             @Param("readAt") Instant readAt
     );
+
+    @Modifying
+    @Query("""
+            delete from Notification notification
+            where notification.userId = :userId
+            """)
+    int deleteAllByUserId(@Param("userId") UUID userId);
 }

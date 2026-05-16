@@ -5,7 +5,7 @@ import {
   scheduleService,
   testingService,
 } from '@/shared/api/services'
-import type { GroupResponse, Role, SubjectResponse } from '@/shared/types/api'
+import type { GroupResponse, Role, SubjectResponse, SubgroupValue } from '@/shared/types/api'
 
 export function buildPlanningRange(daysAhead = 35) {
   const today = new Date()
@@ -32,6 +32,8 @@ export interface GroupCardSummary {
   hasUpcomingLessons: boolean | null
   riskLevel: string | null
   studentCount: number | null
+  starostaUserId: string | null
+  subgroupValues: SubgroupValue[]
 }
 
 export async function loadAccessibleSubjects(role: Role, userId: string) {
@@ -135,15 +137,31 @@ export async function loadAccessibleGroups(role: Role, userId: string) {
   }
 
   if (role === 'TEACHER') {
-    const range = buildPlanningRange()
-    const lessons = await scheduleService.getMyRange(range.dateFrom, range.dateTo)
-    const groupIds = Array.from(new Set(lessons.map((lesson) => lesson.groupId)))
-    const groups = await Promise.all(groupIds.map((id) => educationService.getGroup(id)))
-
-    return dedupeById(groups)
+    return loadAllGroupsDirectory()
   }
 
   return [] as GroupResponse[]
+}
+
+export async function loadAllGroupsDirectory() {
+  const groups: GroupResponse[] = []
+  let page = 0
+
+  while (true) {
+    const pageResponse = await educationService.listGroups({
+      page,
+      size: 100,
+      sortBy: 'name',
+      direction: 'asc',
+    })
+    groups.push(...pageResponse.items)
+    if (pageResponse.last || page + 1 >= pageResponse.totalPages) {
+      break
+    }
+    page += 1
+  }
+
+  return dedupeById(groups)
 }
 
 export async function loadSubjectCardMetrics(subjectIds: string[]) {
@@ -210,6 +228,12 @@ export async function loadGroupCardSummaries(groupIds: string[]) {
       : analyticsResult.status === 'fulfilled'
         ? analyticsResult.value.totalStudentsTracked
         : null
+    const starostaUserId = membersResult.status === 'fulfilled'
+      ? membersResult.value.find((membership) => membership.role === 'STAROSTA')?.userId ?? null
+      : null
+    const subgroupValues = membersResult.status === 'fulfilled'
+      ? Array.from(new Set(membersResult.value.map((membership) => membership.subgroup))).sort()
+      : []
     const hasUpcomingLessons = scheduleResult.status === 'fulfilled'
       ? scheduleResult.value.length > 0
       : null
@@ -223,6 +247,8 @@ export async function loadGroupCardSummaries(groupIds: string[]) {
         hasUpcomingLessons,
         riskLevel,
         studentCount,
+        starostaUserId,
+        subgroupValues,
       } satisfies GroupCardSummary,
     ] as const
   }))

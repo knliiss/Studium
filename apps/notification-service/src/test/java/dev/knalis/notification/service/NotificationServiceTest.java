@@ -35,6 +35,9 @@ class NotificationServiceTest {
     
     @Mock
     private NotificationRealtimeEventPublisher notificationRealtimeEventPublisher;
+
+    @Mock
+    private TelegramNotificationDeliveryService telegramNotificationDeliveryService;
     
     private NotificationService notificationService;
     
@@ -44,6 +47,7 @@ class NotificationServiceTest {
                 notificationRepository,
                 new NotificationMapper(),
                 notificationRealtimeEventPublisher,
+                telegramNotificationDeliveryService,
                 new ObjectMapper(),
                 new SimpleMeterRegistry()
         );
@@ -94,6 +98,7 @@ class NotificationServiceTest {
         
         verify(notificationRepository).save(any(Notification.class));
         verify(notificationRealtimeEventPublisher).publish(any());
+        verify(telegramNotificationDeliveryService).deliver(any(Notification.class));
     }
     
     @Test

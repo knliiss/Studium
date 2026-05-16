@@ -30,6 +30,7 @@ import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
+import dev.knalis.assignment.service.common.SubmissionFileTypePolicy;
 import dev.knalis.contracts.event.AssignmentCreatedEventV1;
 import dev.knalis.contracts.event.AssignmentImportantChangeTypeV1;
 import dev.knalis.contracts.event.AssignmentOpenedEventV1;
@@ -44,7 +45,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -88,7 +88,7 @@ public class AssignmentService {
                 Boolean.TRUE.equals(request.allowLateSubmissions()),
                 request.maxSubmissions() == null ? 1 : request.maxSubmissions(),
                 Boolean.TRUE.equals(request.allowResubmit()),
-                normalizeAcceptedFileTypes(request.acceptedFileTypes()),
+                new LinkedHashSet<>(SubmissionFileTypePolicy.allowedContentTypes()),
                 request.maxFileSizeMb(),
                 request.maxPoints() == null ? 100 : request.maxPoints(),
                 request.orderIndex() == null ? 0 : request.orderIndex()
@@ -129,7 +129,7 @@ public class AssignmentService {
         assignment.setAllowLateSubmissions(Boolean.TRUE.equals(request.allowLateSubmissions()));
         assignment.setMaxSubmissions(request.maxSubmissions() == null ? 1 : request.maxSubmissions());
         assignment.setAllowResubmit(Boolean.TRUE.equals(request.allowResubmit()));
-        assignment.setAcceptedFileTypes(normalizeAcceptedFileTypes(request.acceptedFileTypes()));
+        assignment.setAcceptedFileTypes(new LinkedHashSet<>(SubmissionFileTypePolicy.allowedContentTypes()));
         assignment.setMaxFileSizeMb(request.maxFileSizeMb());
         assignment.setMaxPoints(request.maxPoints() == null ? assignment.getMaxPoints() : request.maxPoints());
         
@@ -571,21 +571,6 @@ public class AssignmentService {
 
     private boolean isAssignedTeacherForSubject(UUID subjectId, UUID currentUserId) {
         return educationServiceClient.getSubject(subjectId).teacherIds().contains(currentUserId);
-    }
-
-    private Set<String> normalizeAcceptedFileTypes(Set<String> acceptedFileTypes) {
-        if (acceptedFileTypes == null || acceptedFileTypes.isEmpty()) {
-            return new LinkedHashSet<>();
-        }
-
-        Set<String> normalized = new LinkedHashSet<>();
-        for (String acceptedFileType : acceptedFileTypes) {
-            if (acceptedFileType == null || acceptedFileType.isBlank()) {
-                continue;
-            }
-            normalized.add(acceptedFileType.trim().toLowerCase(Locale.ROOT));
-        }
-        return normalized;
     }
 
     private SearchItemResponse toSearchItem(Assignment assignment) {

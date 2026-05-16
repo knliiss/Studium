@@ -37,7 +37,7 @@ import {
 } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/useAuth'
-import { loadAccessibleGroups, loadSubjectScope } from '@/pages/education/helpers'
+import { loadAccessibleSubjects, loadAllGroupsDirectory, loadManagedSubjects } from '@/pages/education/helpers'
 import {
   adminUserService,
   educationService,
@@ -363,8 +363,29 @@ function ScheduleLandingPage() {
 
   const showMySchedule = primaryRole === 'TEACHER'
     || (primaryRole === 'STUDENT' && (studentMembershipsQuery.data?.length ?? 0) > 0)
+  const myWeekPreviewQuery = useQuery({
+    queryKey: ['schedule', 'landing-my-preview', session?.user.id],
+    queryFn: () => {
+      const today = new Date()
+      const until = new Date(today)
+      until.setDate(today.getDate() + 6)
+      const dateFrom = today.toISOString().slice(0, 10)
+      const dateTo = until.toISOString().slice(0, 10)
+      return scheduleService.getMyRange(dateFrom, dateTo)
+    },
+    enabled: Boolean(showMySchedule && session?.user.id),
+  })
 
   const cards = [
+    ...(canOpenMySchedule && showMySchedule
+      ? [{
+        description: t('schedule.routeCards.myScheduleDescription'),
+        icon: CalendarDays,
+        recommended: true,
+        title: t('schedule.mySchedule'),
+        to: '/schedule/me',
+      }]
+      : []),
     {
       description: t('schedule.routeCards.groupsDescription'),
       icon: Users,
@@ -383,49 +404,106 @@ function ScheduleLandingPage() {
       title: t('schedule.routeCards.roomsTitle'),
       to: '/schedule/rooms',
     },
-    ...(canOpenMySchedule && showMySchedule
-      ? [{
-        description: t('schedule.routeCards.myScheduleDescription'),
-        icon: CalendarDays,
-        title: t('schedule.mySchedule'),
-        to: '/schedule/me',
-      }]
-      : []),
   ]
+  const lessonsByDate = new Map<string, ResolvedLessonResponse[]>()
+  for (const lesson of myWeekPreviewQuery.data ?? []) {
+    const dayLessons = lessonsByDate.get(lesson.date) ?? []
+    dayLessons.push(lesson)
+    lessonsByDate.set(lesson.date, dayLessons)
+  }
+  const upcomingWeekDates = Array.from({ length: 7 }).map((_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() + index)
+    return date.toISOString().slice(0, 10)
+  })
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-180px)] w-full max-w-6xl flex-col justify-center space-y-8 py-8">
-      <div className="max-w-3xl">
-        <PageHeader
-          description={t('schedule.planningDescription')}
-          title={t('navigation.shared.schedule')}
-        />
-      </div>
+    <div className="mx-auto w-full max-w-6xl space-y-8 py-6">
+      <Card className="rounded-2xl border border-border bg-surface">
+        <div className="flex flex-wrap items-start gap-4">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-[14px] bg-accent-muted text-accent">
+            <CalendarDays className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+              {t('schedule.contextHubTitle')}
+            </h1>
+            <p className="mt-1 text-sm leading-6 text-text-secondary">
+              {t('schedule.contextHubSubtitle')}
+            </p>
+          </div>
+        </div>
+      </Card>
 
-      <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid items-stretch gap-4 md:grid-cols-2">
         {cards.map((card) => {
           const Icon = card.icon
 
           return (
             <Link key={card.to} className="group block h-full" to={card.to}>
-              <Card className="flex h-full min-h-56 flex-col justify-between gap-5 transition hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-soft)]">
-                <div className="space-y-4">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-[14px] bg-accent-muted text-accent">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <div className="space-y-2">
-                    <h2 className="text-xl font-semibold text-text-primary">{card.title}</h2>
-                    <p className="text-sm leading-6 text-text-secondary">{card.description}</p>
+              <Card className="flex h-full min-h-44 flex-col justify-between gap-4 rounded-2xl border border-border bg-surface transition hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-soft)]">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-[12px] bg-accent-muted text-accent">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    {'recommended' in card && card.recommended ? (
+                      <span className="rounded-full border border-accent/30 bg-accent-muted px-2.5 py-1 text-xs font-semibold text-accent">
+                        {t('schedule.recommended')}
+                      </span>
+                    ) : null}
                   </div>
+                  <h2 className="text-lg font-semibold text-text-primary">{card.title}</h2>
+                  <p className="text-sm leading-6 text-text-secondary">{card.description}</p>
                 </div>
-                <span className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-surface-muted px-3 text-sm font-medium text-text-primary transition group-hover:border-border-strong">
+                <span className="inline-flex min-h-11 items-center justify-between rounded-[12px] border border-border bg-surface-muted px-3 text-sm font-medium text-text-primary transition group-hover:border-border-strong">
                   {t('common.actions.open')}
+                  <ArrowRight className="h-4 w-4" />
                 </span>
               </Card>
             </Link>
           )
         })}
       </div>
+
+      {showMySchedule ? (
+        <Card className="space-y-4 rounded-2xl border border-border bg-surface">
+          <PageHeader
+            title={t('schedule.weekPreviewTitle')}
+            description={t('schedule.weekPreviewDescription')}
+          />
+          {myWeekPreviewQuery.isLoading ? (
+            <LoadingState label={t('common.states.loading')} />
+          ) : myWeekPreviewQuery.isError ? (
+            <ErrorState
+              title={t('schedule.weekPreviewTitle')}
+              description={t('schedule.weekPreviewError')}
+              onRetry={() => void myWeekPreviewQuery.refetch()}
+            />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {upcomingWeekDates.map((date) => {
+                const dayLessons = lessonsByDate.get(date) ?? []
+                const dateLabel = new Date(date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+
+                return (
+                  <div key={date} className="rounded-[14px] border border-border bg-surface-muted p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">{dateLabel}</p>
+                    <p className="mt-2 text-sm font-semibold text-text-primary">
+                      {dayLessons.length > 0
+                        ? t('schedule.weekPreviewLessonsCount', { count: dayLessons.length })
+                        : t('schedule.weekPreviewEmptyDay')}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <Link to="/schedule/me">
+            <Button variant="secondary">{t('schedule.goToMySchedule')}</Button>
+          </Link>
+        </Card>
+      ) : null}
 
       {primaryRole === 'STUDENT' && studentMembershipsQuery.isLoading ? (
         <LoadingState label={t('schedule.loadingContext')} />
@@ -449,44 +527,26 @@ function ScheduleLandingPage() {
 
 function ScheduleGroupsPage() {
   const { t } = useTranslation()
-  const { primaryRole, roles, session } = useAuth()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
-  const isAdmin = hasAnyRole(roles, ['ADMIN', 'OWNER'])
-  const accessibleGroupsQuery = useQuery({
-    queryKey: ['schedule', 'groups', 'accessible', primaryRole, session?.user.id],
-    queryFn: () => loadAccessibleGroups(primaryRole, session?.user.id ?? ''),
-    enabled: !isAdmin && Boolean(session?.user.id),
-  })
   const groupsQuery = useQuery({
-    queryKey: ['schedule', 'groups', 'admin', debouncedSearch, page],
-    queryFn: () => educationService.listGroups({
-      page,
-      size: pageSize,
-      q: debouncedSearch || undefined,
-      sortBy: 'name',
-      direction: 'asc',
-    }),
-    enabled: isAdmin,
+    queryKey: ['schedule', 'groups', 'directory'],
+    queryFn: () => loadAllGroupsDirectory(),
   })
 
-  if ((isAdmin && groupsQuery.isLoading) || (!isAdmin && accessibleGroupsQuery.isLoading)) {
+  if (groupsQuery.isLoading) {
     return <LoadingState />
   }
 
-  if ((isAdmin && groupsQuery.isError) || (!isAdmin && accessibleGroupsQuery.isError)) {
+  if (groupsQuery.isError) {
     return <ErrorState description={t('common.states.error')} title={t('schedule.routeCards.groupsTitle')} />
   }
 
-  const localGroups = (accessibleGroupsQuery.data ?? [])
+  const localGroups = (groupsQuery.data ?? [])
     .filter((group) => !debouncedSearch || group.name.toLowerCase().includes(debouncedSearch.toLowerCase()))
-  const visibleGroups = isAdmin
-    ? (groupsQuery.data?.items ?? [])
-    : localGroups.slice(page * pageSize, (page + 1) * pageSize)
-  const totalPages = isAdmin
-    ? Math.max(groupsQuery.data?.totalPages ?? 1, 1)
-    : Math.max(Math.ceil(Math.max(localGroups.length, 1) / pageSize), 1)
+  const visibleGroups = localGroups.slice(page * pageSize, (page + 1) * pageSize)
+  const totalPages = Math.max(Math.ceil(Math.max(localGroups.length, 1) / pageSize), 1)
 
   return (
     <div className="space-y-6">
@@ -546,51 +606,38 @@ function ScheduleGroupsPage() {
 
 function ScheduleTeachersPage() {
   const { t } = useTranslation()
-  const { primaryRole, roles, session } = useAuth()
+  const { primaryRole, session } = useAuth()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
-  const isAdmin = hasAnyRole(roles, ['ADMIN', 'OWNER'])
-  const teacherPageQuery = useQuery({
-    queryKey: ['schedule', 'teachers', 'admin', debouncedSearch, page],
-    queryFn: () => adminUserService.list({
-      page,
-      size: pageSize,
-      role: 'TEACHER',
-      search: debouncedSearch || undefined,
-      sortBy: 'username',
-      direction: 'asc',
-    }),
-    enabled: isAdmin,
-  })
-  const subjectScopeQuery = useQuery({
-    queryKey: ['schedule', 'teachers', 'scope', primaryRole, session?.user.id],
-    queryFn: () => loadSubjectScope(primaryRole, session?.user.id ?? '', isAdmin),
-    enabled: Boolean(isAdmin || session?.user.id),
+  const subjectDirectoryQuery = useQuery({
+    queryKey: ['schedule', 'teachers', 'subjects', primaryRole, session?.user.id],
+    queryFn: async () => {
+      try {
+        return await loadManagedSubjects()
+      } catch {
+        if (!session?.user.id) {
+          return []
+        }
+        return loadAccessibleSubjects(primaryRole, session.user.id)
+      }
+    },
   })
   const teacherIds = useMemo(
-    () => Array.from(new Set((subjectScopeQuery.data ?? []).flatMap((subject) => subject.teacherIds))),
-    [subjectScopeQuery.data],
+    () => Array.from(new Set((subjectDirectoryQuery.data ?? []).flatMap((subject) => subject.teacherIds))),
+    [subjectDirectoryQuery.data],
   )
   const teacherLookupQuery = useQuery({
     queryKey: ['schedule', 'teachers', 'lookup', teacherIds.join(',')],
     queryFn: () => userDirectoryService.lookup(teacherIds),
-    enabled: !isAdmin && teacherIds.length > 0,
+    enabled: teacherIds.length > 0,
   })
 
-  if (
-    subjectScopeQuery.isLoading
-    || (isAdmin && teacherPageQuery.isLoading)
-    || (!isAdmin && teacherLookupQuery.isLoading)
-  ) {
+  if (subjectDirectoryQuery.isLoading || teacherLookupQuery.isLoading) {
     return <LoadingState />
   }
 
-  if (
-    subjectScopeQuery.isError
-    || (isAdmin && teacherPageQuery.isError)
-    || (!isAdmin && teacherLookupQuery.isError)
-  ) {
+  if (subjectDirectoryQuery.isError || teacherLookupQuery.isError) {
     return <ErrorState description={t('common.states.error')} title={t('schedule.routeCards.teachersTitle')} />
   }
 
@@ -598,12 +645,8 @@ function ScheduleTeachersPage() {
     const label = `${teacher.username} ${teacher.email ?? ''}`.toLowerCase()
     return !debouncedSearch || label.includes(debouncedSearch.toLowerCase())
   })
-  const visibleTeachers = isAdmin
-    ? (teacherPageQuery.data?.content ?? [])
-    : localTeachers.slice(page * pageSize, (page + 1) * pageSize)
-  const totalPages = isAdmin
-    ? Math.max(teacherPageQuery.data?.totalPages ?? 1, 1)
-    : Math.max(Math.ceil(Math.max(localTeachers.length, 1) / pageSize), 1)
+  const visibleTeachers = localTeachers.slice(page * pageSize, (page + 1) * pageSize)
+  const totalPages = Math.max(Math.ceil(Math.max(localTeachers.length, 1) / pageSize), 1)
 
   return (
     <div className="space-y-6">

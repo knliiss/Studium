@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { useAuth } from '@/features/auth/useAuth'
@@ -37,7 +37,7 @@ export function Topbar() {
         <NotificationDropdown targetPath="/notifications" />
         <LanguageSwitcher />
         <ThemeSwitcher />
-        <div className="flex items-center gap-2 rounded-[14px] border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
+        <Link className="flex items-center gap-2 rounded-[14px] border border-border bg-surface px-3 py-2 text-sm text-text-secondary transition hover:border-border-strong" to="/profile">
           <UserAvatar
             alt={t('profile.avatarFor', { name: profileLabel })}
             fileId={profileQuery.data?.avatarFileKey}
@@ -46,8 +46,11 @@ export function Topbar() {
             size="sm"
             username={session?.user.username}
           />
-          <span className="hidden text-sm text-text-secondary md:inline">{profileLabel}</span>
-        </div>
+          <span className="hidden min-w-0 md:inline">
+            <span className="block max-w-[180px] truncate text-sm text-text-primary">{profileLabel}</span>
+            <span className="block text-xs text-text-muted">{t(`common.roles.${primaryRole}`)}</span>
+          </span>
+        </Link>
         <button
           className="inline-flex min-h-10 items-center rounded-[14px] border border-border bg-surface px-4 text-sm font-semibold text-text-primary"
           type="button"

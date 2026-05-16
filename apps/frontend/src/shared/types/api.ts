@@ -715,6 +715,39 @@ export interface UnreadCountResponse {
   unreadCount: number
 }
 
+export interface TelegramPreferencesResponse {
+  telegramEnabled: boolean
+  notifyAssignments: boolean
+  notifyTests: boolean
+  notifyGrades: boolean
+  notifySchedule: boolean
+  notifyMaterials: boolean
+  notifySystem: boolean
+}
+
+export interface TelegramLinkStatusResponse {
+  telegramEnabledByConfig: boolean
+  telegramAvailable: boolean
+  connected: boolean
+  pending: boolean
+  botUsername: string | null
+  deepLink: string | null
+  tokenExpiresAt: string | null
+  telegramUsername: string | null
+  telegramUserId: number | null
+  chatId: number | null
+  connectedAt: string | null
+  disconnectedAt: string | null
+  preferences: TelegramPreferencesResponse
+}
+
+export interface TelegramConnectTokenResponse {
+  token: string
+  deepLink: string | null
+  expiresAt: string
+  telegramAvailable: boolean
+}
+
 export interface DashboardDeadlineItemResponse {
   type: string
   id: string

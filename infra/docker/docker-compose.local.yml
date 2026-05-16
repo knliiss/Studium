@@ -441,6 +441,11 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       NOTIFICATION_EDUCATION_SERVICE_BASE_URL: http://service-lb:18085
       EDUCATION_INTERNAL_SHARED_SECRET: ${EDUCATION_INTERNAL_SHARED_SECRET:-change-me-education-internal}
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_CONNECT_TOKEN_TTL: ${TELEGRAM_CONNECT_TOKEN_TTL:-15m}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change-me-notification-internal}
       JWT_PUBLIC_KEY_PATH: file:/opt/keys/public.pem
     volumes:
       - ../keys:/opt/keys:ro
@@ -454,6 +459,24 @@ services:
       kafka:
         condition: service_healthy
       audit-service:
+        condition: service_started
+
+  telegram-bot-service:
+    build:
+      context: ../../apps/telegram-bot-service
+    env_file:
+      - ../../.env
+    environment:
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      NOTIFICATION_SERVICE_URL: http://notification-service:8084
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change-me-notification-internal}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      TELEGRAM_OWNER_USER_IDS: ${TELEGRAM_OWNER_USER_IDS:-}
+      TELEGRAM_ADMIN_USER_IDS: ${TELEGRAM_ADMIN_USER_IDS:-}
+    depends_on:
+      notification-service:
         condition: service_started
 
   gateway:
@@ -520,6 +543,8 @@ services:
       audit-service:
         condition: service_started
       notification-service:
+        condition: service_started
+      telegram-bot-service:
         condition: service_started
       redis:
         condition: service_healthy

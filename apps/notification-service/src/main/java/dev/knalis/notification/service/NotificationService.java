@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -44,6 +45,7 @@ public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final NotificationMapper notificationMapper;
     private final NotificationRealtimeEventPublisher notificationRealtimeEventPublisher;
+    private final TelegramNotificationDeliveryService telegramNotificationDeliveryService;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     
@@ -124,6 +126,20 @@ public class NotificationService {
     public UnreadCountResponse getUnreadCount(UUID userId) {
         return new UnreadCountResponse(notificationRepository.countByUserIdAndStatus(userId, NotificationStatus.UNREAD));
     }
+
+    @Transactional(readOnly = true)
+    public List<NotificationResponse> getUnreadNotifications(UUID userId, int limit) {
+        int boundedLimit = Math.min(Math.max(limit, 1), 20);
+        PageRequest pageRequest = PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Notification> notificationPage = notificationRepository.findAllByUserIdAndStatus(
+                userId,
+                NotificationStatus.UNREAD,
+                pageRequest
+        );
+        return notificationPage.getContent().stream()
+                .map(notificationMapper::toResponse)
+                .toList();
+    }
     
     @Transactional
     public NotificationResponse markAsRead(UUID userId, UUID notificationId) {
@@ -183,6 +199,23 @@ public class NotificationService {
         ));
         meterRegistry.counter("app.notification.deleted", "service", "notification-service").increment();
     }
+
+    @Transactional
+    public UnreadCountResponse deleteAll(UUID userId) {
+        int deleted = notificationRepository.deleteAllByUserId(userId);
+        if (deleted > 0) {
+            notificationRealtimeEventPublisher.publish(new NotificationSocketMessage(
+                    NotificationSocketEventType.DELETED,
+                    userId,
+                    null,
+                    null,
+                    0,
+                    Instant.now()
+            ));
+            meterRegistry.counter("app.notification.deleted_all", "service", "notification-service").increment();
+        }
+        return new UnreadCountResponse(0);
+    }
     
     private Notification newNotification(
             UUID userId,
@@ -212,6 +245,7 @@ public class NotificationService {
             Notification saved = notificationRepository.save(notification);
             long unreadCount = unreadCountValue(saved.getUserId());
             publishRealtime(NotificationSocketEventType.CREATED, saved, unreadCount);
+            telegramNotificationDeliveryService.deliver(saved);
             meterRegistry.counter(
                     "app.notification.created",
                     "service", "notification-service",

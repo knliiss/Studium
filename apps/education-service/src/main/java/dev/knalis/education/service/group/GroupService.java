@@ -14,6 +14,7 @@ import dev.knalis.education.entity.GroupSubgroupMode;
 import dev.knalis.education.entity.GroupStudent;
 import dev.knalis.education.entity.Specialty;
 import dev.knalis.education.entity.Stream;
+import dev.knalis.education.exception.EducationAccessDeniedException;
 import dev.knalis.education.exception.GroupNotFoundException;
 import dev.knalis.education.exception.GroupStudentAlreadyExistsException;
 import dev.knalis.education.exception.GroupStudentNotFoundException;
@@ -108,6 +109,18 @@ public class GroupService {
     }
     
     @Transactional(readOnly = true)
+    public GroupResponse getGroup(
+            UUID currentUserId,
+            Set<String> currentRoles,
+            UUID groupId
+    ) {
+        ensureCanReadGroup(currentUserId, currentRoles, groupId);
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupNotFoundException(groupId));
+        return groupMapper.toResponse(group);
+    }
+
+    @Transactional(readOnly = true)
     public GroupResponse getGroup(UUID groupId) {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupNotFoundException(groupId));
@@ -115,22 +128,62 @@ public class GroupService {
     }
 
     @Transactional(readOnly = true)
-    public GroupPageResponse listGroups(int page, int size, String sortBy, String direction, String q) {
+    public GroupPageResponse listGroups(
+            UUID currentUserId,
+            Set<String> currentRoles,
+            int page,
+            int size,
+            String sortBy,
+            String direction,
+            String q
+    ) {
         PageRequest pageRequest = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), 100),
                 Sort.by(resolveSortDirection(direction), resolveSortField(sortBy))
         );
         String normalizedQuery = q == null ? "" : q.trim();
-        Page<Group> groupPage = groupRepository.findAllByNameContainingIgnoreCaseOrderByNameAsc(normalizedQuery, pageRequest);
+
+        if (isAdmin(currentRoles) || isTeacher(currentRoles)) {
+            Page<Group> groupPage = groupRepository.findAllByNameContainingIgnoreCaseOrderByNameAsc(normalizedQuery, pageRequest);
+            return new GroupPageResponse(
+                    groupPage.getContent().stream().map(groupMapper::toResponse).toList(),
+                    groupPage.getNumber(),
+                    groupPage.getSize(),
+                    groupPage.getTotalElements(),
+                    groupPage.getTotalPages(),
+                    groupPage.isFirst(),
+                    groupPage.isLast()
+            );
+        }
+
+        List<UUID> groupIds = groupStudentRepository.findAllByUserIdOrderByCreatedAtAsc(currentUserId).stream()
+                .map(GroupStudent::getGroupId)
+                .distinct()
+                .toList();
+        List<Group> groups = groupRepository.findAllById(groupIds).stream()
+                .filter(group -> normalizedQuery.isBlank() || group.getName().toLowerCase().contains(normalizedQuery.toLowerCase()))
+                .sorted((left, right) -> left.getName().compareToIgnoreCase(right.getName()))
+                .toList();
+
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        int totalElements = groups.size();
+        int totalPages = totalElements == 0 ? 1 : (int) Math.ceil((double) totalElements / safeSize);
+        int fromIndex = Math.min(safePage * safeSize, totalElements);
+        int toIndex = Math.min(fromIndex + safeSize, totalElements);
+        List<GroupResponse> pageItems = groups.subList(fromIndex, toIndex).stream()
+                .map(groupMapper::toResponse)
+                .toList();
+
         return new GroupPageResponse(
-                groupPage.getContent().stream().map(groupMapper::toResponse).toList(),
-                groupPage.getNumber(),
-                groupPage.getSize(),
-                groupPage.getTotalElements(),
-                groupPage.getTotalPages(),
-                groupPage.isFirst(),
-                groupPage.isLast()
+                pageItems,
+                safePage,
+                safeSize,
+                totalElements,
+                totalPages,
+                safePage <= 0,
+                safePage >= Math.max(totalPages - 1, 0)
         );
     }
     
@@ -158,7 +211,12 @@ public class GroupService {
     }
 
     @Transactional(readOnly = true)
-    public List<GroupStudentMembershipResponse> getGroupStudents(UUID groupId) {
+    public List<GroupStudentMembershipResponse> getGroupStudents(
+            UUID currentUserId,
+            Set<String> currentRoles,
+            UUID groupId
+    ) {
+        ensureCanReadGroup(currentUserId, currentRoles, groupId);
         if (!groupRepository.existsById(groupId)) {
             throw new GroupNotFoundException(groupId);
         }
@@ -287,5 +345,23 @@ public class GroupService {
 
     private Sort.Direction resolveSortDirection(String direction) {
         return "asc".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
+    }
+
+    private void ensureCanReadGroup(UUID currentUserId, Set<String> currentRoles, UUID groupId) {
+        if (isAdmin(currentRoles) || isTeacher(currentRoles)) {
+            return;
+        }
+        if (groupStudentRepository.existsByUserIdAndGroupId(currentUserId, groupId)) {
+            return;
+        }
+        throw new EducationAccessDeniedException();
+    }
+
+    private boolean isAdmin(Set<String> roles) {
+        return roles.contains("ROLE_OWNER") || roles.contains("ROLE_ADMIN");
+    }
+
+    private boolean isTeacher(Set<String> roles) {
+        return roles.contains("ROLE_TEACHER");
     }
 }

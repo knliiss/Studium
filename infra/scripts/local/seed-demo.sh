@@ -1043,11 +1043,14 @@ qa_unassigned_group_id="$(ensure_group_profile "$admin_token" "TEST-00" "" "" ""
 sql_exec "$(cat <<SQL
 insert into ${EDUCATION_DB_SCHEMA:-education}.group_students (id, group_id, user_id, role, subgroup, created_at, updated_at) values
   ('$(new_uuid)', '${group_one_id}', '${student_one_id}', 'STUDENT', 'ALL', now(), now()),
-  ('$(new_uuid)', '${group_one_id}', '${student_two_id}', 'STUDENT', 'ALL', now(), now()),
+  ('$(new_uuid)', '${group_one_id}', '${student_two_id}', 'STAROSTA', 'ALL', now(), now()),
   ('$(new_uuid)', '${group_one_id}', '${student_three_id}', 'STUDENT', 'ALL', now(), now()),
   ('$(new_uuid)', '${group_two_id}', '${student_four_id}', 'STUDENT', 'ALL', now(), now()),
   ('$(new_uuid)', '${group_two_id}', '${student_five_id}', 'STUDENT', 'ALL', now(), now())
-on conflict (group_id, user_id) do nothing;
+on conflict (group_id, user_id) do update
+set role = excluded.role,
+    subgroup = excluded.subgroup,
+    updated_at = now();
 SQL
 )"
 

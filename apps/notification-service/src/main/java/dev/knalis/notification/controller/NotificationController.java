@@ -98,4 +98,14 @@ public class NotificationController {
                 notificationId
         );
     }
+
+    @DeleteMapping("/me")
+    public UnreadCountResponse deleteAllMyNotifications(Authentication authentication) {
+        return deleteAllNotifications(authentication);
+    }
+
+    @DeleteMapping
+    public UnreadCountResponse deleteAllNotifications(Authentication authentication) {
+        return notificationService.deleteAll(currentUserService.getCurrentUserId(authentication));
+    }
 }

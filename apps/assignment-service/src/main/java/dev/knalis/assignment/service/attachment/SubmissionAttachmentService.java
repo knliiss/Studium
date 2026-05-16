@@ -27,6 +27,7 @@ import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.GradeRepository;
 import dev.knalis.assignment.repository.SubmissionAttachmentRepository;
 import dev.knalis.assignment.repository.SubmissionRepository;
+import dev.knalis.assignment.service.common.SubmissionFileTypePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -205,16 +206,13 @@ public class SubmissionAttachmentService {
         if (!userId.equals(file.ownerId())) {
             throw new SubmissionFileAccessDeniedException();
         }
-        if (!assignment.getAcceptedFileTypes().isEmpty()) {
-            String contentType = file.contentType() == null ? "" : file.contentType().trim().toLowerCase(Locale.ROOT);
-            if (!assignment.getAcceptedFileTypes().contains(contentType)) {
-                throw new FileTypeNotAllowedException(
-                        assignment.getId(),
-                        file.id(),
-                        file.contentType(),
-                        assignment.getAcceptedFileTypes()
-                );
-            }
+        if (!SubmissionFileTypePolicy.isAllowed(file.contentType())) {
+            throw new FileTypeNotAllowedException(
+                    assignment.getId(),
+                    file.id(),
+                    file.contentType(),
+                    SubmissionFileTypePolicy.allowedContentTypeSet()
+            );
         }
         if (assignment.getMaxFileSizeMb() != null
                 && file.sizeBytes() > assignment.getMaxFileSizeMb().longValue() * 1024L * 1024L) {

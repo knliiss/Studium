@@ -7,10 +7,10 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/features/auth/useAuth'
 import type { GroupCardSummary } from '@/pages/education/helpers'
 import { loadAccessibleGroups, loadGroupCardSummaries } from '@/pages/education/helpers'
-import { educationService, specialtyService, streamService } from '@/shared/api/services'
+import { educationService, specialtyService, streamService, userDirectoryService } from '@/shared/api/services'
 import { formatDate } from '@/shared/lib/format'
 import { hasAnyRole } from '@/shared/lib/roles'
-import type { GroupResponse } from '@/shared/types/api'
+import type { GroupResponse, SubgroupValue } from '@/shared/types/api'
 import { Button } from '@/shared/ui/Button'
 import { Card } from '@/shared/ui/Card'
 import { FormField } from '@/shared/ui/FormField'
@@ -279,6 +279,38 @@ function AccessibleGroupsPage({
     enabled: filteredGroups.length > 0,
     staleTime: 1000 * 60 * 3,
   })
+  const specialtiesQuery = useQuery({
+    queryKey: ['education', 'groups-specialties', role],
+    queryFn: () => specialtyService.list(),
+    enabled: role === 'TEACHER',
+    staleTime: 1000 * 60 * 5,
+  })
+  const starostaUserIds = useMemo(
+    () => role === 'TEACHER'
+      ? Array.from(
+          new Set(
+            Array.from(groupSummariesQuery.data?.values() ?? [])
+              .map((summary) => summary.starostaUserId)
+              .filter((value): value is string => Boolean(value)),
+          ),
+        )
+      : [],
+    [groupSummariesQuery.data, role],
+  )
+  const starostaUsersQuery = useQuery({
+    queryKey: ['education', 'groups-starosta-users', starostaUserIds.join(',')],
+    queryFn: () => userDirectoryService.lookup(starostaUserIds),
+    enabled: role === 'TEACHER' && starostaUserIds.length > 0,
+    staleTime: 1000 * 60 * 3,
+  })
+  const starostaNameByUserId = useMemo(
+    () => new Map((starostaUsersQuery.data ?? []).map((row) => [row.id, row.username])),
+    [starostaUsersQuery.data],
+  )
+  const specialtyNameById = useMemo(
+    () => new Map((specialtiesQuery.data ?? []).map((row) => [row.id, row.name])),
+    [specialtiesQuery.data],
+  )
 
   if (groupsQuery.isLoading) {
     return <LoadingState />
@@ -320,16 +352,27 @@ function AccessibleGroupsPage({
         />
       ) : (
         <div className="grid gap-3">
-          {filteredGroups.map((group) => (
-            <GroupCard
-              key={group.id}
-              createdAt={group.createdAt}
-              name={group.name}
-              summary={groupSummariesQuery.data?.get(group.id)}
-              meta={null}
-              to={academicMode ? `/academic/groups/${group.id}` : `/groups/${group.id}`}
-            />
-          ))}
+          {filteredGroups.map((group) => {
+            const summary = groupSummariesQuery.data?.get(group.id)
+            const starostaName = summary?.starostaUserId ? (starostaNameByUserId.get(summary.starostaUserId) ?? null) : null
+
+            return (
+              <GroupCard
+                key={group.id}
+                createdAt={group.createdAt}
+                name={group.name}
+                summary={summary}
+                meta={role === 'TEACHER' ? resolveTeacherRosterMeta(
+                  group,
+                  summary,
+                  starostaName,
+                  specialtyNameById.get(group.specialtyId ?? '') ?? t('education.myGroup.noSpecialty'),
+                  t,
+                ) : null}
+                to={academicMode ? `/academic/groups/${group.id}` : `/groups/${group.id}`}
+              />
+            )
+          })}
         </div>
       )}
     </div>
@@ -466,4 +509,29 @@ function resolveScheduleStatusLabel(
   }
 
   return t('education.groupScheduleStatusUnknown')
+}
+
+function resolveTeacherRosterMeta(
+  group: GroupResponse,
+  summary: GroupCardSummary | undefined,
+  starostaName: string | null,
+  specialtyName: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  const studyYearLabel = group.studyYear
+    ? t('academic.studyYearValue', { year: group.studyYear })
+    : t('education.myGroup.notAvailable')
+  const subgroupLabel = formatSubgroupValues(summary?.subgroupValues ?? [], t)
+  const starostaLabel = starostaName ?? t('education.myGroup.notAssigned')
+  return `${specialtyName} · ${studyYearLabel} · ${t('education.subgroup')}: ${subgroupLabel} · ${t('education.overview.starosta')}: ${starostaLabel}`
+}
+
+function formatSubgroupValues(
+  subgroupValues: SubgroupValue[],
+  t: (key: string) => string,
+) {
+  if (subgroupValues.length === 0) {
+    return t('education.myGroup.notAvailable')
+  }
+  return subgroupValues.map((subgroup) => t(`education.subgroups.${subgroup}`)).join(', ')
 }

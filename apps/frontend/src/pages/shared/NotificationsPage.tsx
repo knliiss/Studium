@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 
 import { notificationService } from '@/shared/api/services'
 import { getNotificationTypeLabel } from '@/shared/lib/enum-labels'
@@ -12,13 +13,15 @@ import { Select } from '@/shared/ui/Select'
 import { ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { StatusBadge } from '@/widgets/common/StatusBadge'
 
+type NotificationFilter = 'all' | 'unread' | 'assignments' | 'tests' | 'grades' | 'schedule' | 'materials' | 'system'
+
 export function NotificationsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState<string>('')
+  const [filter, setFilter] = useState<NotificationFilter>('all')
   const notificationsQuery = useQuery({
-    queryKey: ['notifications', 'page', status],
-    queryFn: () => notificationService.getMyNotifications({ status: status || undefined }),
+    queryKey: ['notifications', 'page', filter],
+    queryFn: () => notificationService.getMyNotifications({ status: filter === 'unread' ? 'UNREAD' : undefined }),
   })
   const unreadQuery = useQuery({
     queryKey: ['notifications', 'unread'],
@@ -46,6 +49,11 @@ export function NotificationsPage() {
     },
   })
 
+  const visibleNotifications = useMemo(
+    () => notificationsQuery.data?.items.filter((item) => matchesNotificationFilter(item.type, filter)) ?? [],
+    [filter, notificationsQuery.data?.items],
+  )
+
   if (notificationsQuery.isLoading) {
     return <LoadingState />
   }
@@ -68,17 +76,26 @@ export function NotificationsPage() {
 
       <Card className="space-y-4">
         <div className="grid gap-4 md:grid-cols-[240px_1fr]">
-          <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">{t('notifications.filters.all')}</option>
-            <option value="UNREAD">{t('common.status.UNREAD')}</option>
-            <option value="READ">{t('common.status.READ')}</option>
-            <option value="ARCHIVED">{t('common.status.ARCHIVED')}</option>
+          <Select value={filter} onChange={(event) => setFilter(event.target.value as NotificationFilter)}>
+            <option value="all">{t('notifications.filters.all')}</option>
+            <option value="unread">{t('notifications.filters.unread')}</option>
+            <option value="assignments">{t('notifications.filters.assignments')}</option>
+            <option value="tests">{t('notifications.filters.tests')}</option>
+            <option value="grades">{t('notifications.filters.grades')}</option>
+            <option value="schedule">{t('notifications.filters.schedule')}</option>
+            <option value="materials">{t('notifications.filters.materials')}</option>
+            <option value="system">{t('notifications.filters.system')}</option>
           </Select>
         </div>
       </Card>
 
       <div className="space-y-4">
-        {notificationsQuery.data.items.map((notification) => (
+        {visibleNotifications.length === 0 ? (
+          <Card className="rounded-[16px] border border-border bg-surface-muted p-4 text-sm text-text-secondary">
+            {filter === 'unread' ? t('notifications.emptyUnread') : t('notifications.empty')}
+          </Card>
+        ) : null}
+        {visibleNotifications.map((notification) => (
           <Card key={notification.id} className="space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-2">
@@ -101,6 +118,11 @@ export function NotificationsPage() {
                   {t('common.actions.markRead')}
                 </Button>
               ) : null}
+              {resolveActionUrl(notification.payloadJson) ? (
+                <Link to={resolveActionUrl(notification.payloadJson)!}>
+                  <Button variant="secondary">{t('common.actions.open')}</Button>
+                </Link>
+              ) : null}
               <Button variant="ghost" onClick={() => deleteMutation.mutate(notification.id)}>
                 {t('common.actions.delete')}
               </Button>
@@ -110,4 +132,43 @@ export function NotificationsPage() {
       </div>
     </div>
   )
+}
+
+function matchesNotificationFilter(type: string, filter: NotificationFilter) {
+  if (filter === 'all' || filter === 'unread') {
+    return true
+  }
+  if (filter === 'assignments') {
+    return type.startsWith('ASSIGNMENT_')
+  }
+  if (filter === 'tests') {
+    return type.startsWith('TEST_')
+  }
+  if (filter === 'grades') {
+    return type === 'GRADE_ASSIGNED'
+  }
+  if (filter === 'schedule') {
+    return type.startsWith('SCHEDULE_')
+  }
+  if (filter === 'materials') {
+    return type.includes('MATERIAL')
+  }
+  return !type.startsWith('ASSIGNMENT_')
+    && !type.startsWith('TEST_')
+    && !type.startsWith('SCHEDULE_')
+    && type !== 'GRADE_ASSIGNED'
+    && !type.includes('MATERIAL')
+}
+
+function resolveActionUrl(payloadJson: string | null) {
+  if (!payloadJson) {
+    return null
+  }
+  try {
+    const payload = JSON.parse(payloadJson) as Record<string, unknown>
+    const url = payload.actionUrl
+    return typeof url === 'string' && url.startsWith('/') ? url : null
+  } catch {
+    return null
+  }
 }

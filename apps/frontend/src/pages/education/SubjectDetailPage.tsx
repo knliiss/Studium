@@ -132,7 +132,6 @@ export function SubjectDetailPage() {
     allowLateSubmissions: true,
     maxSubmissions: 1,
     allowResubmit: true,
-    acceptedFileTypes: 'application/pdf,image/png,image/jpeg',
     maxFileSizeMb: 10,
   })
   const [lectureForm, setLectureForm] = useState({
@@ -188,6 +187,12 @@ export function SubjectDetailPage() {
     queryKey: ['education', 'subject', subjectId],
     queryFn: () => educationService.getSubject(subjectId),
     enabled: Boolean(subjectId),
+  })
+  const studentMembershipsQuery = useQuery({
+    queryKey: ['education', 'subject-student-memberships', currentUserId],
+    queryFn: () => educationService.getGroupsByUser(currentUserId),
+    enabled: Boolean(isStudent && currentUserId),
+    staleTime: 60_000,
   })
   const topicsQuery = useQuery({
     queryKey: ['education', 'subject-topics', subjectId],
@@ -267,22 +272,40 @@ export function SubjectDetailPage() {
     enabled: Boolean(topicsQuery.data),
   })
   const scheduleQuery = useQuery({
-    queryKey: ['education', 'subject-schedule', subjectId, range.dateFrom, range.dateTo],
+    queryKey: [
+      'education',
+      'subject-schedule',
+      subjectId,
+      range.dateFrom,
+      range.dateTo,
+      isStudent ? (studentMembershipsQuery.data ?? []).map((membership) => membership.groupId).join(',') : 'all',
+    ],
     queryFn: async () => {
       const subject = subjectQuery.data
       if (!subject) {
         return []
       }
 
+      const allowedGroupIds = isStudent
+        ? new Set((studentMembershipsQuery.data ?? []).map((membership) => membership.groupId))
+        : null
+      const targetGroupIds = subject.groupIds.filter((groupId) => !allowedGroupIds || allowedGroupIds.has(groupId))
+      if (targetGroupIds.length === 0) {
+        return []
+      }
+
       const pages = await Promise.all(
-        subject.groupIds.map((groupId) => scheduleService.getGroupRange(groupId, range.dateFrom, range.dateTo)),
+        targetGroupIds.map((groupId) => scheduleService.getGroupRange(groupId, range.dateFrom, range.dateTo)),
       )
 
       return pages
         .flat()
         .filter((lesson) => lesson.subjectId === subjectId)
     },
-    enabled: Boolean(subjectQuery.data?.groupIds.length),
+    enabled: Boolean(
+      subjectQuery.data?.groupIds.length
+      && (!isStudent || studentMembershipsQuery.isSuccess),
+    ),
   })
   const subjectMetricsQuery = useQuery({
     queryKey: ['education', 'subject-card-metrics-single', subjectId],
@@ -311,16 +334,39 @@ export function SubjectDetailPage() {
     enabled: Boolean(subjectId && !isStudent),
   })
   const groupsQuery = useQuery({
-    queryKey: ['education', 'subject-groups', subjectId, subjectQuery.data?.groupIds.join(',')],
+    queryKey: [
+      'education',
+      'subject-groups',
+      subjectId,
+      subjectQuery.data?.groupIds.join(','),
+      isStudent ? (studentMembershipsQuery.data ?? []).map((membership) => membership.groupId).join(',') : 'all',
+    ],
     queryFn: async () => {
       const subject = subjectQuery.data
       if (!subject) {
         return []
       }
 
-      return Promise.all(subject.groupIds.map((groupId) => educationService.getGroup(groupId)))
+      const allowedGroupIds = isStudent
+        ? new Set((studentMembershipsQuery.data ?? []).map((membership) => membership.groupId))
+        : null
+      const targetGroupIds = subject.groupIds.filter((groupId) => !allowedGroupIds || allowedGroupIds.has(groupId))
+      if (targetGroupIds.length === 0) {
+        return []
+      }
+
+      const groupResults = await Promise.allSettled(
+        targetGroupIds.map((groupId) => educationService.getGroup(groupId)),
+      )
+
+      return groupResults
+        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof educationService.getGroup>>> => result.status === 'fulfilled')
+        .map((result) => result.value)
     },
-    enabled: Boolean(subjectQuery.data?.groupIds.length),
+    enabled: Boolean(
+      subjectQuery.data?.groupIds.length
+      && (!isStudent || studentMembershipsQuery.isSuccess),
+    ),
   })
   const relatedUserIds = useMemo(
     () => Array.from(new Set(subjectQuery.data?.teacherIds ?? [])),
@@ -383,7 +429,6 @@ export function SubjectDetailPage() {
         ...assignmentForm,
         topicId: builder.topicId,
         deadline: new Date(assignmentForm.deadline).toISOString(),
-        acceptedFileTypes: assignmentForm.acceptedFileTypes.split(',').map((value) => value.trim()).filter(Boolean),
         orderIndex: nextCourseItemOrderIndex(
           builder.topicId,
           assignmentsQuery.data ?? [],
@@ -541,7 +586,6 @@ export function SubjectDetailPage() {
     || testsQuery.isLoading
     || lecturesQuery.isLoading
     || materialsQuery.isLoading
-    || groupsQuery.isLoading
   ) {
     return <LoadingState />
   }
@@ -553,7 +597,6 @@ export function SubjectDetailPage() {
     || testsQuery.isError
     || lecturesQuery.isError
     || materialsQuery.isError
-    || groupsQuery.isError
   ) {
     if (
       isAccessDeniedApiError(subjectQuery.error)
@@ -1386,7 +1429,9 @@ export function SubjectDetailPage() {
           {activeTab === 'students' ? (
             <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
               <PageHeader title={t('education.subjectTabs.students')} />
-              {groupsQuery.data?.length ? (
+              {groupsQuery.isLoading ? (
+                <LoadingState label={t('common.states.loading')} />
+              ) : groupsQuery.data?.length ? (
                 <div className="grid gap-3 md:grid-cols-2">
                   {groupsQuery.data.map((group) => (
                     <div key={group.id} className="rounded-[14px] border border-border bg-surface-muted px-4 py-3">
@@ -1456,16 +1501,27 @@ export function SubjectDetailPage() {
           </Card>
           <Card className="space-y-4">
             <PageHeader title={t('education.courseGroups')} />
-            {groupsQuery.data?.length ? (
+            {groupsQuery.isLoading ? (
+              <LoadingState label={t('common.states.loading')} />
+            ) : groupsQuery.data?.length ? (
               <div className="space-y-2">
                 {groupsQuery.data.map((group) => (
-                  <Link
-                    key={group.id}
-                    to={`/groups/${group.id}`}
-                    className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 text-sm text-text-secondary transition hover:border-border-strong"
-                  >
-                    {group.name}
-                  </Link>
+                  isStudent ? (
+                    <div
+                      key={group.id}
+                      className="rounded-[14px] border border-border bg-surface-muted px-4 py-3 text-sm text-text-secondary"
+                    >
+                      {group.name}
+                    </div>
+                  ) : (
+                    <Link
+                      key={group.id}
+                      to={`/groups/${group.id}`}
+                      className="block rounded-[14px] border border-border bg-surface-muted px-4 py-3 text-sm text-text-secondary transition hover:border-border-strong"
+                    >
+                      {group.name}
+                    </Link>
+                  )
                 ))}
               </div>
             ) : (

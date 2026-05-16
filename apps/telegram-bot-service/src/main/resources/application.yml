@@ -1,0 +1,39 @@
+server:
+  port: ${TELEGRAM_BOT_SERVICE_PORT:8092}
+  shutdown: graceful
+
+spring:
+  application:
+    name: telegram-bot-service
+telegrambots:
+  enabled: ${TELEGRAM_ENABLED:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:${spring.application.name}}
+
+logging:
+  level:
+    root: INFO
+
+app:
+  telegram-bot:
+    enabled: ${TELEGRAM_ENABLED:false}
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    bot-username: ${TELEGRAM_BOT_USERNAME:}
+    notification-service-base-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8084}
+    internal-secret: ${INTERNAL_SERVICE_TOKEN:change-me-notification-internal}
+    frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+    owner-telegram-user-ids: ${TELEGRAM_OWNER_USER_IDS:}
+    admin-telegram-user-ids: ${TELEGRAM_ADMIN_USER_IDS:}

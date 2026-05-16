@@ -51,6 +51,7 @@ export function GroupDetailPage() {
   const { primaryRole, roles, session } = useAuth()
   const queryClient = useQueryClient()
   const canManageGroup = hasAnyRole(roles, ['ADMIN', 'OWNER'])
+  const readOnlyRosterMode = !canManageGroup
   const [activeTab, setActiveTab] = useState<GroupTab>(resolveInitialGroupTab(searchParams.get('tab')))
   const [studentSearch, setStudentSearch] = useState('')
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
@@ -115,22 +116,22 @@ export function GroupDetailPage() {
   const analyticsStudentsQuery = useQuery({
     queryKey: ['analytics', 'group-students', groupId],
     queryFn: () => analyticsService.getGroupStudents(groupId, { page: 0, size: 50 }),
-    enabled: canLoadGroupData,
+    enabled: canLoadGroupData && canManageGroup,
   })
   const scheduleQuery = useQuery({
     queryKey: ['schedule', 'group-week', groupId, weekRange],
     queryFn: () => scheduleService.getGroupRange(groupId, weekRange.dateFrom, weekRange.dateTo),
-    enabled: canLoadGroupData,
+    enabled: canLoadGroupData && canManageGroup,
   })
   const slotQuery = useQuery({
     queryKey: ['schedule', 'slots'],
     queryFn: () => scheduleService.listSlots(),
-    enabled: canLoadGroupData,
+    enabled: canLoadGroupData && canManageGroup,
   })
   const roomQuery = useQuery({
     queryKey: ['schedule', 'rooms'],
     queryFn: () => scheduleService.listRooms(),
-    enabled: canLoadGroupData,
+    enabled: canLoadGroupData && canManageGroup,
   })
   const specialtiesQuery = useQuery({
     queryKey: ['education', 'specialties', 'group-settings'],
@@ -320,7 +321,9 @@ export function GroupDetailPage() {
   }
 
   const group = groupQuery.data
-  const visibleTab = !canManageGroup && activeTab === 'settings' ? 'overview' : activeTab
+  const visibleTab = readOnlyRosterMode
+    ? (activeTab === 'students' ? 'students' : 'overview')
+    : activeTab
   const members = membersQuery.data ?? []
   const subjects = subjectsQuery.data?.items ?? []
   const studentSnapshots = analyticsStudentsQuery.data?.items ?? []
@@ -366,7 +369,9 @@ export function GroupDetailPage() {
     <div className="space-y-6">
       <Breadcrumbs
         items={[
-          { label: t('navigation.groups.academicManagement'), to: '/academic' },
+          canManageGroup
+            ? { label: t('navigation.groups.academicManagement'), to: '/academic' }
+            : { label: t('navigation.shared.groups'), to: '/groups' },
           { label: t('navigation.shared.groups'), to: location.pathname.startsWith('/academic') ? '/academic/groups' : '/groups' },
           { label: group.name },
         ]}
@@ -378,12 +383,16 @@ export function GroupDetailPage() {
             <Link to={location.pathname.startsWith('/academic') ? '/academic/groups' : '/groups'}>
               <Button variant="secondary">{t('education.backToGroups')}</Button>
             </Link>
-            <Link to="/academic">
-              <Button variant="secondary">{t('navigation.groups.academicManagement')}</Button>
-            </Link>
-            <Link to={`/schedule/groups/${groupId}`}>
-              <Button variant="ghost">{t('navigation.shared.schedule')}</Button>
-            </Link>
+            {canManageGroup ? (
+              <>
+                <Link to="/academic">
+                  <Button variant="secondary">{t('navigation.groups.academicManagement')}</Button>
+                </Link>
+                <Link to={`/schedule/groups/${groupId}`}>
+                  <Button variant="ghost">{t('navigation.shared.schedule')}</Button>
+                </Link>
+              </>
+            ) : null}
           </div>
         )}
         description={t('education.groupHubDescription')}
@@ -405,8 +414,8 @@ export function GroupDetailPage() {
         items={[
           { id: 'overview', label: t('education.groupTabs.overview') },
           { id: 'students', label: t('education.groupTabs.students') },
-          { id: 'schedule', label: t('education.groupTabs.schedule') },
-          { id: 'analytics', label: t('education.groupTabs.analytics') },
+          ...(canManageGroup ? [{ id: 'schedule', label: t('education.groupTabs.schedule') }] : []),
+          ...(canManageGroup ? [{ id: 'analytics', label: t('education.groupTabs.analytics') }] : []),
           ...(canManageGroup ? [{ id: 'settings', label: t('education.groupTabs.settings') }] : []),
         ]}
         onChange={(tabId) => setActiveTab(tabId as GroupTab)}

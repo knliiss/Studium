@@ -52,6 +52,8 @@ import type {
   TestResultReviewResponse,
   TestResultResponse,
   TestStudentViewResponse,
+  TelegramConnectTokenResponse,
+  TelegramLinkStatusResponse,
   TopicMaterialResponse,
   TopicResponse,
   UnreadCountResponse,
@@ -993,6 +995,37 @@ export const notificationService = {
   },
   async deleteNotification(notificationId: string) {
     await apiClient.delete(`/api/notifications/${notificationId}`)
+  },
+  async deleteAllNotifications() {
+    const response = await apiClient.delete<UnreadCountResponse>('/api/notifications/me')
+    return response.data
+  },
+  async getTelegramStatus() {
+    const response = await apiClient.get<TelegramLinkStatusResponse>('/api/notifications/telegram/status')
+    return response.data
+  },
+  async createTelegramConnectToken() {
+    const response = await apiClient.post<TelegramConnectTokenResponse>('/api/notifications/telegram/connect-token')
+    return response.data
+  },
+  async disconnectTelegram() {
+    const response = await apiClient.post<TelegramLinkStatusResponse>('/api/notifications/telegram/disconnect')
+    return response.data
+  },
+  async sendTelegramTest() {
+    await apiClient.post('/api/notifications/telegram/test')
+  },
+  async updateTelegramPreferences(payload: {
+    telegramEnabled?: boolean
+    notifyAssignments?: boolean
+    notifyTests?: boolean
+    notifyGrades?: boolean
+    notifySchedule?: boolean
+    notifyMaterials?: boolean
+    notifySystem?: boolean
+  }) {
+    const response = await apiClient.patch<TelegramLinkStatusResponse>('/api/notifications/telegram/preferences', payload)
+    return response.data
   },
 }
 

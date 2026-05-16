@@ -13,6 +13,7 @@ include(
         ":apps:analytics-service",
         ":apps:audit-service",
         ":apps:notification-service",
+        ":apps:telegram-bot-service",
         ":libs:event-contracts",
         ":libs:shared-web",
         ":libs:shared-security"
@@ -30,6 +31,7 @@ project(":apps:file-service").projectDir = file("apps/file-service")
 project(":apps:analytics-service").projectDir = file("apps/analytics-service")
 project(":apps:audit-service").projectDir = file("apps/audit-service")
 project(":apps:notification-service").projectDir = file("apps/notification-service")
+project(":apps:telegram-bot-service").projectDir = file("apps/telegram-bot-service")
 
 project(":libs:event-contracts").projectDir = file("libs/event-contracts")
 project(":libs:shared-web").projectDir = file("libs/shared-web")

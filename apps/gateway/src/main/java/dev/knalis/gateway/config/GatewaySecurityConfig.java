@@ -39,6 +39,11 @@ public class GatewaySecurityConfig {
                         .pathMatchers(HttpMethod.GET,
                                 "/api/v1/schedule/semesters/active",
                                 "/api/v1/schedule/slots",
+                                "/api/v1/schedule/me/week",
+                                "/api/v1/schedule/me/range",
+                                "/api/v1/schedule/me/export.ics"
+                        ).hasAnyRole("OWNER", "ADMIN", "TEACHER", "STUDENT")
+                        .pathMatchers(HttpMethod.GET,
                                 "/api/v1/schedule/groups/*/week",
                                 "/api/v1/schedule/groups/*/range",
                                 "/api/v1/schedule/groups/*/export.ics",
@@ -57,7 +62,13 @@ public class GatewaySecurityConfig {
                         .hasAnyRole("OWNER", "ADMIN")
                         .pathMatchers("/api/v1/schedule/slots", "/api/v1/schedule/slots/**")
                         .hasAnyRole("OWNER", "ADMIN")
-                        .pathMatchers("/api/v1/schedule/rooms", "/api/v1/schedule/rooms/**")
+                        .pathMatchers(HttpMethod.GET, "/api/v1/schedule/rooms", "/api/v1/schedule/rooms/**")
+                        .hasAnyRole("OWNER", "ADMIN", "TEACHER", "STUDENT")
+                        .pathMatchers(HttpMethod.POST, "/api/v1/schedule/rooms")
+                        .hasAnyRole("OWNER", "ADMIN")
+                        .pathMatchers(HttpMethod.PUT, "/api/v1/schedule/rooms/**")
+                        .hasAnyRole("OWNER", "ADMIN")
+                        .pathMatchers(HttpMethod.DELETE, "/api/v1/schedule/rooms/**")
                         .hasAnyRole("OWNER", "ADMIN")
                         .pathMatchers("/api/v1/schedule/overrides", "/api/v1/schedule/overrides/**")
                         .hasAnyRole("OWNER", "ADMIN", "TEACHER")

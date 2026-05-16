@@ -316,7 +316,11 @@ function AccessibleSubjectsPage({
   userId: string
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards')
+  const normalizedQuery = query.trim().toLowerCase()
   const studentScopeQuery = useQuery({
     queryKey: ['education', 'subjects', 'student-scope', userId],
     queryFn: () => loadStudentScopedSubjects(userId),
@@ -327,6 +331,20 @@ function AccessibleSubjectsPage({
     queryKey: ['education', 'subjects', 'accessible', role, userId],
     queryFn: () => loadAccessibleSubjects(role, userId),
     enabled: Boolean(userId),
+    staleTime: 60_000,
+  })
+  const studentGroupsQuery = useQuery({
+    queryKey: ['education', 'subjects', 'student-groups', userId],
+    queryFn: async () => {
+      const memberships = await educationService.getGroupsByUser(userId)
+      const groupResults = await Promise.allSettled(
+        memberships.map((membership) => educationService.getGroup(membership.groupId)),
+      )
+      return groupResults
+        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof educationService.getGroup>>> => result.status === 'fulfilled')
+        .map((result) => result.value)
+    },
+    enabled: role === 'STUDENT' && Boolean(userId),
     staleTime: 60_000,
   })
   const teacherIds = useMemo(
@@ -343,10 +361,20 @@ function AccessibleSubjectsPage({
     [teachersQuery.data],
   )
   const subjects = useMemo(
-    () => (subjectsQuery.data ?? []).filter((subject) => (
-      query.trim() ? subject.name.toLowerCase().includes(query.trim().toLowerCase()) : true
-    )),
-    [query, subjectsQuery.data],
+    () => (subjectsQuery.data ?? []).filter((subject) => {
+      if (normalizedQuery && !subject.name.toLowerCase().includes(normalizedQuery)) {
+        return false
+      }
+      if (selectedGroupId && !subject.groupIds.includes(selectedGroupId)) {
+        return false
+      }
+      return true
+    }),
+    [normalizedQuery, selectedGroupId, subjectsQuery.data],
+  )
+  const groupNameById = useMemo(
+    () => new Map((studentGroupsQuery.data ?? []).map((group) => [group.id, group.name])),
+    [studentGroupsQuery.data],
   )
   const subjectMetricsQuery = useQuery({
     queryKey: ['education', 'subject-card-metrics', subjects.map((subject) => subject.id).join(',')],
@@ -355,11 +383,27 @@ function AccessibleSubjectsPage({
   })
 
   if (subjectsQuery.isLoading) {
-    return <LoadingState />
+    return (
+      <div className="space-y-6">
+        <Breadcrumbs items={[{ label: t('navigation.shared.education'), to: '/education' }, { label: t('navigation.shared.subjects') }]} />
+        <PageHeader description={t('education.studentSubjectsDescription')} title={t('education.studentSubjectsTitle')} />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Card key={index} className="h-48 animate-pulse rounded-2xl border border-border bg-surface-muted" />
+          ))}
+        </div>
+      </div>
+    )
   }
 
   if (subjectsQuery.isError) {
-    return <ErrorState description={t('common.states.error')} title={t('navigation.shared.subjects')} />
+    return (
+      <ErrorState
+        title={t('education.subjectsLoadErrorTitle')}
+        description={t('education.subjectsLoadErrorDescription')}
+        onRetry={() => void subjectsQuery.refetch()}
+      />
+    )
   }
 
   return (
@@ -367,43 +411,147 @@ function AccessibleSubjectsPage({
       <Breadcrumbs items={[{ label: t('navigation.shared.education'), to: '/education' }, { label: t('navigation.shared.subjects') }]} />
       <PageHeader
         description={role === 'TEACHER' ? t('education.teacherSubjectsDescription') : t('education.studentSubjectsDescription')}
-        title={t('navigation.shared.subjects')}
+        title={role === 'STUDENT' ? t('education.studentSubjectsTitle') : t('navigation.shared.subjects')}
       />
 
-      <Card>
-        <FormField label={t('common.actions.search')}>
-          <Input
-            placeholder={t('education.subjectSearchPlaceholder')}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </FormField>
+      <Card className="space-y-4 rounded-2xl border border-border bg-[#191512]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
+          <FormField label={t('common.actions.search')}>
+            <Input
+              placeholder={t('education.subjectSearchPlaceholder')}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </FormField>
+          {role === 'STUDENT' ? (
+            <FormField label={t('education.subjectGroupFilterLabel')}>
+              <Select
+                value={selectedGroupId}
+                onChange={(event) => setSelectedGroupId(event.target.value)}
+              >
+                <option value="">{t('education.subjectGroupFilterAll')}</option>
+                {(studentGroupsQuery.data ?? []).map((group) => (
+                  <option key={group.id} value={group.id}>{group.name}</option>
+                ))}
+              </Select>
+            </FormField>
+          ) : (
+            <div />
+          )}
+          <FormField label={t('education.subjectViewLabel')}>
+            <Select
+              value={viewMode}
+              onChange={(event) => setViewMode(event.target.value as 'cards' | 'list')}
+            >
+              <option value="cards">{t('education.subjectViewCards')}</option>
+              <option value="list">{t('education.subjectViewList')}</option>
+            </Select>
+          </FormField>
+        </div>
       </Card>
 
       {subjects.length === 0 ? (
         <EmptyState
-          description={
-            role === 'STUDENT'
-              ? (studentScopeQuery.data?.hasGroup
-                ? t('education.noSubjectsForGroup')
-                : t('education.notAssignedToGroup'))
-              : t('education.noSubjects')
-          }
-          title={t('navigation.shared.subjects')}
+          description={role === 'STUDENT'
+            ? t('education.subjectsNotFoundHint')
+            : t('education.noSubjects')}
+          title={t('education.subjectsNotFoundTitle')}
+          action={(
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void subjectsQuery.refetch()
+                void studentScopeQuery.refetch()
+                void subjectMetricsQuery.refetch()
+                void queryClient.invalidateQueries({ queryKey: ['education', 'subjects'] })
+              }}
+            >
+              {t('common.actions.retry')}
+            </Button>
+          )}
         />
       ) : (
-        <div className="grid gap-3">
+        <div className={viewMode === 'cards' ? 'grid gap-4 md:grid-cols-2 xl:grid-cols-3' : 'grid gap-3'}>
           {subjects.map((subject) => (
-            <SubjectCard
+            <AccessibleSubjectCard
               key={subject.id}
+              groupNameById={groupNameById}
               metrics={subjectMetricsQuery.data?.get(subject.id)}
               subject={subject}
               teacherById={teacherById}
+              viewMode={viewMode}
             />
           ))}
         </div>
       )}
     </div>
+  )
+}
+
+function AccessibleSubjectCard({
+  groupNameById,
+  metrics,
+  subject,
+  teacherById,
+  viewMode,
+}: {
+  groupNameById: Map<string, string>
+  metrics?: SubjectCardMetrics
+  subject: SubjectResponse
+  teacherById: Map<string, SubjectTeacherSummary>
+  viewMode: 'cards' | 'list'
+}) {
+  const { t } = useTranslation()
+  const teacherNames = subject.teacherIds
+    .map((teacherId) => {
+      const teacher = teacherById.get(teacherId)
+      return teacher ? getTeacherDisplayName(teacher) : undefined
+    })
+    .filter(Boolean)
+  const visibleGroupNames = subject.groupIds.map((groupId) => groupNameById.get(groupId)).filter(Boolean)
+  const metricsSummary = metrics
+    ? [
+        `${t('education.activeAssignments')}: ${metrics.activeAssignmentCount}`,
+        `${t('education.activeTests')}: ${metrics.activeTestCount}`,
+      ].join(' · ')
+    : null
+
+  return (
+    <Link to={`/subjects/${subject.id}`} className="group block h-full">
+      <Card className={viewMode === 'cards'
+        ? 'flex h-full flex-col justify-between gap-4 rounded-2xl border border-[#3a3028] bg-[#1f1a16] p-5 transition hover:-translate-y-0.5 hover:border-[#b86b2f] hover:shadow-[0_14px_34px_rgba(12,8,4,0.35)]'
+        : 'flex h-full flex-col justify-between gap-3 rounded-2xl border border-[#3a3028] bg-[#1f1a16] p-4 transition hover:border-[#b86b2f]'}
+      >
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#33261b] text-sm font-semibold text-[#ef9b4d]">
+              {getSubjectInitials(subject.name)}
+            </span>
+            <div className="min-w-0">
+              <h2 className="break-words text-lg font-semibold text-[#f5ede4]">{subject.name}</h2>
+              <p className="text-sm text-[#b7a694]">
+                {visibleGroupNames.length > 0
+                  ? visibleGroupNames.join(', ')
+                  : t('education.groupSummaryLimited')}
+              </p>
+            </div>
+          </div>
+          <p className="line-clamp-3 text-sm leading-6 text-[#c8b6a2]">
+            {subject.description || t('education.subjectDescriptionFallback')}
+          </p>
+          <p className="text-sm text-[#d7c6b2]">
+            <GraduationCap className="mr-2 inline h-4 w-4 text-[#ef9b4d]" />
+            {teacherNames.length > 0 ? teacherNames.join(', ') : t('education.noTeachersAssigned')}
+          </p>
+          {metricsSummary ? (
+            <p className="text-xs font-medium text-[#d7c6b2]">{metricsSummary}</p>
+          ) : null}
+        </div>
+        <span className="inline-flex min-h-10 items-center justify-center rounded-[12px] border border-[#4a3b2f] bg-[#2a221c] px-4 text-sm font-semibold text-[#ef9b4d] transition group-hover:border-[#ef9b4d]">
+          {t('common.actions.open')}
+        </span>
+      </Card>
+    </Link>
   )
 }
 
@@ -482,4 +630,13 @@ function getTeacherDisplayName(teacher: SubjectTeacherSummary) {
   }
 
   return teacher.username
+}
+
+function getSubjectInitials(name: string) {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
 }

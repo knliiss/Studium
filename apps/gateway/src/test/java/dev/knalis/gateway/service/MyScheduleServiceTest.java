@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -51,7 +52,8 @@ class MyScheduleServiceTest {
                 userId,
                 "token",
                 "request-id",
-                LocalDate.of(2026, 9, 7)
+                LocalDate.of(2026, 9, 7),
+                Set.of("ROLE_STUDENT")
         ).block();
 
         assertEquals(List.of(), result);
@@ -154,7 +156,8 @@ class MyScheduleServiceTest {
                 "token",
                 "request-id",
                 LocalDate.of(2026, 9, 8),
-                LocalDate.of(2026, 9, 9)
+                LocalDate.of(2026, 9, 9),
+                Set.of("ROLE_STUDENT")
         ).block();
 
         assertEquals(List.of(earlierSlot, laterSlot), result);
@@ -232,11 +235,71 @@ class MyScheduleServiceTest {
                 "token",
                 "request-id",
                 null,
-                null
+                null,
+                Set.of("ROLE_STUDENT")
         ).block();
 
         assertTrue(calendar.contains("BEGIN:VCALENDAR"));
         assertTrue(calendar.contains("SUMMARY:Lecture - subject " + lesson.subjectId()));
         assertTrue(calendar.contains("Meeting URL: https://meet.example/test"));
+    }
+
+    @Test
+    void getMyRangeLoadsTeacherScheduleForTeacherRole() {
+        UUID userId = UUID.randomUUID();
+        UUID slotId = UUID.randomUUID();
+
+        LessonSlotResponse firstSlot = new LessonSlotResponse(
+                slotId,
+                1,
+                LocalTime.of(8, 30),
+                LocalTime.of(9, 50),
+                true,
+                Instant.now(),
+                Instant.now()
+        );
+
+        ResolvedLessonResponse lesson = new ResolvedLessonResponse(
+                LocalDate.of(2026, 9, 8),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                userId,
+                slotId,
+                "ALL",
+                1,
+                "ODD",
+                "LECTURE",
+                "Lecture",
+                "ONLINE",
+                null,
+                "https://meet.example/teacher",
+                "Teacher lesson",
+                "TEMPLATE",
+                null
+        );
+
+        when(scheduleServiceClient.getTeacherRange(
+                "token",
+                "request-id",
+                userId,
+                LocalDate.of(2026, 9, 8),
+                LocalDate.of(2026, 9, 9)
+        )).thenReturn(Mono.just(List.of(lesson)));
+        when(scheduleServiceClient.getLessonSlots("token", "request-id"))
+                .thenReturn(Mono.just(List.of(firstSlot)));
+
+        List<ResolvedLessonResponse> result = myScheduleService.getMyRange(
+                userId,
+                "token",
+                "request-id",
+                LocalDate.of(2026, 9, 8),
+                LocalDate.of(2026, 9, 9),
+                Set.of("ROLE_TEACHER")
+        ).block();
+
+        assertEquals(List.of(lesson), result);
+        verifyNoInteractions(educationServiceClient);
     }
 }

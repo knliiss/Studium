@@ -30,6 +30,7 @@ import dev.knalis.assignment.repository.SubmissionRepository;
 import dev.knalis.assignment.service.attachment.SubmissionAttachmentService;
 import dev.knalis.assignment.service.common.AssignmentAuditService;
 import dev.knalis.assignment.service.common.AssignmentEventPublisher;
+import dev.knalis.assignment.service.common.SubmissionFileTypePolicy;
 import dev.knalis.contracts.event.AssignmentSubmittedEventV1;
 import dev.knalis.contracts.event.DeadlineMissedEntityTypeV1;
 import dev.knalis.contracts.event.DeadlineMissedEventV1;
@@ -42,7 +43,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -227,16 +227,13 @@ public class SubmissionService {
         if (!userId.equals(file.ownerId())) {
             throw new InvalidSubmissionFileException(file.id(), "Submission file belongs to a different user");
         }
-        if (!assignment.getAcceptedFileTypes().isEmpty()) {
-            String contentType = file.contentType() == null ? "" : file.contentType().trim().toLowerCase(Locale.ROOT);
-            if (!assignment.getAcceptedFileTypes().contains(contentType)) {
-                throw new FileTypeNotAllowedException(
-                        assignment.getId(),
-                        file.id(),
-                        file.contentType(),
-                        assignment.getAcceptedFileTypes()
-                );
-            }
+        if (!SubmissionFileTypePolicy.isAllowed(file.contentType())) {
+            throw new FileTypeNotAllowedException(
+                    assignment.getId(),
+                    file.id(),
+                    file.contentType(),
+                    SubmissionFileTypePolicy.allowedContentTypeSet()
+            );
         }
         if (assignment.getMaxFileSizeMb() != null
                 && file.sizeBytes() > assignment.getMaxFileSizeMb().longValue() * 1024L * 1024L) {

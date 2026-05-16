@@ -47,6 +47,7 @@ import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -79,7 +80,14 @@ public class DashboardService {
         LocalDate today = LocalDate.now();
         return Mono.zip(
                         safe(
-                                myScheduleService.getMyRange(userId, bearerToken, requestId, today, today),
+                                myScheduleService.getMyRange(
+                                        userId,
+                                        bearerToken,
+                                        requestId,
+                                        today,
+                                        today,
+                                        Set.of("ROLE_STUDENT")
+                                ),
                                 List.of(),
                                 "student dashboard schedule"
                         ),

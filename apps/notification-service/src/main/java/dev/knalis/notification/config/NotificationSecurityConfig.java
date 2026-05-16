@@ -37,6 +37,7 @@ public class NotificationSecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers(notificationRealtimeProperties.getWebsocketEndpoint(), notificationRealtimeProperties.getWebsocketEndpoint() + "/**").permitAll()
                         .requestMatchers("/internal/notifications/**").permitAll()
+                        .requestMatchers("/internal/telegram/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth -> oauth

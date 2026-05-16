@@ -41,7 +41,6 @@ export function TopicDetailPage() {
     allowLateSubmissions: true,
     maxSubmissions: 1,
     allowResubmit: true,
-    acceptedFileTypes: 'application/pdf,image/png,image/jpeg',
     maxFileSizeMb: 10,
   })
   const [testForm, setTestForm] = useState({
@@ -87,7 +86,6 @@ export function TopicDetailPage() {
         ...assignmentForm,
         topicId,
         deadline: new Date(assignmentForm.deadline).toISOString(),
-        acceptedFileTypes: assignmentForm.acceptedFileTypes.split(',').map((value) => value.trim()).filter(Boolean),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['education', 'topic-assignments', topicId] })
