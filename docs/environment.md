@@ -1,0 +1,89 @@
+# Environment Variables
+
+Primary source of local defaults: `.env.example`.
+
+Do not store real secrets in versioned env files.
+
+## Core Ports
+- `GATEWAY_PORT`, `AUTH_PORT`, `PROFILE_PORT`, `FILE_PORT`, `NOTIFICATION_PORT`
+- `EDUCATION_PORT`, `ASSIGNMENT_PORT`, `TESTING_PORT`, `SCHEDULE_PORT`
+- `ANALYTICS_PORT`, `AUDIT_PORT`, `CONTENT_PORT`, `FRONTEND_PORT`
+
+## Database and Schemas
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `*_DB_SCHEMA` per service (`AUTH_DB_SCHEMA`, `PROFILE_DB_SCHEMA`, ...)
+
+## Infra
+- Redis: `REDIS_HOST`, `REDIS_PORT`
+- Kafka: `KAFKA_PORT`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_CLUSTER_ID`
+- MinIO: `MINIO_ENDPOINT`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, bucket names
+- PgBouncer: `PGBOUNCER_*`
+
+## JWT and Security
+- `JWT_ISSUER`, `JWT_AUDIENCE`
+- `JWT_PRIVATE_KEY_PATH`, `JWT_PUBLIC_KEY_PATH`
+
+## Internal Shared Secrets
+- `FILE_INTERNAL_SHARED_SECRET`
+- `NOTIFICATION_INTERNAL_SHARED_SECRET`
+- `EDUCATION_INTERNAL_SHARED_SECRET`
+- `AUDIT_INTERNAL_SHARED_SECRET`
+- `INTERNAL_SERVICE_TOKEN` (used by notification/telegram internal communication paths)
+
+## Gateway Integration URLs
+Examples:
+- `GATEWAY_AUTH_SERVICE_BASE_URL`
+- `GATEWAY_EDUCATION_SERVICE_BASE_URL`
+- `GATEWAY_SCHEDULE_SERVICE_BASE_URL`
+- `GATEWAY_NOTIFICATION_SERVICE_BASE_URL`
+- `GATEWAY_ANALYTICS_SERVICE_BASE_URL`
+- `GATEWAY_AUDIT_SERVICE_BASE_URL`
+- each with connect/read timeout variables
+
+## Service-to-Service Base URLs
+Examples:
+- `FILE_SERVICE_BASE_URL`
+- `ASSIGNMENT_EDUCATION_SERVICE_BASE_URL`
+- `ASSIGNMENT_NOTIFICATION_SERVICE_BASE_URL`
+- `TESTING_EDUCATION_SERVICE_BASE_URL`
+- `TESTING_NOTIFICATION_SERVICE_BASE_URL`
+- `NOTIFICATION_EDUCATION_SERVICE_BASE_URL`
+- `ANALYTICS_EDUCATION_SERVICE_BASE_URL`
+
+## Frontend
+- `FRONTEND_VITE_API_BASE_URL`
+- `FRONTEND_BASE_URL` (also used by Telegram-related flows)
+
+## Telegram Integration
+Key variables used by `notification-service` and `telegram-bot-service`:
+- `TELEGRAM_ENABLED`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_BOT_USERNAME`
+- `TELEGRAM_CONNECT_TOKEN_TTL`
+- `TELEGRAM_OWNER_USER_IDS`
+- `TELEGRAM_ADMIN_USER_IDS`
+- `FRONTEND_BASE_URL`
+- `NOTIFICATION_SERVICE_URL` (telegram-bot-service internal client target)
+- `INTERNAL_SERVICE_TOKEN`
+
+## Auth Bootstrap / Demo
+- `AUTH_OWNER_SEED_ENABLED`
+- `AUTH_OWNER_USERNAME`
+- `AUTH_OWNER_EMAIL`
+- `AUTH_OWNER_PASSWORD`
+- `DEMO_SEED_ENABLED`
+
+## Operational Feature Flags (Examples)
+- `AUTH_MFA_ENABLED`
+- `AUTH_OUTBOX_ENABLED`
+- `FILE_SCAN_ENABLED`
+- `FILE_CLEANUP_ENABLED`
+- `NOTIFICATION_REDIS_FANOUT_ENABLED`
+- `ASSIGNMENT_REMINDERS_ENABLED`
+- `TESTING_REMINDERS_ENABLED`
+- `SCHEDULE_BOOTSTRAP_ENABLED`
+
+## Reference
+- Local defaults: `.env.example`
+- Compose wiring: `infra/docker/docker-compose.local.yml`
+- Service runtime mapping: `apps/*/src/main/resources/application*.yml`
