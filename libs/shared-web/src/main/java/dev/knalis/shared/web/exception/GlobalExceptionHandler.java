@@ -2,6 +2,7 @@ package dev.knalis.shared.web.exception;
 
 import dev.knalis.shared.web.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -23,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     
@@ -211,6 +213,7 @@ public class GlobalExceptionHandler {
             Exception ex,
             HttpServletRequest request
     ) {
+        log.warn(ex.getMessage(), ex);
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("exception", ex.getClass().getSimpleName());
         

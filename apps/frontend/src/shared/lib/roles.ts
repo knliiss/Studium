@@ -31,6 +31,11 @@ export function hasAnyRole(userRoles: readonly string[], allowedRoles: readonly 
   return normalizeRoles(allowedRoles).some((role) => normalizedUserRoles.has(role))
 }
 
+export function isAdminLike(roles: readonly string[]) {
+  const normalizedRoles = new Set(normalizeRoles(roles))
+  return normalizedRoles.has('OWNER') || normalizedRoles.has('ADMIN')
+}
+
 export function rank(roles: readonly string[]) {
   const normalized = new Set(normalizeRoles(roles))
   if (normalized.has('OWNER')) return 3

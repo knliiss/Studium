@@ -12,6 +12,7 @@ import dev.knalis.assignment.entity.Assignment;
 import dev.knalis.assignment.entity.AssignmentStatus;
 import dev.knalis.assignment.entity.Grade;
 import dev.knalis.assignment.entity.Submission;
+import dev.knalis.assignment.entity.SubmissionStatus;
 import dev.knalis.assignment.repository.AssignmentGroupAvailabilityRepository;
 import dev.knalis.assignment.repository.AssignmentRepository;
 import dev.knalis.assignment.repository.GradeRepository;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,20 +62,27 @@ public class AssignmentDashboardService {
         );
         Map<UUID, Instant> availableDeadlines = resolveAvailableDeadlines(publishedAssignments, groupIds);
         List<Submission> submissions = submissionRepository.findAllByUserIdOrderBySubmittedAtDesc(userId);
-        Set<UUID> submittedAssignmentIds = submissions.stream()
-                .map(Submission::getAssignmentId)
-                .collect(Collectors.toSet());
+        Map<UUID, Submission> latestSubmissionByAssignmentId = submissions.stream()
+                .collect(Collectors.toMap(
+                        Submission::getAssignmentId,
+                        submission -> submission,
+                        this::newerSubmission,
+                        LinkedHashMap::new
+                ));
 
         Map<UUID, Assignment> assignmentsById = publishedAssignments.stream()
                 .collect(Collectors.toMap(Assignment::getId, assignment -> assignment, (left, right) -> left, LinkedHashMap::new));
         List<StudentAssignmentDashboardItemResponse> pendingAssignments = publishedAssignments.stream()
-                .filter(assignment -> !submittedAssignmentIds.contains(assignment.getId()))
+                .filter(assignment -> {
+                    Submission latestSubmission = latestSubmissionByAssignmentId.get(assignment.getId());
+                    return latestSubmission == null || latestSubmission.getStatus() != SubmissionStatus.GRADED;
+                })
                 .sorted(Comparator.comparing(assignment -> resolveDeadline(assignment, availableDeadlines)))
                 .map(assignment -> toDashboardItem(
                         assignment,
                         topicSubjectIds.get(assignment.getTopicId()),
                         resolveDeadline(assignment, availableDeadlines),
-                        false
+                        latestSubmissionByAssignmentId.containsKey(assignment.getId())
                 ))
                 .toList();
 
@@ -110,18 +119,22 @@ public class AssignmentDashboardService {
         Map<UUID, Assignment> assignmentsById = assignments.stream()
                 .collect(Collectors.toMap(Assignment::getId, assignment -> assignment, (left, right) -> left, LinkedHashMap::new));
         Map<UUID, UUID> topicSubjectIds = resolveTopicSubjectIds(assignments);
-        List<Submission> submissions = submissionRepository.findTop20ByAssignmentIdInOrderBySubmittedAtDesc(assignmentsById.keySet());
+        List<Submission> submissions = submissionRepository.findAllByAssignmentIdInOrderBySubmittedAtDesc(assignmentsById.keySet());
         Map<UUID, Grade> gradesBySubmissionId = gradeRepository.findAllBySubmissionIdIn(
                         submissions.stream().map(Submission::getId).toList()
                 ).stream()
                 .collect(Collectors.toMap(Grade::getSubmissionId, grade -> grade, (left, right) -> left));
+        List<Submission> latestSubmissions = latestSubmissionsByStudent(assignmentsById.keySet(), submissions);
 
-        List<TeacherSubmissionDashboardItemResponse> recentSubmissions = submissions.stream()
+        List<TeacherSubmissionDashboardItemResponse> recentSubmissions = latestSubmissions.stream()
+                .sorted(Comparator.comparing(Submission::getSubmittedAt).reversed())
                 .limit(DEFAULT_LIST_LIMIT)
                 .map(this::toTeacherSubmissionItem)
                 .toList();
-        List<TeacherSubmissionDashboardItemResponse> pendingSubmissionsToReview = submissions.stream()
+        List<TeacherSubmissionDashboardItemResponse> pendingSubmissionsToReview = latestSubmissions.stream()
+                .filter(submission -> submission.getStatus() == SubmissionStatus.SUBMITTED || submission.getStatus() == SubmissionStatus.RESUBMITTED)
                 .filter(submission -> !gradesBySubmissionId.containsKey(submission.getId()))
+                .sorted(Comparator.comparing(Submission::getSubmittedAt).reversed())
                 .limit(DEFAULT_LIST_LIMIT)
                 .map(this::toTeacherSubmissionItem)
                 .toList();
@@ -257,5 +270,30 @@ public class AssignmentDashboardService {
                 submission.getUserId(),
                 submission.getSubmittedAt()
         );
+    }
+
+    private Submission newerSubmission(Submission left, Submission right) {
+        if (left.getAttemptNumber() != right.getAttemptNumber()) {
+            return left.getAttemptNumber() > right.getAttemptNumber() ? left : right;
+        }
+        if (left.getSubmittedAt() == null) {
+            return right;
+        }
+        if (right.getSubmittedAt() == null) {
+            return left;
+        }
+        return left.getSubmittedAt().isAfter(right.getSubmittedAt()) ? left : right;
+    }
+
+    private List<Submission> latestSubmissionsByStudent(Collection<UUID> assignmentIds, List<Submission> submissions) {
+        Map<String, Submission> latestByCompositeKey = new LinkedHashMap<>();
+        submissions.stream()
+                .filter(submission -> assignmentIds.contains(submission.getAssignmentId()))
+                .forEach(submission -> {
+                    String compositeKey = submission.getAssignmentId() + ":" + submission.getUserId();
+                    Submission current = latestByCompositeKey.get(compositeKey);
+                    latestByCompositeKey.put(compositeKey, current == null ? submission : newerSubmission(current, submission));
+                });
+        return List.copyOf(latestByCompositeKey.values());
     }
 }

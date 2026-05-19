@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,6 +14,8 @@ public interface TestResultRepository extends JpaRepository<TestResult, UUID> {
     boolean existsByTestIdAndUserId(UUID testId, UUID userId);
 
     Optional<TestResult> findFirstByAttemptId(UUID attemptId);
+
+    List<TestResult> findAllByTestIdAndUserIdOrderByCreatedAtDesc(UUID testId, UUID userId);
 
     Page<TestResult> findAllByTestId(UUID testId, Pageable pageable);
 

@@ -2,6 +2,7 @@ package dev.knalis.assignment.client.notification.http;
 
 import dev.knalis.assignment.client.notification.NotificationServiceClient;
 import dev.knalis.assignment.client.notification.dto.CreateAssignmentDeadlineReminderRequest;
+import dev.knalis.assignment.client.notification.dto.CreateInternalNotificationRequest;
 import dev.knalis.assignment.config.AssignmentNotificationServiceProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -9,6 +10,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -42,6 +44,26 @@ public class HttpNotificationServiceClient implements NotificationServiceClient 
                     .toBodilessEntity();
         } catch (RestClientResponseException exception) {
             throw new IllegalStateException("Failed to create assignment deadline reminder for userId=" + userId, exception);
+        }
+    }
+
+    @Override
+    public void createAssignmentUpdateNotification(UUID userId, String title, String body, Map<String, Object> payload) {
+        try {
+            notificationServiceRestClient.post()
+                    .uri("/internal/notifications/users/{userId}", userId)
+                    .header(INTERNAL_SECRET_HEADER, properties.getSharedSecret())
+                    .body(new CreateInternalNotificationRequest(
+                            "ASSIGNMENT_UPDATED",
+                            "ACADEMIC",
+                            title,
+                            body,
+                            payload
+                    ))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException exception) {
+            throw new IllegalStateException("Failed to create assignment update notification for userId=" + userId, exception);
         }
     }
 }

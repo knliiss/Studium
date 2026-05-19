@@ -24,4 +24,6 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
     List<Submission> findTop20ByAssignmentIdInOrderBySubmittedAtDesc(Collection<UUID> assignmentIds);
 
     List<Submission> findAllByAssignmentIdAndUserIdOrderBySubmittedAtDesc(UUID assignmentId, UUID userId);
+
+    List<Submission> findAllByAssignmentIdInOrderBySubmittedAtDesc(Collection<UUID> assignmentIds);
 }

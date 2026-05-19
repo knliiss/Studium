@@ -2,9 +2,12 @@ package dev.knalis.assignment.controller;
 
 import dev.knalis.assignment.dto.request.CreateSubmissionRequest;
 import dev.knalis.assignment.dto.request.CreateSubmissionAttachmentRequest;
+import dev.knalis.assignment.dto.request.ResubmitSubmissionRequest;
+import dev.knalis.assignment.dto.request.ReturnSubmissionForRevisionRequest;
 import dev.knalis.assignment.dto.request.UpsertSubmissionCommentRequest;
 import dev.knalis.assignment.dto.response.SubmissionAttachmentResponse;
 import dev.knalis.assignment.dto.response.SubmissionCommentResponse;
+import dev.knalis.assignment.dto.response.SubmissionDetailResponse;
 import dev.knalis.assignment.dto.response.SubmissionPageResponse;
 import dev.knalis.assignment.dto.response.SubmissionResponse;
 import dev.knalis.assignment.service.attachment.SubmissionAttachmentService;
@@ -52,6 +55,21 @@ public class SubmissionController {
                 request
         );
     }
+
+    @PostMapping("/{submissionId}/resubmit")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','STUDENT')")
+    public SubmissionResponse resubmitSubmission(
+            Authentication authentication,
+            @PathVariable UUID submissionId,
+            @Valid @RequestBody ResubmitSubmissionRequest request
+    ) {
+        return submissionService.resubmitSubmission(
+                currentUserService.getCurrentUserId(authentication),
+                currentUserService.getCurrentTokenValue(authentication),
+                submissionId,
+                request
+        );
+    }
     
     @GetMapping("/assignment/{assignmentId}")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
@@ -71,6 +89,25 @@ public class SubmissionController {
                 size,
                 sortBy,
                 direction
+        );
+    }
+
+    @GetMapping("/review")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public SubmissionPageResponse getReviewQueue(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) UUID assignmentId,
+            @RequestParam(required = false) String status
+    ) {
+        return submissionService.getReviewQueue(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                page,
+                size,
+                assignmentId,
+                status
         );
     }
 
@@ -99,6 +136,36 @@ public class SubmissionController {
                 isAdmin(authentication),
                 isTeacher(authentication),
                 submissionId
+        );
+    }
+
+    @GetMapping("/{submissionId}/workflow")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER','STUDENT')")
+    public SubmissionDetailResponse getSubmissionDetail(
+            Authentication authentication,
+            @PathVariable UUID submissionId
+    ) {
+        return submissionService.getSubmissionDetail(
+                currentUserService.getCurrentUserId(authentication),
+                currentUserService.getCurrentTokenValue(authentication),
+                isAdmin(authentication),
+                isTeacher(authentication),
+                submissionId
+        );
+    }
+
+    @PostMapping("/{submissionId}/return-for-revision")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
+    public SubmissionResponse returnForRevision(
+            Authentication authentication,
+            @PathVariable UUID submissionId,
+            @Valid @RequestBody ReturnSubmissionForRevisionRequest request
+    ) {
+        return submissionService.returnForRevision(
+                currentUserService.getCurrentUserId(authentication),
+                isAdmin(authentication),
+                submissionId,
+                request
         );
     }
 

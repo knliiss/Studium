@@ -8,8 +8,15 @@ const statusTone: Record<string, string> = {
   CLOSED: 'bg-danger/10 text-danger',
   DISABLED: 'bg-warning/10 text-warning',
   DRAFT: 'bg-warning/10 text-warning',
+  GRADED: 'bg-success/10 text-success',
+  MISSING: 'bg-danger/10 text-danger',
+  NOT_SUBMITTED: 'bg-text-muted/10 text-text-secondary',
+  PENDING_REVIEW: 'bg-warning/10 text-warning',
   PUBLISHED: 'bg-success/10 text-success',
   READY: 'bg-success/10 text-success',
+  RESUBMITTED: 'bg-info/10 text-info',
+  RETURNED_FOR_REVISION: 'bg-danger/10 text-danger',
+  SUBMITTED: 'bg-warning/10 text-warning',
   UNREAD: 'bg-accent/10 text-accent',
 }
 

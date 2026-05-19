@@ -1,6 +1,7 @@
 package dev.knalis.assignment.client.notification;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 public interface NotificationServiceClient {
@@ -11,5 +12,12 @@ public interface NotificationServiceClient {
             String title,
             Instant deadline,
             Instant reminderAt
+    );
+
+    void createAssignmentUpdateNotification(
+            UUID userId,
+            String title,
+            String body,
+            Map<String, Object> payload
     );
 }

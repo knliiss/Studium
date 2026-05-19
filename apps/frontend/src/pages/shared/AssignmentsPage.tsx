@@ -16,6 +16,7 @@ import { downloadBlob } from '@/shared/lib/download'
 import { formatDateTime } from '@/shared/lib/format'
 import { toGroupOption } from '@/shared/lib/picker-options'
 import { useDebouncedValue } from '@/shared/lib/useDebouncedValue'
+import type { SubmissionResponse as AssignmentSubmissionResponse } from '@/shared/types/api'
 import { Button } from '@/shared/ui/Button'
 import { Card } from '@/shared/ui/Card'
 import { DataTable } from '@/shared/ui/DataTable'
@@ -251,6 +252,12 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     queryFn: () => assignmentService.getMySubmissionsByAssignment(assignmentId),
     enabled: isStudent,
   })
+  const studentLatestSubmissionId = (mySubmissionsQuery.data ?? [])[0]?.id ?? ''
+  const submissionWorkflowQuery = useQuery({
+    queryKey: ['assignment', assignmentId, 'submission-workflow', studentLatestSubmissionId],
+    queryFn: () => assignmentService.getSubmissionWorkflow(studentLatestSubmissionId),
+    enabled: isStudent && Boolean(studentLatestSubmissionId),
+  })
   const [upload, setUpload] = useState<File | null>(null)
   const [submissionUploadError, setSubmissionUploadError] = useState('')
   const [assignmentAttachmentUpload, setAssignmentAttachmentUpload] = useState<File | null>(null)
@@ -348,11 +355,16 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
         return null
       }
       const storedFile = await fileService.uploadFile(upload, 'ATTACHMENT')
+      const currentAttemptId = submissionWorkflowQuery.data?.currentAttempt?.id
+      if (submissionWorkflowQuery.data?.currentStatus === 'RETURNED_FOR_REVISION' && currentAttemptId) {
+        return assignmentService.resubmitSubmission(currentAttemptId, { fileId: storedFile.id })
+      }
       return assignmentService.submitAssignment({ assignmentId, fileId: storedFile.id })
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'my-submissions'] })
+      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission-workflow'] })
       await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'attachments'] })
       setSubmissionUploadError('')
       setUpload(null)
@@ -451,7 +463,13 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
   const assignment = assignmentQuery.data
   const assignmentAttachments = assignmentAttachmentsQuery.data ?? []
+  const studentWorkflow = submissionWorkflowQuery.data ?? null
   const canSubmitAssignment = assignment?.status === 'PUBLISHED'
+  const canUploadSubmissionAction = canSubmitAssignment && (
+    !studentWorkflow
+    || studentWorkflow.currentStatus === 'RETURNED_FOR_REVISION'
+    || (studentWorkflow.currentStatus === 'GRADED' && studentWorkflow.remainingAttempts > 0)
+  )
   const canManageAssignmentFiles = !isStudent
   const canEditAssignmentFiles = canManageAssignmentFiles && assignment?.status !== 'ARCHIVED'
   const shouldWarnAssignmentAttachmentRemoval = assignment?.status === 'PUBLISHED' || assignment?.status === 'CLOSED'
@@ -479,7 +497,16 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
       submissionGroupsByUserId.set(student.userId, currentGroups)
     }
   }
-  const filteredSubmissions = (submissionsQuery.data?.items ?? []).filter((submission) => {
+  const latestSubmissionsByStudent = Array.from(
+    (submissionsQuery.data?.items ?? []).reduce((accumulator, submission) => {
+      const current = accumulator.get(submission.userId)
+      if (!current || submission.attemptNumber > current.attemptNumber) {
+        accumulator.set(submission.userId, submission)
+      }
+      return accumulator
+    }, new Map<string, AssignmentSubmissionResponse>()),
+  ).map(([, submission]) => submission)
+  const filteredSubmissions = latestSubmissionsByStudent.filter((submission) => {
     if (!debouncedSubmissionSearch) {
       return true
     }
@@ -551,6 +578,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     assignmentQuery.isLoading
     || assignmentAttachmentsQuery.isLoading
     || (isStudent && mySubmissionsQuery.isLoading)
+    || (isStudent && Boolean(studentLatestSubmissionId) && submissionWorkflowQuery.isLoading)
     || (!isStudent && (
       submissionsQuery.isLoading
       || availabilityQuery.isLoading
@@ -569,6 +597,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
     || assignmentAttachmentsQuery.isError
     || !assignment
     || (isStudent && mySubmissionsQuery.isError)
+    || (isStudent && submissionWorkflowQuery.isError)
     || (!isStudent && (
       submissionsQuery.isError
       || availabilityQuery.isError
@@ -605,6 +634,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
             ?? connectedGroupsQuery.error
             ?? submissionStudentsQuery.error
             ?? mySubmissionsQuery.error
+            ?? submissionWorkflowQuery.error
             ?? groupStudentsQuery.error
             ?? assignmentAttachmentsQuery.error,
           t,
@@ -810,17 +840,28 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
             {isStudent ? (
               <Card className="space-y-3 rounded-2xl border border-border bg-surface p-5">
                 <PageHeader title={t('assignments.mySubmission')} />
-                {studentLatestSubmission ? (
-                  <div className="space-y-2 rounded-[12px] border border-border bg-surface-muted p-3">
-                    <p className="text-sm text-text-secondary">{formatDateTime(studentLatestSubmission.submittedAt)}</p>
-                    <p className="text-sm font-semibold text-text-primary">
-                      {studentLatestSubmission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
+                {studentWorkflow?.currentAttempt ? (
+                  <div className="space-y-3 rounded-[18px] border border-border bg-surface-muted p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-text-secondary">{formatDateTime(studentWorkflow.currentAttempt.submittedAt)}</p>
+                      <StatusBadge value={studentWorkflow.currentStatus} />
+                    </div>
+                    <p className="text-sm text-text-secondary">
+                      {t('assignments.attempt')}: <span className="font-semibold text-text-primary">{studentWorkflow.currentAttemptNumber}/{studentWorkflow.maxAttempts}</span>
                     </p>
-                    {studentLatestSubmission.score != null ? (
-                      <p className="text-sm text-text-secondary">{t('common.labels.score')}: {studentLatestSubmission.score}/{assignment.maxPoints}</p>
+                    {studentWorkflow.currentStatus === 'RETURNED_FOR_REVISION' ? (
+                      <div className="rounded-[16px] border border-danger/30 bg-danger/5 px-4 py-3">
+                        <p className="text-sm font-semibold text-danger">{t('assignments.returnedForRevisionNotice')}</p>
+                        <p className="mt-1 text-sm text-text-secondary">
+                          {t('assignments.newDeadline')}: {formatDateTime(studentWorkflow.revisionDeadline)}
+                        </p>
+                      </div>
                     ) : null}
-                    {studentLatestSubmission.feedback ? (
-                      <p className="text-sm text-text-secondary">{studentLatestSubmission.feedback}</p>
+                    {studentWorkflow.latestTeacherComment ? (
+                      <p className="whitespace-pre-line text-sm text-text-secondary">{studentWorkflow.latestTeacherComment}</p>
+                    ) : null}
+                    {studentWorkflow.finalScore != null ? (
+                      <p className="text-sm text-text-secondary">{t('common.labels.score')}: {studentWorkflow.finalScore}/{assignment.maxPoints}</p>
                     ) : null}
                   </div>
                 ) : (
@@ -850,12 +891,15 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
               {isStudent ? (
                 <>
                   <SidebarInfo label={t('assignments.submissions')} value={`${(mySubmissionsQuery.data ?? []).length}`} />
-                  <SidebarInfo label={t('assignments.grades')} value={studentLatestSubmission?.score == null ? '-' : `${studentLatestSubmission.score}/${assignment.maxPoints}`} />
+                  <SidebarInfo
+                    label={t('assignments.grades')}
+                    value={studentWorkflow?.finalScore == null ? '-' : `${studentWorkflow.finalScore}/${assignment.maxPoints}`}
+                  />
                 </>
               ) : (
                 <>
                   <SidebarInfo label={t('assignments.submissions')} value={`${submissionsQuery.data?.items.length ?? 0}`} />
-                  <SidebarInfo label={t('assignments.gradedSubmissions')} value={`${(submissionsQuery.data?.items ?? []).filter((submission) => submission.reviewed).length}`} />
+                  <SidebarInfo label={t('assignments.gradedSubmissions')} value={`${(submissionsQuery.data?.items ?? []).filter((submission) => submission.status === 'GRADED').length}`} />
                 </>
               )}
             </Card>
@@ -884,49 +928,112 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
 
       {activeTab === 'submissions' ? (
         isStudent ? (
-          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
-            <PageHeader title={t('assignments.mySubmission')} />
-            {canSubmitAssignment ? null : (
-              <div className="rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
-                <p className="text-sm font-semibold text-warning">{t('assignments.submissionClosed')}</p>
-              </div>
-            )}
-            <FormField label={t('assignments.uploadSubmission')}>
-              <Input
-                type="file"
-                onChange={(event) => {
-                  setUpload(event.target.files?.[0] ?? null)
-                  setSubmissionUploadError('')
-                }}
-              />
-              <p className="text-xs text-text-muted">{t('files.allowedFileTypesHint')}</p>
-            </FormField>
-            {submissionUploadError ? (
-              <p className="text-sm text-danger">{submissionUploadError}</p>
-            ) : null}
-            <Button disabled={!upload || submitMutation.isPending || !canSubmitAssignment} onClick={() => submitMutation.mutate()}>
-              {t('assignments.submitAssignment')}
-            </Button>
-            {(mySubmissionsQuery.data ?? []).length === 0 ? (
-              <EmptyState description={t('assignments.noSubmissionYet')} title={t('assignments.mySubmissions')} />
-            ) : (
-              <div className="space-y-3">
-                {(mySubmissionsQuery.data ?? []).map((submission) => (
-                  <div key={submission.id} className="rounded-[14px] border border-border bg-surface-muted px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="font-semibold text-text-primary">{formatDateTime(submission.submittedAt)}</p>
-                      <span className={submission.reviewed ? 'rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning'}>
-                        {submission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
-                      </span>
-                    </div>
-                    {submission.score !== null ? (
-                      <p className="mt-1 text-sm text-text-secondary">{t('common.labels.score')}: {submission.score}/{assignment.maxPoints}</p>
-                    ) : null}
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+            <div className="space-y-4">
+              <Card className="space-y-4 rounded-[24px] border border-border-strong bg-surface p-5">
+                <PageHeader title={t('assignments.mySubmission')} />
+                {studentWorkflow?.currentStatus === 'RETURNED_FOR_REVISION' ? (
+                  <div className="rounded-[18px] border border-danger/30 bg-danger/5 px-4 py-4">
+                    <p className="text-sm font-semibold text-danger">{t('assignments.returnedForRevisionNotice')}</p>
+                    <p className="mt-2 text-sm text-text-secondary">
+                      {t('assignments.newDeadline')}: {formatDateTime(studentWorkflow.revisionDeadline)}
+                    </p>
                   </div>
-                ))}
-              </div>
-            )}
-          </Card>
+                ) : null}
+                {studentWorkflow?.latestTeacherComment ? (
+                  <div className="rounded-[18px] border border-border bg-surface-muted px-4 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+                      {t('assignments.teacherComment')}
+                    </p>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-secondary">
+                      {studentWorkflow.latestTeacherComment}
+                    </p>
+                  </div>
+                ) : null}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+                    {t('assignments.attemptHistory')}
+                  </p>
+                  {(studentWorkflow?.attempts ?? []).length === 0 ? (
+                    <EmptyState description={t('assignments.noAttemptsYet')} title={t('assignments.attemptHistory')} />
+                  ) : (
+                    (studentWorkflow?.attempts ?? []).map((attempt) => (
+                      <div key={attempt.id} className="rounded-[18px] border border-border bg-surface-muted px-4 py-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-text-primary">
+                              {t('assignments.attemptLabel', { number: attempt.attemptNumber })}
+                            </p>
+                            <p className="text-sm text-text-secondary">{formatDateTime(attempt.submittedAt)}</p>
+                          </div>
+                          <StatusBadge value={attempt.status} />
+                        </div>
+                        {attempt.attachments.length > 0 ? (
+                          <div className="mt-3 space-y-2">
+                            {attempt.attachments.map((attachment) => (
+                              <button
+                                key={attachment.id}
+                                className="flex w-full items-center justify-between rounded-[14px] border border-border bg-surface px-3 py-2 text-left"
+                                type="button"
+                                onClick={async () => {
+                                  const blob = await assignmentService.downloadSubmissionAttachment(attempt.id, attachment.id)
+                                  downloadBlob(blob, attachment.originalFileName)
+                                }}
+                              >
+                                <span className="truncate text-sm text-text-primary">{attachment.displayName || attachment.originalFileName}</span>
+                                <span className="text-xs text-text-muted">{formatDateTime(attachment.createdAt)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {attempt.reviewComment ? (
+                          <p className="mt-3 whitespace-pre-line text-sm text-text-secondary">{attempt.reviewComment}</p>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Card>
+            </div>
+
+            <div className="space-y-4">
+              <Card className="space-y-4 rounded-[24px] border border-border-strong bg-surface p-5">
+                <PageHeader title={studentWorkflow?.currentStatus === 'RETURNED_FOR_REVISION' ? t('assignments.uploadNewVersion') : t('assignments.uploadSubmission')} />
+                {canSubmitAssignment ? null : (
+                  <div className="rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
+                    <p className="text-sm font-semibold text-warning">{t('assignments.submissionClosed')}</p>
+                  </div>
+                )}
+                {studentWorkflow?.currentStatus === 'SUBMITTED' || studentWorkflow?.currentStatus === 'RESUBMITTED' ? (
+                  <div className="rounded-[14px] border border-warning/30 bg-warning/5 px-4 py-3">
+                    <p className="text-sm font-semibold text-warning">{t('assignments.pendingReviewUploadLocked')}</p>
+                  </div>
+                ) : null}
+                <FormField label={t('assignments.uploadSubmission')}>
+                  <Input
+                    type="file"
+                    onChange={(event) => {
+                      setUpload(event.target.files?.[0] ?? null)
+                      setSubmissionUploadError('')
+                    }}
+                  />
+                  <p className="text-xs text-text-muted">{t('files.allowedFileTypesHint')}</p>
+                </FormField>
+                {submissionUploadError ? (
+                  <p className="text-sm text-danger">{submissionUploadError}</p>
+                ) : null}
+                <p className="text-sm text-text-secondary">
+                  {t('assignments.remainingAttempts')}: <span className="font-semibold text-text-primary">{studentWorkflow?.remainingAttempts ?? assignment.maxSubmissions}</span>
+                </p>
+                <Button
+                  disabled={!upload || submitMutation.isPending || !canUploadSubmissionAction}
+                  onClick={() => submitMutation.mutate()}
+                >
+                  {studentWorkflow?.currentStatus === 'RETURNED_FOR_REVISION' ? t('assignments.resubmit') : t('assignments.submitAssignment')}
+                </Button>
+              </Card>
+            </div>
+          </div>
         ) : (
           <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
             <PageHeader description={t('assignments.submissionsDescription')} title={t('assignments.submissions')} />
@@ -950,9 +1057,12 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                             {submissionStudentById.get(submission.userId)?.username ?? t('education.unknownStudent')}
                           </p>
                           <p className="text-sm text-text-secondary">{formatDateTime(submission.submittedAt)}</p>
-                          <p className="text-xs text-text-muted">
-                            {submission.reviewed ? t('assignments.reviewed') : t('assignments.pendingReview')}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge value={submission.status} />
+                            <span className="text-xs text-text-muted">
+                              {submission.attemptNumber}/{submission.maxAttempts}
+                            </span>
+                          </div>
                           <Link to={`/assignments/${assignmentId}/submissions/${submission.id}/review`}>
                             <Button fullWidth variant="secondary">{t('assignments.openSubmissionReview')}</Button>
                           </Link>
@@ -971,12 +1081,12 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
         isStudent ? (
           <Card className="space-y-4 rounded-2xl border border-border bg-surface p-5">
             <PageHeader title={t('assignments.grades')} />
-            {(mySubmissionsQuery.data ?? []).filter((submission) => submission.reviewed).length === 0 ? (
+            {(mySubmissionsQuery.data ?? []).filter((submission) => submission.status === 'GRADED').length === 0 ? (
               <EmptyState description={t('assignments.noGradesYet')} title={t('assignments.grades')} />
             ) : (
               <div className="space-y-2">
                 {(mySubmissionsQuery.data ?? [])
-                  .filter((submission) => submission.reviewed)
+                  .filter((submission) => submission.status === 'GRADED')
                   .map((submission) => (
                     <div key={submission.id} className="rounded-[12px] border border-border bg-surface-muted px-4 py-3">
                       <p className="text-sm font-semibold text-text-primary">{formatDateTime(submission.submittedAt)}</p>
@@ -1010,7 +1120,7 @@ function AssignmentDetailPage({ assignmentId }: { assignmentId: string }) {
                 {
                   key: 'reviewed',
                   header: t('assignments.reviewed'),
-                  render: (submission) => submission.reviewed ? t('assignments.yes') : t('assignments.no'),
+                  render: (submission) => submission.status === 'GRADED' ? t('assignments.yes') : t('assignments.no'),
                 },
               ]}
               rows={submissionsQuery.data?.items ?? []}

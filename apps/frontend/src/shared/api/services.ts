@@ -1,3 +1,5 @@
+import { isAxiosError } from 'axios'
+
 import { apiClient } from '@/shared/api/client'
 import type {
   AcademicSemesterResponse,
@@ -21,6 +23,9 @@ import type {
   LessonSlotResponse,
   NotificationPageResponse,
   NotificationResponse,
+  AdminGradebookOverviewResponse,
+  AdminGradebookResponse,
+  GradebookStudentSubjectResponse,
   QuestionResponse,
   ResolvedLessonResponse,
   ResolvedGroupSubjectResponse,
@@ -35,15 +40,18 @@ import type {
   StreamResponse,
   StudentAnalyticsResponse,
   StudentDashboardResponse,
+  StudentGradebookResponse,
   StudentGroupProgressResponse,
   StudentRiskResponse,
   SubjectAnalyticsResponse,
   SubjectResponse,
   SubmissionCommentResponse,
   SubmissionAttachmentResponse,
+  SubmissionDetailResponse,
   SubmissionResponse,
   TeacherAnalyticsResponse,
   TeacherDashboardResponse,
+  TeacherGradebookResponse,
   TestResponse,
   TestGroupAvailabilityResponse,
   TestQuestionStatisticsResponse,
@@ -62,6 +70,30 @@ import type {
   LectureAttachmentResponse,
   LectureResponse,
 } from '@/shared/types/api'
+
+async function unwrapBlobApiError(error: unknown) {
+  if (!isAxiosError(error) || !(error.response?.data instanceof Blob)) {
+    throw error
+  }
+
+  const text = await error.response.data.text()
+  if (!text) {
+    throw error
+  }
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    throw error
+  }
+
+  if (typeof parsed.status !== 'number' && typeof error.response.status === 'number') {
+    parsed.status = error.response.status
+  }
+
+  throw parsed
+}
 
 export interface PaginationParams {
   page?: number
@@ -751,6 +783,10 @@ export const assignmentService = {
     const response = await apiClient.post<SubmissionResponse>('/api/v1/submissions', payload)
     return response.data
   },
+  async resubmitSubmission(submissionId: string, payload: { fileId: string }) {
+    const response = await apiClient.post<SubmissionResponse>(`/api/v1/submissions/${submissionId}/resubmit`, payload)
+    return response.data
+  },
   async getSubmissionsByAssignment(assignmentId: string, params: PaginationParams = {}) {
     const response = await apiClient.get(`/api/v1/submissions/assignment/${assignmentId}`, { params })
     return normalizePage<SubmissionResponse>(response.data)
@@ -759,8 +795,16 @@ export const assignmentService = {
     const response = await apiClient.get<SubmissionResponse[]>(`/api/v1/submissions/assignment/${assignmentId}/mine`)
     return response.data
   },
+  async getReviewQueue(params: PaginationParams & { assignmentId?: string; status?: string } = {}) {
+    const response = await apiClient.get('/api/v1/submissions/review', { params })
+    return normalizePage<SubmissionResponse>(response.data)
+  },
   async getSubmission(id: string) {
     const response = await apiClient.get<SubmissionResponse>(`/api/v1/submissions/${id}`)
+    return response.data
+  },
+  async getSubmissionWorkflow(id: string) {
+    const response = await apiClient.get<SubmissionDetailResponse>(`/api/v1/submissions/${id}/workflow`)
     return response.data
   },
   async listSubmissionAttachments(submissionId: string) {
@@ -808,6 +852,16 @@ export const assignmentService = {
   },
   async createGrade(payload: { submissionId: string; score: number; feedback?: string }) {
     const response = await apiClient.post<GradeResponse>('/api/v1/grades', payload)
+    return response.data
+  },
+  async returnSubmissionForRevision(
+    submissionId: string,
+    payload: { feedback: string; revisionDeadline?: string | null },
+  ) {
+    const response = await apiClient.post<SubmissionResponse>(
+      `/api/v1/submissions/${submissionId}/return-for-revision`,
+      payload,
+    )
     return response.data
   },
 }
@@ -1071,6 +1125,71 @@ export const analyticsService = {
       `/api/v1/analytics/subjects/${subjectId}/groups/${groupId}`,
     )
     return response.data
+  },
+}
+
+export const gradebookService = {
+  async getMyGradebook() {
+    const response = await apiClient.get<StudentGradebookResponse>('/api/v1/gradebook/me')
+    return response.data
+  },
+  async getMySubject(subjectId: string) {
+    const response = await apiClient.get<GradebookStudentSubjectResponse>(`/api/v1/gradebook/me/subjects/${subjectId}`)
+    return response.data
+  },
+  async getTeacher(params: {
+    subjectId?: string | null
+    groupId?: string | null
+    activityType?: 'ALL' | 'ASSIGNMENTS' | 'TESTS'
+    period?: string | null
+  } = {}) {
+    const response = await apiClient.get<TeacherGradebookResponse>('/api/v1/gradebook/teacher', { params })
+    return response.data
+  },
+  async getTeacherDetail(subjectId: string, groupId: string, params: {
+    activityType?: 'ALL' | 'ASSIGNMENTS' | 'TESTS'
+    period?: string | null
+  } = {}) {
+    const response = await apiClient.get<TeacherGradebookResponse>(
+      `/api/v1/gradebook/teacher/subjects/${subjectId}/groups/${groupId}`,
+      { params },
+    )
+    return response.data
+  },
+  async getAdminOverview(params: {
+    teacherId?: string | null
+    period?: string | null
+  } = {}) {
+    const response = await apiClient.get<AdminGradebookOverviewResponse>('/api/v1/gradebook/admin/overview', { params })
+    return response.data
+  },
+  async getAdmin(params: {
+    subjectId?: string | null
+    groupId?: string | null
+    teacherId?: string | null
+    activityType?: 'ALL' | 'ASSIGNMENTS' | 'TESTS'
+    period?: string | null
+  } = {}) {
+    const response = await apiClient.get<AdminGradebookResponse>('/api/v1/gradebook/admin', { params })
+    return response.data
+  },
+  async export(params: {
+    subjectId?: string | null
+    groupId?: string | null
+    teacherId?: string | null
+    activityType?: 'ALL' | 'ASSIGNMENTS' | 'TESTS'
+    period?: string | null
+  } = {}) {
+    try {
+      const response = await apiClient.get<Blob>('/api/v1/gradebook/export', {
+        params,
+        responseType: 'blob',
+      })
+      return response.data
+    } catch (error) {
+      await unwrapBlobApiError(error)
+      throw error
+    }
   },
 }
 

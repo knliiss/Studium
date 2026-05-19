@@ -74,6 +74,18 @@ public class TestResultController {
         );
     }
 
+    @GetMapping("/test/{testId}/mine")
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN','STUDENT')")
+    public List<TestResultResponse> getMyResultsByTest(
+            Authentication authentication,
+            @PathVariable("testId") UUID testId
+    ) {
+        return testResultService.getMyTestResultsByTest(
+                currentUserService.getCurrentUserId(authentication),
+                testId
+        );
+    }
+
     @GetMapping("/{id}/review")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN','TEACHER')")
     public TestResultReviewResponse getTestResultReview(Authentication authentication, @PathVariable("id") UUID resultId) {

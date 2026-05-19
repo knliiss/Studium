@@ -6,10 +6,12 @@ import dev.knalis.assignment.dto.response.GradeResponse;
 import dev.knalis.assignment.entity.Assignment;
 import dev.knalis.assignment.entity.Grade;
 import dev.knalis.assignment.entity.Submission;
+import dev.knalis.assignment.entity.SubmissionStatus;
 import dev.knalis.assignment.exception.AssignmentNotFoundException;
 import dev.knalis.assignment.exception.AssignmentAccessDeniedException;
 import dev.knalis.assignment.exception.AssignmentInvalidStateException;
 import dev.knalis.assignment.exception.GradeAlreadyExistsException;
+import dev.knalis.assignment.exception.SubmissionAttemptNotCurrentException;
 import dev.knalis.assignment.exception.SubmissionNotFoundException;
 import dev.knalis.assignment.factory.grade.GradeFactory;
 import dev.knalis.assignment.mapper.GradeMapper;
@@ -49,6 +51,21 @@ public class GradeService {
         Assignment assignment = assignmentRepository.findById(submission.getAssignmentId())
                 .orElseThrow(() -> new AssignmentNotFoundException(submission.getAssignmentId()));
         assertTeacherOwnership(assignment, currentUserId, privilegedAccess);
+        Submission latestAttempt = submissionRepository.findAllByAssignmentIdAndUserIdOrderBySubmittedAtDesc(
+                        submission.getAssignmentId(),
+                        submission.getUserId()
+                ).stream()
+                .max((left, right) -> {
+                    int attemptCompare = Integer.compare(left.getAttemptNumber(), right.getAttemptNumber());
+                    if (attemptCompare != 0) {
+                        return attemptCompare;
+                    }
+                    return left.getSubmittedAt().compareTo(right.getSubmittedAt());
+                })
+                .orElse(submission);
+        if (!latestAttempt.getId().equals(submission.getId())) {
+            throw new SubmissionAttemptNotCurrentException(submission.getId());
+        }
         if (request.score() > assignment.getMaxPoints()) {
             throw new AssignmentInvalidStateException(
                     assignment.getId(),
@@ -65,6 +82,13 @@ public class GradeService {
         );
         
         Grade savedGrade = gradeRepository.save(grade);
+        submission.setStatus(SubmissionStatus.GRADED);
+        submission.setReviewComment(request.feedback() == null || request.feedback().isBlank() ? null : request.feedback().trim());
+        submission.setReviewedAt(savedGrade.getUpdatedAt());
+        submission.setReviewedByUserId(currentUserId);
+        submission.setReturnedForRevisionAt(null);
+        submission.setRevisionDeadline(null);
+        submissionRepository.save(submission);
         assignmentEventPublisher.publishGradeAssigned(new GradeAssignedEventV1(
                 UUID.randomUUID(),
                 Instant.now(),
@@ -88,6 +112,10 @@ public class GradeService {
             return;
         }
         if (assignment.getCreatedByUserId() != null && assignment.getCreatedByUserId().equals(currentUserId)) {
+            return;
+        }
+        UUID subjectId = educationServiceClient.getTopic(assignment.getTopicId()).subjectId();
+        if (educationServiceClient.getSubject(subjectId).teacherIds().contains(currentUserId)) {
             return;
         }
         throw new AssignmentAccessDeniedException(assignment.getId(), currentUserId);

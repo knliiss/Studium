@@ -460,8 +460,58 @@ export interface SubmissionResponse {
   feedback: string | null
   gradedAt: string | null
   reviewed: boolean
+  status: string
+  attemptNumber: number
+  maxAttempts: number
+  remainingAttempts: number
+  submittedLate: boolean
+  reviewComment: string | null
+  reviewedAt: string | null
+  reviewedByUserId: string | null
+  returnedForRevisionAt: string | null
+  revisionDeadline: string | null
   submittedAt: string
   updatedAt: string
+}
+
+export interface SubmissionAttemptDetailResponse {
+  id: string
+  assignmentId: string
+  userId: string
+  fileId: string
+  file: SubmissionFileResponse | null
+  score: number | null
+  feedback: string | null
+  gradedAt: string | null
+  reviewed: boolean
+  status: string
+  attemptNumber: number
+  maxAttempts: number
+  remainingAttempts: number
+  submittedLate: boolean
+  reviewComment: string | null
+  reviewedAt: string | null
+  reviewedByUserId: string | null
+  returnedForRevisionAt: string | null
+  revisionDeadline: string | null
+  submittedAt: string
+  updatedAt: string
+  attachments: SubmissionAttachmentResponse[]
+}
+
+export interface SubmissionDetailResponse {
+  assignmentId: string
+  studentId: string
+  currentStatus: string
+  currentAttemptNumber: number
+  maxAttempts: number
+  remainingAttempts: number
+  revisionDeadline: string | null
+  latestTeacherComment: string | null
+  finalScore: number | null
+  maxScore: number
+  currentAttempt: SubmissionAttemptDetailResponse | null
+  attempts: SubmissionAttemptDetailResponse[]
 }
 
 export interface SubmissionCommentResponse {
@@ -816,6 +866,13 @@ export interface DashboardSubmissionItemResponse {
   submissionId: string
   assignmentId: string
   studentId: string
+  status: string
+  attemptNumber: number
+  maxAttempts: number
+  score: number | null
+  revisionDeadline: string | null
+  reviewedAt: string | null
+  submittedLate: boolean
   submittedAt: string
 }
 
@@ -1040,4 +1097,155 @@ export interface AdminUserStatsResponse {
   totalTeachers: number
   totalStudents: number
   totalRegularUsers: number
+}
+
+export type GradebookActivityType = 'ALL' | 'ASSIGNMENTS' | 'TESTS'
+export type GradebookActivityStatus = 'GRADED' | 'PENDING_REVIEW' | 'MISSING' | 'NOT_SUBMITTED'
+
+export interface GradebookFilterOptionResponse {
+  id: string
+  label: string
+}
+
+export interface GradebookActivityRowResponse {
+  activityId: string
+  activityType: 'ASSIGNMENT' | 'TEST'
+  subjectId: string
+  topicId: string
+  title: string
+  score: number | null
+  maxPoints: number
+  percentage: number | null
+  status: GradebookActivityStatus
+  submittedAt: string | null
+  reviewedAt: string | null
+  dueAt: string | null
+  late: boolean
+  submissionId: string | null
+  resultId: string | null
+}
+
+export interface GradebookStudentSubjectResponse {
+  subjectId: string
+  subjectName: string
+  groupName: string | null
+  teacherNames: string[]
+  averagePercent: number | null
+  scoredPoints: number | null
+  maxPoints: number | null
+  assignmentsCompleted: number
+  assignmentsTotal: number
+  testsCompleted: number
+  testsTotal: number
+  pendingCount: number
+  missingCount: number
+  activities: GradebookActivityRowResponse[]
+}
+
+export interface StudentGradebookResponse {
+  averagePercent: number | null
+  gradedActivities: number
+  pendingActivities: number
+  missingActivities: number
+  subjects: GradebookStudentSubjectResponse[]
+}
+
+export interface GradebookMatrixActivityResponse {
+  activityId: string
+  activityType: 'ASSIGNMENT' | 'TEST'
+  title: string
+  maxPoints: number
+  dueAt: string | null
+}
+
+export interface GradebookMatrixCellResponse {
+  activityId: string
+  score: number | null
+  maxPoints: number
+  percentage: number | null
+  status: GradebookActivityStatus
+  late: boolean
+  submittedAt: string | null
+  reviewedAt: string | null
+  submissionId: string | null
+  resultId: string | null
+}
+
+export interface GradebookMatrixStudentResponse {
+  studentId: string
+  studentName: string
+  averagePercent: number | null
+  missingCount: number
+  cells: GradebookMatrixCellResponse[]
+}
+
+export interface GradebookMatrixSummaryResponse {
+  studentCount: number
+  groupAveragePercent: number | null
+  highestPercent: number | null
+  lowestPercent: number | null
+  missingCount: number
+  pendingCount: number
+}
+
+export interface GradebookMatrixResponse {
+  subjectId: string
+  subjectName: string
+  groupId: string
+  groupName: string
+  teacherNames: string[]
+  activityType: GradebookActivityType
+  summary: GradebookMatrixSummaryResponse
+  activities: GradebookMatrixActivityResponse[]
+  students: GradebookMatrixStudentResponse[]
+}
+
+export interface TeacherGradebookResponse {
+  subjects: GradebookFilterOptionResponse[]
+  groups: GradebookFilterOptionResponse[]
+  selectedSubjectId: string | null
+  selectedGroupId: string | null
+  activityType: GradebookActivityType
+  matrix: GradebookMatrixResponse | null
+}
+
+export interface GradebookAdminOverviewRowResponse {
+  subjectId: string
+  subjectName: string
+  groupId: string
+  groupName: string
+  teacherIds: string[]
+  teacherNames: string[]
+  studentCount: number
+  averagePercent: number | null
+  highCount: number
+  goodCount: number
+  averageCount: number
+  lowCount: number
+  missingCount: number
+  completionPercent: number | null
+}
+
+export interface AdminGradebookOverviewResponse {
+  platformAveragePercent: number | null
+  activeStudents: number
+  subjectCount: number
+  groupCount: number
+  missingWorkCount: number
+  averageCompletionPercent: number | null
+  subjects: GradebookFilterOptionResponse[]
+  groups: GradebookFilterOptionResponse[]
+  teachers: GradebookFilterOptionResponse[]
+  rows: GradebookAdminOverviewRowResponse[]
+}
+
+export interface AdminGradebookResponse {
+  subjects: GradebookFilterOptionResponse[]
+  groups: GradebookFilterOptionResponse[]
+  teachers: GradebookFilterOptionResponse[]
+  selectedSubjectId: string | null
+  selectedGroupId: string | null
+  selectedTeacherId: string | null
+  rows: GradebookAdminOverviewRowResponse[]
+  matrix: GradebookMatrixResponse | null
 }

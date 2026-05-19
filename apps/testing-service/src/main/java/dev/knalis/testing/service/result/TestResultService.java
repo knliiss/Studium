@@ -33,6 +33,7 @@ import dev.knalis.testing.mapper.TestResultMapper;
 import dev.knalis.testing.repository.TestAttemptRepository;
 import dev.knalis.testing.repository.AnswerRepository;
 import dev.knalis.testing.repository.QuestionRepository;
+import dev.knalis.testing.repository.TestGroupAvailabilityRepository;
 import dev.knalis.testing.repository.TestRepository;
 import dev.knalis.testing.repository.TestResultQuestionRepository;
 import dev.knalis.testing.repository.TestResultRepository;
@@ -72,6 +73,7 @@ public class TestResultService {
     
     private final TestResultRepository testResultRepository;
     private final TestRepository testRepository;
+    private final TestGroupAvailabilityRepository testGroupAvailabilityRepository;
     private final TestAttemptRepository testAttemptRepository;
     private final TestResultFactory testResultFactory;
     private final TestResultMapper testResultMapper;
@@ -237,6 +239,18 @@ public class TestResultService {
                 resultsPage.isFirst(),
                 resultsPage.isLast()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<TestResultResponse> getMyTestResultsByTest(UUID currentUserId, UUID testId) {
+        Test test = testRepository.findById(testId)
+                .orElseThrow(() -> new TestNotFoundException(testId));
+        if (!testResultRepository.existsByTestIdAndUserId(testId, currentUserId)) {
+            requireAvailableForStudent(test, currentUserId, Instant.now());
+        }
+        return testResultRepository.findAllByTestIdAndUserIdOrderByCreatedAtDesc(testId, currentUserId).stream()
+                .map(testResultMapper::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -447,6 +461,33 @@ public class TestResultService {
             return;
         }
         throw new TestAccessDeniedException(test.getId(), currentUserId);
+    }
+
+    private void ensurePublishedAndAvailable(Test test, Instant now) {
+        if (test.getStatus() != TestStatus.PUBLISHED) {
+            throw new TestInvalidStateException(test.getId(), test.getStatus(), "Only published tests can be reviewed");
+        }
+        if ((test.getAvailableFrom() != null && now.isBefore(test.getAvailableFrom()))
+                || (test.getAvailableUntil() != null && now.isAfter(test.getAvailableUntil()))) {
+            throw new TestNotAvailableException(test.getId(), test.getAvailableFrom(), test.getAvailableUntil());
+        }
+    }
+
+    private void requireAvailableForStudent(Test test, UUID userId, Instant now) {
+        ensurePublishedAndAvailable(test, now);
+        Set<UUID> groupIds = educationServiceClient.getGroupsByUser(userId).stream()
+                .map(groupMembership -> groupMembership.groupId())
+                .collect(Collectors.toSet());
+        if (groupIds.isEmpty()) {
+            throw new TestNotAvailableException(test.getId(), test.getAvailableFrom(), test.getAvailableUntil());
+        }
+        boolean available = testGroupAvailabilityRepository.findAvailableForTestAndGroups(test.getId(), groupIds, now)
+                .stream()
+                .findFirst()
+                .isPresent();
+        if (!available) {
+            throw new TestNotAvailableException(test.getId(), test.getAvailableFrom(), test.getAvailableUntil());
+        }
     }
 
     private List<EvaluatedQuestion> evaluateQuestions(UUID testId, SubmitTestAttemptRequest request) {

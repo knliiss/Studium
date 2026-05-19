@@ -104,11 +104,11 @@ export const navigationGroups: NavigationGroup[] = [
       },
       {
         id: 'grades',
-        to: '/grades',
-        labelKey: 'navigation.shared.grades',
+        to: '/gradebook',
+        labelKey: 'navigation.shared.myGrades',
         icon: GraduationCap,
         roles: ['STUDENT'],
-        matchPrefixes: ['/grades'],
+        matchPrefixes: ['/gradebook', '/grades'],
       },
       {
         id: 'my-group',
@@ -198,11 +198,11 @@ export const navigationGroups: NavigationGroup[] = [
       },
       {
         id: 'gradebook',
-        to: '/assignments',
+        to: '/gradebook',
         labelKey: 'navigation.shared.gradebook',
         icon: GraduationCap,
         roles: ['TEACHER'],
-        matchPrefixes: ['/assignments'],
+        matchPrefixes: ['/gradebook', '/grades'],
       },
       {
         id: 'group-rosters',
@@ -313,6 +313,14 @@ export const navigationGroups: NavigationGroup[] = [
         roles: ['ADMIN', 'OWNER'],
         matchPrefixes: ['/groups', '/academic/groups'],
         nestedSource: 'groups',
+      },
+      {
+        id: 'gradebook',
+        to: '/gradebook',
+        labelKey: 'navigation.shared.gradebook',
+        icon: GraduationCap,
+        roles: ['ADMIN', 'OWNER'],
+        matchPrefixes: ['/gradebook', '/grades'],
       },
       {
         id: 'teachers',

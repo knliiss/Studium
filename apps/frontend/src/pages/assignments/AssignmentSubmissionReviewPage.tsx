@@ -16,13 +16,19 @@ import { Card } from '@/shared/ui/Card'
 import { FormField } from '@/shared/ui/FormField'
 import { Input } from '@/shared/ui/Input'
 import { PageHeader } from '@/shared/ui/PageHeader'
-import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
 import { Textarea } from '@/shared/ui/Textarea'
+import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StateViews'
+import { UserAvatar } from '@/shared/ui/UserAvatar'
 import { AccessDeniedPage } from '@/pages/shared/AccessDeniedPage'
+import { StatusBadge } from '@/widgets/common/StatusBadge'
 import { Breadcrumbs } from '@/widgets/common/Breadcrumbs'
 
 interface AssignmentSubmissionReviewPageProps {
-  assignmentId: string
+  assignmentId?: string
+  submissionId: string
+}
+
+interface WorkflowAttachmentItem extends FileAttachmentItem {
   submissionId: string
 }
 
@@ -32,29 +38,30 @@ export function AssignmentSubmissionReviewPage({ assignmentId, submissionId }: A
   const queryClient = useQueryClient()
   const isStudent = primaryRole === 'STUDENT'
 
+  const workflowQuery = useQuery({
+    queryKey: ['submission-workflow', submissionId],
+    queryFn: () => assignmentService.getSubmissionWorkflow(submissionId),
+  })
+
+  const resolvedAssignmentId = assignmentId || workflowQuery.data?.assignmentId || ''
   const assignmentQuery = useQuery({
-    queryKey: ['assignment', assignmentId],
-    queryFn: () => assignmentService.getAssignment(assignmentId),
+    queryKey: ['assignment', resolvedAssignmentId],
+    queryFn: () => assignmentService.getAssignment(resolvedAssignmentId),
+    enabled: Boolean(resolvedAssignmentId),
   })
-  const submissionQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission', submissionId],
-    queryFn: () => assignmentService.getSubmission(submissionId),
-  })
-  const submissionAttachmentsQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission-attachments', submissionId],
-    queryFn: () => assignmentService.listSubmissionAttachments(submissionId),
-  })
+
   const submissionStudentQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'submission-student', submissionQuery.data?.userId],
+    queryKey: ['submission-workflow', submissionId, 'student', workflowQuery.data?.studentId],
     queryFn: async () => {
-      if (!submissionQuery.data) {
+      if (!workflowQuery.data?.studentId) {
         return null
       }
-      const students = await userDirectoryService.lookup([submissionQuery.data.userId])
-      return students[0] ?? null
+      const users = await userDirectoryService.lookup([workflowQuery.data.studentId])
+      return users[0] ?? null
     },
-    enabled: Boolean(submissionQuery.data?.userId),
+    enabled: Boolean(workflowQuery.data?.studentId),
   })
+
   const subjectScopeQuery = useQuery({
     queryKey: ['education', 'assignment-review-subject-scope', primaryRole, session?.user.id],
     queryFn: () => {
@@ -65,8 +72,9 @@ export function AssignmentSubmissionReviewPage({ assignmentId, submissionId }: A
     },
     enabled: Boolean(assignmentQuery.data && session?.user.id),
   })
+
   const assignmentSubjectQuery = useQuery({
-    queryKey: ['education', 'assignment-review-subject', assignmentId, assignmentQuery.data?.topicId, subjectScopeQuery.data?.length],
+    queryKey: ['education', 'assignment-review-subject', resolvedAssignmentId, assignmentQuery.data?.topicId, subjectScopeQuery.data?.length],
     queryFn: async () => {
       const assignment = assignmentQuery.data
       if (!assignment) {
@@ -89,13 +97,15 @@ export function AssignmentSubmissionReviewPage({ assignmentId, submissionId }: A
     },
     enabled: Boolean(assignmentQuery.data && subjectScopeQuery.data),
   })
+
   const connectedGroupsQuery = useQuery({
     queryKey: ['education', 'assignment-review-groups', assignmentSubjectQuery.data?.groupIds.join(',')],
     queryFn: async () => Promise.all((assignmentSubjectQuery.data?.groupIds ?? []).map((groupId) => educationService.getGroup(groupId))),
     enabled: Boolean(assignmentSubjectQuery.data?.groupIds.length),
   })
+
   const groupStudentsQuery = useQuery({
-    queryKey: ['assignment', assignmentId, 'review-group-students', connectedGroupsQuery.data?.map((group) => group.id).join(',')],
+    queryKey: ['submission-workflow', submissionId, 'group-students', connectedGroupsQuery.data?.map((group) => group.id).join(',')],
     queryFn: async () => Promise.all(
       (connectedGroupsQuery.data ?? []).map(async (group) => ({
         group,
@@ -106,28 +116,44 @@ export function AssignmentSubmissionReviewPage({ assignmentId, submissionId }: A
   })
 
   const [selectedAttachmentId, setSelectedAttachmentId] = useState('')
-  const [gradeDraft, setGradeDraft] = useState<{ submissionId: string | null; score: number; feedback: string }>({
-    submissionId: null,
-    score: 0,
-    feedback: '',
-  })
+  const [draftAttemptId, setDraftAttemptId] = useState('')
+  const [score, setScore] = useState(0)
+  const [comment, setComment] = useState('')
+  const [revisionDeadline, setRevisionDeadline] = useState('')
 
-  const gradeMutation = useMutation({
+  const reviewMutation = useMutation({
     mutationFn: () => assignmentService.createGrade({
-      submissionId,
+      submissionId: workflowQuery.data?.currentAttempt?.id ?? submissionId,
       score: effectiveScore,
-      feedback: effectiveFeedback.trim() || undefined,
+      feedback: effectiveComment.trim() || undefined,
     }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submission', submissionId] })
-      await queryClient.invalidateQueries({ queryKey: ['assignment', assignmentId, 'submissions'] })
-      setGradeDraft({ submissionId: null, score: 0, feedback: '' })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['submission-workflow', submissionId] }),
+        queryClient.invalidateQueries({ queryKey: ['review-queue'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ])
     },
   })
 
-  const attachmentItems: FileAttachmentItem[] = useMemo(
-    () => (submissionAttachmentsQuery.data ?? []).map((attachment) => ({
+  const returnMutation = useMutation({
+    mutationFn: () => assignmentService.returnSubmissionForRevision(workflowQuery.data?.currentAttempt?.id ?? submissionId, {
+      feedback: effectiveComment.trim(),
+      revisionDeadline: effectiveRevisionDeadline ? fromLocalDateTimeValue(effectiveRevisionDeadline) : null,
+    }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['submission-workflow', submissionId] }),
+        queryClient.invalidateQueries({ queryKey: ['review-queue'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ])
+    },
+  })
+
+  const flattenedAttachments = useMemo<WorkflowAttachmentItem[]>(
+    () => (workflowQuery.data?.attempts ?? []).flatMap((attempt) => attempt.attachments.map((attachment) => ({
       id: attachment.id,
+      submissionId: attempt.id,
       fileId: attachment.fileId,
       displayName: attachment.displayName,
       originalFileName: attachment.originalFileName,
@@ -135,81 +161,84 @@ export function AssignmentSubmissionReviewPage({ assignmentId, submissionId }: A
       sizeBytes: attachment.sizeBytes,
       previewAvailable: attachment.previewAvailable,
       createdAt: attachment.createdAt,
-    })),
-    [submissionAttachmentsQuery.data],
+    }))),
+    [workflowQuery.data?.attempts],
   )
 
-  const selectedAttachment = attachmentItems.find((attachment) => attachment.id === selectedAttachmentId)
-    ?? attachmentItems[0]
+  const selectedAttachment = flattenedAttachments.find((attachment) => attachment.id === selectedAttachmentId)
+    ?? flattenedAttachments[0]
     ?? null
 
   const studentGroups = useMemo(() => {
-    if (!submissionQuery.data) {
+    if (!workflowQuery.data?.studentId) {
       return [] as string[]
     }
 
     const groupNames: string[] = []
     for (const groupEntry of groupStudentsQuery.data ?? []) {
-      if (groupEntry.students.some((student) => student.userId === submissionQuery.data!.userId)) {
+      if (groupEntry.students.some((student) => student.userId === workflowQuery.data!.studentId)) {
         groupNames.push(groupEntry.group.name)
       }
     }
     return groupNames
-  }, [groupStudentsQuery.data, submissionQuery.data])
+  }, [groupStudentsQuery.data, workflowQuery.data])
 
   if (isStudent) {
     return <AccessDeniedPage />
   }
 
   if (
-    assignmentQuery.isLoading
-    || submissionQuery.isLoading
-    || submissionAttachmentsQuery.isLoading
+    workflowQuery.isLoading
+    || assignmentQuery.isLoading
+    || submissionStudentQuery.isLoading
     || subjectScopeQuery.isLoading
     || assignmentSubjectQuery.isLoading
     || connectedGroupsQuery.isLoading
     || groupStudentsQuery.isLoading
-    || submissionStudentQuery.isLoading
   ) {
     return <LoadingState />
   }
 
   if (
-    assignmentQuery.isError
-    || submissionQuery.isError
-    || submissionAttachmentsQuery.isError
+    workflowQuery.isError
+    || assignmentQuery.isError
+    || submissionStudentQuery.isError
     || subjectScopeQuery.isError
     || assignmentSubjectQuery.isError
     || connectedGroupsQuery.isError
     || groupStudentsQuery.isError
-    || submissionStudentQuery.isError
+    || !workflowQuery.data
     || !assignmentQuery.data
-    || !submissionQuery.data
   ) {
     return (
       <ErrorState
+        title={t('assignments.submissionReview')}
         description={getLocalizedRequestErrorMessage(
-          assignmentQuery.error
-            ?? submissionQuery.error
-            ?? submissionAttachmentsQuery.error
+          workflowQuery.error
+            ?? assignmentQuery.error
+            ?? submissionStudentQuery.error
             ?? subjectScopeQuery.error
             ?? assignmentSubjectQuery.error
             ?? connectedGroupsQuery.error
-            ?? groupStudentsQuery.error
-            ?? submissionStudentQuery.error,
+            ?? groupStudentsQuery.error,
           t,
         )}
-        title={t('assignments.submissionReview')}
       />
     )
   }
 
+  const workflow = workflowQuery.data
   const assignment = assignmentQuery.data
-  const submission = submissionQuery.data
   const submissionStudent = submissionStudentQuery.data
-  const effectiveScore = gradeDraft.submissionId === submission.id ? gradeDraft.score : (submission.score ?? 0)
-  const effectiveFeedback = gradeDraft.submissionId === submission.id ? gradeDraft.feedback : (submission.feedback ?? '')
-  const isLate = new Date(submission.submittedAt).getTime() > new Date(assignment.deadline).getTime()
+  const currentAttempt = workflow.currentAttempt
+  const effectiveScore = draftAttemptId === currentAttempt?.id ? score : (currentAttempt?.score ?? 0)
+  const effectiveComment = draftAttemptId === currentAttempt?.id
+    ? comment
+    : (currentAttempt?.feedback ?? currentAttempt?.reviewComment ?? '')
+  const effectiveRevisionDeadline = draftAttemptId === currentAttempt?.id
+    ? revisionDeadline
+    : toLocalDateTimeValue(currentAttempt?.revisionDeadline)
+  const canReviewCurrentAttempt = currentAttempt != null && (currentAttempt.status === 'SUBMITTED' || currentAttempt.status === 'RESUBMITTED')
 
   return (
     <div className="space-y-6">
@@ -218,112 +247,236 @@ export function AssignmentSubmissionReviewPage({ assignmentId, submissionId }: A
           ? [
               { label: t('navigation.shared.subjects'), to: '/subjects' },
               { label: assignmentSubjectQuery.data.name, to: `/subjects/${assignmentSubjectQuery.data.id}` },
-              { label: t('navigation.shared.assignments'), to: `/subjects/${assignmentSubjectQuery.data.id}?tab=assignments` },
-              { label: assignment.title, to: `/assignments/${assignment.id}` },
-              { label: t('assignments.submissions') },
+              { label: t('navigation.shared.review'), to: '/review' },
+              { label: assignment.title },
             ]
           : [
-              { label: t('navigation.shared.assignments'), to: '/assignments' },
-              { label: assignment.title, to: `/assignments/${assignment.id}` },
-              { label: t('assignments.submissions') },
+              { label: t('navigation.shared.review'), to: '/review' },
+              { label: assignment.title },
             ]}
       />
 
-      <Card className="space-y-4 rounded-2xl border border-border-strong bg-surface p-6">
+      <Card className="space-y-5 rounded-[28px] border border-border-strong bg-surface p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <h1 className="text-2xl font-bold tracking-[-0.03em] text-text-primary">
-              {t('assignments.submissionReviewTitle', {
-                student: submissionStudent?.username ?? t('education.unknownStudent'),
-              })}
-            </h1>
-            <div className="grid gap-2 text-sm text-text-secondary sm:grid-cols-2">
-              <p>{t('testing.student')}: <span className="font-medium text-text-primary">{submissionStudent?.username ?? t('education.unknownStudent')}</span></p>
-              <p>{t('education.subjectGroupsLabel')}: <span className="font-medium text-text-primary">{studentGroups.join(', ') || '—'}</span></p>
-              <p>{t('assignments.submittedAt')}: <span className="font-medium text-text-primary">{formatDateTime(submission.submittedAt)}</span></p>
-              <p>{t('assignments.deadline')}: <span className="font-medium text-text-primary">{formatDateTime(assignment.deadline)}</span></p>
-              <p>{t('common.labels.status')}: <span className="font-medium text-text-primary">{isLate ? t('assignments.lateSubmission') : t('assignments.onTimeSubmission')}</span></p>
-              <p>{t('common.labels.score')}: <span className="font-medium text-text-primary">{submission.score ?? 0}/{assignment.maxPoints}</span></p>
+          <div className="space-y-3">
+            <Link className="text-sm font-medium text-accent" to="/review">
+              {t('assignments.backToSubmissions')}
+            </Link>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary">
+                {assignment.title}
+              </h1>
+              <p className="text-sm text-text-secondary">
+                {assignmentSubjectQuery.data?.name ?? t('navigation.shared.assignments')}
+              </p>
             </div>
           </div>
-          <Link to={`/assignments/${assignmentId}?tab=submissions`}>
-            <Button variant="secondary">{t('assignments.backToSubmissions')}</Button>
-          </Link>
+          <StatusBadge value={workflow.currentStatus} />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Card className="rounded-[22px] border border-border bg-surface-muted p-5">
+            <div className="flex items-start gap-4">
+              <UserAvatar email={submissionStudent?.email} size="lg" username={submissionStudent?.username} />
+              <div className="space-y-2">
+                <p className="text-lg font-semibold text-text-primary">
+                  {submissionStudent?.username ?? t('education.unknownStudent')}
+                </p>
+                <div className="grid gap-2 text-sm text-text-secondary sm:grid-cols-2">
+                  <p>{t('education.subjectGroupsLabel')}: <span className="font-medium text-text-primary">{studentGroups.join(', ') || '—'}</span></p>
+                  <p>{t('assignments.attemptsUsed')}: <span className="font-medium text-text-primary">{workflow.currentAttemptNumber}/{workflow.maxAttempts}</span></p>
+                  <p>{t('assignments.submittedAt')}: <span className="font-medium text-text-primary">{formatDateTime(currentAttempt?.submittedAt ?? null)}</span></p>
+                  <p>{t('assignments.revisionDeadline')}: <span className="font-medium text-text-primary">{formatDateTime(workflow.revisionDeadline)}</span></p>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="rounded-[22px] border border-border bg-surface-muted p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-muted">
+              {t('assignments.currentAttempt')}
+            </p>
+            <p className="mt-2 text-3xl font-semibold text-text-primary">
+              {workflow.currentAttemptNumber}/{workflow.maxAttempts}
+            </p>
+            <div className="mt-4 grid gap-2 text-sm text-text-secondary">
+              <p>{t('assignments.remainingAttempts')}: <span className="font-medium text-text-primary">{workflow.remainingAttempts}</span></p>
+              <p>{t('common.labels.score')}: <span className="font-medium text-text-primary">{workflow.finalScore == null ? '—' : `${workflow.finalScore}/${workflow.maxScore}`}</span></p>
+              <p>{t('assignments.reviewedAt')}: <span className="font-medium text-text-primary">{formatDateTime(currentAttempt?.reviewedAt ?? null)}</span></p>
+            </div>
+          </Card>
         </div>
       </Card>
 
-      {attachmentItems.length === 0 ? (
-        <EmptyState description={t('assignments.noFilesAttached')} title={t('assignments.submissionFiles')} />
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)_320px]">
-          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-4">
-            <PageHeader title={t('assignments.submissionFiles')} />
-            <FileAttachmentList
-              files={attachmentItems}
-              selectedFileId={selectedAttachment?.id ?? null}
-              onDownload={async (attachment) => {
-                const blob = await assignmentService.downloadSubmissionAttachment(submissionId, attachment.id)
-                downloadBlob(blob, attachment.originalFileName)
-              }}
-              onSelect={(attachment) => setSelectedAttachmentId(attachment.id)}
-            />
-          </Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <div className="space-y-4">
+          <Card className="space-y-4 rounded-[28px] border border-border-strong bg-surface p-5">
+            <PageHeader title={t('assignments.attemptHistory')} />
+            {workflow.attempts.length === 0 ? (
+              <EmptyState title={t('assignments.attemptHistory')} description={t('assignments.noAttemptsYet')} />
+            ) : (
+              <div className="space-y-4">
+                {workflow.attempts.map((attempt) => (
+                  <div
+                    key={attempt.id}
+                    className={`rounded-[22px] border p-4 ${attempt.id === currentAttempt?.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface-muted'}`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-text-primary">
+                          {t('assignments.attemptLabel', { number: attempt.attemptNumber })}
+                        </p>
+                        <p className="text-sm text-text-secondary">{formatDateTime(attempt.submittedAt)}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge value={attempt.status} />
+                        {attempt.submittedLate ? (
+                          <span className="rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-semibold text-danger">
+                            {t('assignments.lateSubmission')}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
 
-          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-4">
-            <FilePreviewPanel
-              fetchDownloadBlob={(attachment) => assignmentService.downloadSubmissionAttachment(submissionId, attachment.id)}
-              fetchPreviewBlob={(attachment) => assignmentService.previewSubmissionAttachment(submissionId, attachment.id)}
-              selectedFile={selectedAttachment}
-              onDownload={async (attachment) => {
-                const blob = await assignmentService.downloadSubmissionAttachment(submissionId, attachment.id)
-                downloadBlob(blob, attachment.originalFileName)
-              }}
-            />
-          </Card>
+                    <div className="mt-4 grid gap-3 text-sm text-text-secondary md:grid-cols-2">
+                      <p>{t('common.labels.score')}: <span className="font-medium text-text-primary">{attempt.score == null ? '—' : `${attempt.score}/${workflow.maxScore}`}</span></p>
+                      <p>{t('assignments.reviewedAt')}: <span className="font-medium text-text-primary">{formatDateTime(attempt.reviewedAt)}</span></p>
+                    </div>
 
-          <Card className="space-y-4 rounded-2xl border border-border bg-surface p-4">
-            <PageHeader title={t('assignments.gradeSubmission')} />
+                    {attempt.reviewComment ? (
+                      <div className="mt-4 rounded-[18px] border border-border bg-surface px-4 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+                          {t('assignments.teacherComment')}
+                        </p>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-secondary">
+                          {attempt.reviewComment}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4">
+                      <FileAttachmentList
+                        files={attempt.attachments.map((attachment) => ({
+                          id: attachment.id,
+                          fileId: attachment.fileId,
+                          displayName: attachment.displayName,
+                          originalFileName: attachment.originalFileName,
+                          contentType: attachment.contentType,
+                          sizeBytes: attachment.sizeBytes,
+                          previewAvailable: attachment.previewAvailable,
+                          createdAt: attachment.createdAt,
+                        }))}
+                        selectedFileId={selectedAttachment?.submissionId === attempt.id ? selectedAttachment.id : null}
+                        collapsible
+                        defaultExpanded={attempt.id === currentAttempt?.id}
+                        onSelect={(attachment) => setSelectedAttachmentId(attachment.id)}
+                        onDownload={async (attachment) => {
+                          const blob = await assignmentService.downloadSubmissionAttachment(attempt.id, attachment.id)
+                          downloadBlob(blob, attachment.originalFileName)
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          <Card className="space-y-4 rounded-[28px] border border-border-strong bg-surface p-5">
+            <PageHeader title={t('assignments.reviewPanel')} />
             <FormField label={t('common.labels.score')}>
               <Input
-                max={assignment.maxPoints}
+                max={workflow.maxScore}
                 min={0}
                 type="number"
                 value={effectiveScore}
                 onChange={(event) => {
-                  setGradeDraft({
-                    submissionId: submission.id,
-                    score: Number(event.target.value),
-                    feedback: effectiveFeedback,
-                  })
+                  setDraftAttemptId(currentAttempt?.id ?? '')
+                  setScore(Number(event.target.value))
                 }}
               />
             </FormField>
-            <FormField label={t('assignments.feedback')}>
+            <FormField label={t('assignments.teacherComment')}>
               <Textarea
-                rows={6}
-                value={effectiveFeedback}
+                rows={7}
+                value={effectiveComment}
                 onChange={(event) => {
-                  setGradeDraft({
-                    submissionId: submission.id,
-                    score: effectiveScore,
-                    feedback: event.target.value,
-                  })
+                  setDraftAttemptId(currentAttempt?.id ?? '')
+                  setComment(event.target.value)
                 }}
               />
             </FormField>
-            <Button
-              disabled={effectiveScore < 0 || effectiveScore > assignment.maxPoints || gradeMutation.isPending}
-              onClick={() => gradeMutation.mutate()}
-            >
-              {t('assignments.saveGrade')}
-            </Button>
-            <div className="rounded-[12px] border border-border bg-surface-muted px-3 py-2 text-sm text-text-secondary">
-              <p>{t('assignments.reviewed')}: {submission.reviewed ? t('assignments.yes') : t('assignments.no')}</p>
-              <p>{t('assignments.gradedAt')}: {formatDateTime(submission.gradedAt)}</p>
+            <FormField label={t('assignments.newRevisionDeadline')}>
+              <Input
+                type="datetime-local"
+                value={effectiveRevisionDeadline}
+                onChange={(event) => {
+                  setDraftAttemptId(currentAttempt?.id ?? '')
+                  setRevisionDeadline(event.target.value)
+                }}
+              />
+            </FormField>
+
+            <div className="grid gap-3">
+              <Button
+                disabled={!canReviewCurrentAttempt || effectiveScore < 0 || effectiveScore > workflow.maxScore || reviewMutation.isPending || returnMutation.isPending}
+                onClick={() => reviewMutation.mutate()}
+              >
+                {reviewMutation.isPending ? t('common.states.loading') : t('assignments.gradeAndApprove')}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={!canReviewCurrentAttempt || !effectiveComment.trim() || reviewMutation.isPending || returnMutation.isPending}
+                onClick={() => returnMutation.mutate()}
+              >
+                {returnMutation.isPending ? t('common.states.loading') : t('assignments.returnForRevision')}
+              </Button>
+              <Link to={`/assignments/${workflow.assignmentId}`}>
+                <Button fullWidth variant="ghost">{t('assignments.otherActions')}</Button>
+              </Link>
             </div>
           </Card>
+
+          <Card className="space-y-4 rounded-[28px] border border-border-strong bg-surface p-5">
+            <PageHeader title={t('assignments.filePreview')} />
+            <FilePreviewPanel
+              fetchDownloadBlob={(attachment) => assignmentService.downloadSubmissionAttachment((attachment as WorkflowAttachmentItem).submissionId, attachment.id)}
+              fetchPreviewBlob={(attachment) => assignmentService.previewSubmissionAttachment((attachment as WorkflowAttachmentItem).submissionId, attachment.id)}
+              selectedFile={selectedAttachment}
+              onDownload={async (attachment) => {
+                const workflowAttachment = attachment as WorkflowAttachmentItem
+                const blob = await assignmentService.downloadSubmissionAttachment(workflowAttachment.submissionId, workflowAttachment.id)
+                downloadBlob(blob, workflowAttachment.originalFileName)
+              }}
+            />
+          </Card>
         </div>
-      )}
+      </div>
     </div>
   )
+}
+
+function toLocalDateTimeValue(value?: string | null) {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  const hours = `${date.getHours()}`.padStart(2, '0')
+  const minutes = `${date.getMinutes()}`.padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function fromLocalDateTimeValue(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toISOString()
 }

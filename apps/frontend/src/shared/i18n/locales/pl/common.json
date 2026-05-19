@@ -99,9 +99,16 @@
       "CLOSED": "Zamknięty",
       "DISABLED": "Wyłączony",
       "DRAFT": "Szkic",
+      "GRADED": "Ocenione",
+      "MISSING": "Brak oddania",
+      "NOT_SUBMITTED": "Nie oddano",
+      "PENDING_REVIEW": "Czeka na sprawdzenie",
       "PUBLISHED": "Opublikowany",
       "READ": "Przeczytane",
       "READY": "Gotowe",
+      "RESUBMITTED": "Oddane ponownie",
+      "RETURNED_FOR_REVISION": "Zwrócone do poprawy",
+      "SUBMITTED": "Oddane",
       "UNREAD": "Nieprzeczytane"
     }
   },
@@ -161,7 +168,8 @@
       "streams": "Strumienie",
       "curriculumPlans": "Plany nauczania",
       "rooms": "Sale",
-      "search": "Wyszukiwanie"
+      "search": "Wyszukiwanie",
+      "myGrades": "Moje oceny"
     },
     "student": {
       "analytics": "Analityka",
@@ -499,15 +507,45 @@
     "teacherMaterials": "Materiały od prowadzącego",
     "submissionReview": "Przegląd zgłoszenia",
     "submissionReviewTitle": "Przegląd zgłoszenia: {{student}}",
+    "submissionJournalTitle": "Dziennik zgłoszeń",
+    "submissionJournalDescription": "Śledź bieżące statusy zgłoszeń, rundy poprawek i działania oceniania dla wszystkich prac.",
+    "submissionOverview": "Przegląd zgłoszeń",
     "openSubmissionReview": "Otwórz przegląd",
     "backToSubmissions": "Wróć do zgłoszeń",
     "saveGrade": "Zapisz i zatwierdź ocenę",
+    "gradeAndApprove": "Oceń i zalicz",
+    "returnForRevision": "Zwróć do poprawy",
+    "otherActions": "Inne działania",
     "lateSubmission": "Po terminie",
     "onTimeSubmission": "Na czas",
     "previewUnavailable": "Podgląd wbudowany nie jest dostępny dla tego typu pliku.",
     "notAvailableForGroup": "To zadanie nie jest dostępne dla Twojej grupy.",
     "subjectCreateDescription": "Twórz zadania wewnątrz przedmiotu, aby praca była osadzona w kontekście kursu.",
-    "topicCreateDescription": "Twórz zadania w ramach tego tematu, aby pozostały powiązane z przebiegiem zajęć."
+    "topicCreateDescription": "Twórz zadania w ramach tego tematu, aby pozostały powiązane z przebiegiem zajęć.",
+    "attempt": "Próba",
+    "attemptHistory": "Historia prób",
+    "attemptLabel": "Próba {{number}}",
+    "attemptsUsed": "Próby",
+    "currentAttempt": "Bieżąca próba",
+    "teacherComment": "Komentarz nauczyciela",
+    "revisionDeadline": "Termin poprawy",
+    "newRevisionDeadline": "Nowy termin poprawy",
+    "newDeadline": "Nowy termin",
+    "newDeadlineLabel": "nowy",
+    "uploadNewVersion": "Prześlij nową wersję",
+    "resubmit": "Oddaj ponownie",
+    "remainingAttempts": "Pozostałe próby",
+    "returnedForRevisionNotice": "Nauczyciel zwrócił tę pracę do poprawy.",
+    "noAttemptsYet": "Brak prób.",
+    "reviewPanel": "Panel sprawdzania",
+    "reviewQueueLabel": "Kolejka sprawdzania",
+    "activeSubmissionStates": "Aktywne stany",
+    "searchStudentOrWork": "Szukaj po studencie lub pracy",
+    "workFilter": "Praca",
+    "work": "Praca",
+    "allWorks": "Wszystkie prace",
+    "allStatuses": "Wszystkie statusy",
+    "pendingReviewUploadLocked": "Zgłoszenie czeka już na sprawdzenie. Nowe przesłanie odblokuje się po zwróceniu do poprawy albo końcowym zaliczeniu."
   },
   "testing": {
     "attempts": "Próby",
@@ -2063,6 +2101,132 @@
       "atLeastOneLessonCount": "Co najmniej jedna liczba zajęć musi być większa od zera.",
       "enableAtLeastOneCapability": "Włącz co najmniej jedną możliwość sali.",
       "priorityPositive": "Priorytet musi być dodatni."
+    }
+  },
+  "gradebook": {
+    "export": "Eksport CSV",
+    "exportLoading": "Eksportowanie CSV...",
+    "exportFailed": "Nie udało się wyeksportować dziennika ocen.",
+    "noPermissionTitle": "Dziennik jest niedostępny",
+    "noPermissionDescription": "Twoja rola nie ma dostępu do tego widoku dziennika.",
+    "states": {
+      "error": "Nie udało się załadować danych dziennika. Spróbuj ponownie."
+    },
+    "filters": {
+      "activityType": "Typ aktywności",
+      "allActivities": "Wszystkie aktywności",
+      "assignments": "Zadania",
+      "tests": "Testy",
+      "periodPlaceholder": "Bieżący przekrój akademicki"
+    },
+    "metrics": {
+      "average": "Średnia",
+      "graded": "Ocenione",
+      "pending": "Czeka na sprawdzenie",
+      "missing": "Braki",
+      "platformAverage": "Średnia platformy",
+      "activeStudents": "Aktywni studenci",
+      "subjects": "Przedmioty",
+      "groups": "Grupy",
+      "completion": "Realizacja",
+      "groupAverage": "Średnia grupy",
+      "highest": "Najwyższy wynik",
+      "lowest": "Najniższy wynik"
+    },
+    "labels": {
+      "activity": "Aktywność",
+      "assignmentsProgress": "Postęp zadań",
+      "averageScore": "Średni wynik",
+      "completion": "Realizacja",
+      "deadline": "Termin",
+      "distribution": "Rozkład",
+      "group": "Grupa",
+      "late": "Po terminie",
+      "missing": "Braki",
+      "noTeacher": "Nauczyciel nie jest jeszcze przypisany",
+      "pendingReview": "Czeka na sprawdzenie",
+      "period": "Okres",
+      "points": "pkt",
+      "score": "Wynik",
+      "student": "Student",
+      "studentCount": "Studentów",
+      "studentId": "ID",
+      "subjectCount": "Przedmiotów",
+      "subject": "Przedmiot",
+      "teacher": "Nauczyciel",
+      "testsProgress": "Postęp testów"
+    },
+    "distribution": {
+      "high": "Wysoki",
+      "good": "Dobry",
+      "average": "Średni",
+      "low": "Niski"
+    },
+    "legend": {
+      "high": "Wysoki",
+      "average": "Średni",
+      "missing": "Brak",
+      "pending": "Oczekuje"
+    },
+    "quickLinks": {
+      "reviewSubmissions": "Sprawdź oddania",
+      "reviewTests": "Sprawdź wyniki testów"
+    },
+    "status": {
+      "GRADED": "Ocenione",
+      "PENDING_REVIEW": "Czeka na sprawdzenie",
+      "MISSING": "Brak",
+      "NOT_SUBMITTED": "Nie oddano"
+    },
+    "student": {
+      "title": "Moje oceny",
+      "description": "Śledź wyniki zadań i testów według przedmiotów, sprawdzaj oczekujące weryfikacje i szybko zauważaj braki.",
+      "emptyTitle": "Brak ocen",
+      "emptyDescription": "Wpisy pojawią się, gdy zadania i testy będą dla Ciebie dostępne.",
+      "noMissingTitle": "Brak zaległych braków",
+      "noMissingDescription": "W dzienniku nie ma obecnie przeterminowanych braków.",
+      "subjectOverview": "Przegląd przedmiotu",
+      "tabsLabel": "Sekcje dziennika studenta",
+      "tabs": {
+        "bySubject": "Według przedmiotów",
+        "allGrades": "Wszystkie oceny",
+        "missingPreview": "Podgląd braków"
+      }
+    },
+    "teacher": {
+      "title": "Dziennik ocen",
+      "description": "Przeglądaj wyniki przypisanych grup, porównuj realizację i szybko przechodź do sprawdzania.",
+      "emptyTitle": "Brak danych dziennika",
+      "emptyDescription": "Wybierz przedmiot i grupę, aby otworzyć dziennik studentów."
+    },
+    "admin": {
+      "title": "Dziennik ocen",
+      "description": "Zbiorcza kontrola wyników według grup, przedmiotów i nauczycieli.",
+      "emptyTitle": "Brak wierszy podsumowania",
+      "emptyDescription": "Dla wybranych filtrów jest jeszcze za mało ocenionych aktywności.",
+      "tabs": {
+        "groups": "Ranking grup",
+        "subjects": "Ranking przedmiotów",
+        "details": "Szczegóły ocen"
+      },
+      "rankings": {
+        "groupsTitle": "Widok analityczny według grup",
+        "subjectsTitle": "Widok analityczny według przedmiotów"
+      },
+      "detailPromptTitle": "Wybierz przedmiot i grupę, aby otworzyć szczegółowy dziennik.",
+      "detailPromptDescription": "Skorzystaj z filtrów powyżej albo z szybkich wyborów poniżej, aby otworzyć macierz ocen dla konkretnego przedmiotu i grupy.",
+      "quickPickSubjects": "Szybki wybór przedmiotów",
+      "quickPickGroups": "Szybki wybór grup",
+      "noDetailDataTitle": "Brak wierszy szczegółowego dziennika",
+      "noDetailDataDescription": "Wybrany przedmiot i grupa nie mają jeszcze szczegółowych wpisów dziennika.",
+      "kpi": {
+        "averageHint": "Ważone liczbą studentów z ocenionymi pracami",
+        "activeStudentsHint": "Bieżące członkostwa w śledzonych grupach",
+        "subjectsHint": "Przedmioty widoczne w bieżącym zestawieniu",
+        "groupsHint": "Grupy uwzględnione w bieżącym zestawieniu",
+        "missingHint": "Przeterminowane lub brakujące prace w dziennikach",
+        "completionHint": "Oddane prace z już wymaganych terminów"
+      }
     }
   }
 }
