@@ -75,6 +75,12 @@ jobs:
           assert "frontend" in services
           assert "gateway" in services
           assert "cloudflare_tunnel_token" in stack.get("secrets", {})
+          tunnel = services["cloudflared"]
+          assert tunnel["user"] == "0:0", tunnel.get("user")
+          assert tunnel["read_only"] is True
+          assert "DAC_OVERRIDE" in tunnel.get("cap_add", [])
+          assert "ALL" in tunnel.get("cap_drop", [])
+          assert "no-new-privileges:true" in tunnel.get("security_opt", [])
           # Each Spring Boot service must bypass transaction-pooled PgBouncer:
           # its per-session PostgreSQL search_path is required by Flyway.
           java_services = (
