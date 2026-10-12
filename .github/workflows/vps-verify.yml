@@ -29,6 +29,7 @@ jobs:
           bash -n infra/scripts/local/seed-demo.sh
           bash -n infra/scripts/vps/deploy-vps.sh
           bash -n infra/scripts/vps/repair-schedule-schema.sh
+          bash -n infra/scripts/vps/wait-for-readiness.sh
           if grep -Fq "printf '%s' \"\$workflow_questions_json\" | python3 <<'PY'" infra/scripts/local/seed-demo.sh; then
             echo "Broken Python heredoc stdin pattern detected" >&2
             exit 1
@@ -95,6 +96,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify HAProxy alpine includes wget for readiness probes
+        shell: bash
+        run: docker run --rm --entrypoint sh haproxy:2.9-alpine -c 'command -v wget'
 
       - name: Verify pinned MinIO image is pullable and includes mc
         shell: bash
