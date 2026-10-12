@@ -71,7 +71,20 @@ jobs:
           assert "frontend" in services
           assert "gateway" in services
           assert "cloudflare_tunnel_token" in stack.get("secrets", {})
-          print("Compose isolation checks passed")
+          # Each Spring Boot service must bypass transaction-pooled PgBouncer:
+          # its per-session PostgreSQL search_path is required by Flyway.
+          java_services = (
+              "auth-service", "profile-service", "education-service",
+              "schedule-service", "assignment-service", "content-service",
+              "testing-service", "file-service", "analytics-service",
+              "audit-service", "notification-service", "telegram-bot-service",
+              "gateway",
+          )
+          for name in java_services:
+              env = services[name]["environment"]
+              assert env.get("POSTGRES_HOST") == "postgres", (name, env.get("POSTGRES_HOST"))
+              assert str(env.get("POSTGRES_PORT")) == "5432", (name, env.get("POSTGRES_PORT"))
+          print("Compose isolation and direct PostgreSQL checks passed")
           PY
 
   verify-storage-image:
