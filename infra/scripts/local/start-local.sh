@@ -166,7 +166,7 @@ sync_missing_env_keys() {
       continue
     fi
 
-    if ! rg -q "^${key}=" "$ENV_FILE"; then
+    if ! grep -q "^${key}=" "$ENV_FILE"; then
       printf '\n%s\n' "$line" >>"$ENV_FILE"
       appended_keys+=("$key")
     fi
