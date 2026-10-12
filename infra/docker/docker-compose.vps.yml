@@ -1,62 +1,119 @@
 name: studium-lms
 
 # Requires Docker Compose 2.24.4+ for !override.
+# Memory limits protect the existing Mnemos services on the same VPS.
+x-studium-java-memory: &studium-java-memory
+  mem_limit: 768m
+  mem_reservation: 256m
+
+x-studium-java-environment: &studium-java-environment
+  JAVA_TOOL_OPTIONS: "-Xms64m -Xmx384m -XX:+ExitOnOutOfMemoryError"
+
 services:
   postgres:
+    mem_limit: 1024m
     ports: !reset []
     restart: unless-stopped
   pgbouncer:
+    mem_limit: 256m
     ports: !reset []
     restart: unless-stopped
   redis:
+    mem_limit: 512m
     ports: !reset []
     restart: unless-stopped
   kafka:
+    mem_limit: 1536m
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx768m"
     ports: !reset []
     restart: unless-stopped
   minio:
+    mem_limit: 1024m
     ports: !reset []
     restart: unless-stopped
 
   service-lb:
+    mem_limit: 192m
     ports: !override
       - "127.0.0.1:${GATEWAY_PORT:-18080}:8080"
       - "127.0.0.1:${FRONTEND_PORT:-13000}:3000"
     restart: unless-stopped
 
   auth-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   profile-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   education-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   schedule-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   assignment-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   content-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   testing-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   file-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   analytics-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   audit-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   notification-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   telegram-bot-service:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
   gateway:
+    <<: *studium-java-memory
+    environment:
+      <<: *studium-java-environment
     restart: unless-stopped
 
   frontend:
+    mem_limit: 256m
     volumes:
       - ./nginx.vps.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
 
   cloudflared:
+    mem_limit: 256m
     image: cloudflare/cloudflared:2026.8.1
     command:
       - tunnel
