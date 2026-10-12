@@ -28,6 +28,7 @@ jobs:
           bash -n infra/scripts/local/start-local.sh
           bash -n infra/scripts/local/seed-demo.sh
           bash -n infra/scripts/vps/deploy-vps.sh
+          bash -n infra/scripts/vps/repair-schedule-schema.sh
           if grep -Fq "printf '%s' \"\$workflow_questions_json\" | python3 <<'PY'" infra/scripts/local/seed-demo.sh; then
             echo "Broken Python heredoc stdin pattern detected" >&2
             exit 1
