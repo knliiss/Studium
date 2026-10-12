@@ -27,7 +27,7 @@ chmod 600 .secrets/cloudflare-tunnel.token
 bash infra/scripts/vps/deploy-vps.sh
 ```
 
-Requires Docker Engine and Docker Compose **2.24.4+** (`docker compose version`). The script generates strong values in `.env` on first run, ensures RSA keys with the existing start script, builds the backend JARs, starts the stack and seeds initial test data once. It uses loopback-bound ports 18080 (gateway) and 13000 (frontend) for diagnostics; database, Kafka, Redis and MinIO are never published to the host.
+Requires Docker Engine and Docker Compose **2.24.4+** (`docker compose version`). The SSH user must have permission to run Docker (test `docker ps` before starting). The first build checks for about **10 GiB available RAM and 15 GiB available disk** because Mnemos is already running on this VPS. If these resources are unavailable, use a separate VPS instead of risking Mnemos. For a dedicated server with an intentionally smaller resource budget, `STUDIUM_SKIP_RESOURCE_PREFLIGHT=true` disables this protective check. JVM heaps and Docker container limits are configured in the VPS Compose override. The script generates strong values in `.env` on first run, ensures RSA keys with the existing start script, builds the backend JARs, starts the stack and seeds initial test data once. It uses loopback-bound ports 18080 (gateway) and 13000 (frontend) for diagnostics; database, Kafka, Redis and MinIO are never published to the host.
 
 If Studium is already cloned, update the deployment branch and rerun:
 
