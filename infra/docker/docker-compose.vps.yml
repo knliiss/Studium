@@ -6,8 +6,13 @@ x-studium-java-memory: &studium-java-memory
   mem_limit: 768m
   mem_reservation: 256m
 
+# Use direct PostgreSQL: transaction-pooled PgBouncer can lose Flyway/JDBC search_path
+# settings between transactions, leaving migrations recorded in the requested
+# schema while unqualified CREATE TABLE statements land in public.
 x-studium-java-environment: &studium-java-environment
   JAVA_TOOL_OPTIONS: "-Xms64m -Xmx384m -XX:+ExitOnOutOfMemoryError"
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
 
 services:
   postgres:
