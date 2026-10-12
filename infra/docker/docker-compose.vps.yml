@@ -24,6 +24,33 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-13000}:3000"
     restart: unless-stopped
 
+  auth-service:
+    restart: unless-stopped
+  profile-service:
+    restart: unless-stopped
+  education-service:
+    restart: unless-stopped
+  schedule-service:
+    restart: unless-stopped
+  assignment-service:
+    restart: unless-stopped
+  content-service:
+    restart: unless-stopped
+  testing-service:
+    restart: unless-stopped
+  file-service:
+    restart: unless-stopped
+  analytics-service:
+    restart: unless-stopped
+  audit-service:
+    restart: unless-stopped
+  notification-service:
+    restart: unless-stopped
+  telegram-bot-service:
+    restart: unless-stopped
+  gateway:
+    restart: unless-stopped
+
   frontend:
     volumes:
       - ./nginx.vps.conf:/etc/nginx/conf.d/default.conf:ro
