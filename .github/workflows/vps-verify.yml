@@ -74,6 +74,40 @@ jobs:
           print("Compose isolation checks passed")
           PY
 
+  verify-storage-image:
+    needs: verify-vps-deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify pinned MinIO image is pullable and includes mc
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          mkdir -p .secrets
+          printf 'test-placeholder-token\n' > .secrets/cloudflare-tunnel.token
+          docker compose --env-file .env \
+            -f infra/docker/docker-compose.local.yml \
+            -f infra/docker/docker-compose.vps.yml \
+            config --format json > /tmp/studium-storage-config.json
+          image="$(python3 - <<'PY'
+          import json
+          with open("/tmp/studium-storage-config.json", encoding="utf-8") as handle:
+              services = json.load(handle)["services"]
+          server = services["minio"]["image"]
+          client = services["minio-init"]["image"]
+          assert server == client, (server, client)
+          assert "@sha256:" in server, server
+          print(server)
+          PY
+          )"
+          docker pull "$image"
+          docker run --rm --entrypoint /bin/sh "$image" -c 'command -v minio && command -v mc && command -v curl'
+          echo "Pinned MinIO image is ready for server and bucket initialization"
+
   build-backend:
     needs: verify-vps-deployment
     runs-on: ubuntu-latest
