@@ -73,7 +73,7 @@ if plan.get("project_id")!=1 or "studium" not in plan.get("name","").casefold():
 if plan.get("is_completed"): stop("План закрито, змінювати його не можна")
 cases=paginate("get_cases/1","cases")
 sections=paginate("get_sections/1","sections")
-user_data=api("GET","get_users/1")
+user_data=api("GET","get_users")
 users=user_data if isinstance(user_data,list) else user_data.get("users",[])
 prior_data=api("GET","get_priorities")
 priorities=prior_data if isinstance(prior_data,list) else prior_data.get("priorities",[])
