@@ -71,3 +71,7 @@ test-output/
 *.swp
 *.swo
 .agent-report.md
+
+# VPS demo deployment state and tunnel token
+.secrets/
+.vps-demo-seeded

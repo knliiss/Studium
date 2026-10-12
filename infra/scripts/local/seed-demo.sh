@@ -10,7 +10,11 @@ source "$ENV_FILE"
 set +a
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  if [[ -n "${STUDIUM_COMPOSE_OVERRIDE_FILE:-}" ]]; then
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$STUDIUM_COMPOSE_OVERRIDE_FILE" "$@"
+  else
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
 }
 
 json_get() {

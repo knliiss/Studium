@@ -39,6 +39,7 @@ BOOTJAR_TASKS=(
   :apps:analytics-service:bootJar
   :apps:audit-service:bootJar
   :apps:notification-service:bootJar
+  :apps:telegram-bot-service:bootJar
   :apps:gateway:bootJar
 )
 
@@ -70,7 +71,11 @@ USAGE
 }
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  if [[ -n "${STUDIUM_COMPOSE_OVERRIDE_FILE:-}" ]]; then
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$STUDIUM_COMPOSE_OVERRIDE_FILE" "$@"
+  else
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
 }
 
 create_minimal_env() {
@@ -376,11 +381,13 @@ build_jars() {
         education-service) tasks_to_build+=( ":apps:education-service:bootJar" ) ;;
         schedule-service) tasks_to_build+=( ":apps:schedule-service:bootJar" ) ;;
         assignment-service) tasks_to_build+=( ":apps:assignment-service:bootJar" ) ;;
+        content-service) tasks_to_build+=( ":apps:content-service:bootJar" ) ;;
         testing-service) tasks_to_build+=( ":apps:testing-service:bootJar" ) ;;
         file-service) tasks_to_build+=( ":apps:file-service:bootJar" ) ;;
         analytics-service) tasks_to_build+=( ":apps:analytics-service:bootJar" ) ;;
         audit-service) tasks_to_build+=( ":apps:audit-service:bootJar" ) ;;
         notification-service) tasks_to_build+=( ":apps:notification-service:bootJar" ) ;;
+        telegram-bot-service) tasks_to_build+=( ":apps:telegram-bot-service:bootJar" ) ;;
         gateway) tasks_to_build+=( ":apps:gateway:bootJar" ) ;;
       esac
     fi
@@ -396,6 +403,10 @@ build_jars() {
 }
 
 seed_demo_data() {
+  if [[ "${STUDIUM_SKIP_AUTO_SEED:-false}" == "true" ]]; then
+    echo "Automatic seed skipped (VPS seed is controlled separately)"
+    return
+  fi
   if [[ "${DEMO_SEED_ENABLED:-true}" != "true" ]]; then
     echo "Demo seed disabled via DEMO_SEED_ENABLED"
     return

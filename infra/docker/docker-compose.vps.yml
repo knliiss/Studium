@@ -1,0 +1,50 @@
+name: studium-lms
+
+# Requires Docker Compose 2.24.4+ for !override.
+services:
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+  pgbouncer:
+    ports: !reset []
+    restart: unless-stopped
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+  kafka:
+    ports: !reset []
+    restart: unless-stopped
+  minio:
+    ports: !reset []
+    restart: unless-stopped
+
+  service-lb:
+    ports: !override
+      - "127.0.0.1:${GATEWAY_PORT:-18080}:8080"
+      - "127.0.0.1:${FRONTEND_PORT:-13000}:3000"
+    restart: unless-stopped
+
+  frontend:
+    volumes:
+      - ./nginx.vps.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.1
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --protocol
+      - http2
+      - run
+      - --token-file
+      - /run/secrets/cloudflare_tunnel_token
+    secrets:
+      - cloudflare_tunnel_token
+    depends_on:
+      - service-lb
+    restart: unless-stopped
+
+secrets:
+  cloudflare_tunnel_token:
+    file: ../../.secrets/cloudflare-tunnel.token
