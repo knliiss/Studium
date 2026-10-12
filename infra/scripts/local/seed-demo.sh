@@ -1289,11 +1289,11 @@ sql_exec "delete from ${TESTING_DB_SCHEMA:-testing}.test_results where test_id =
 sql_exec "delete from ${TESTING_DB_SCHEMA:-testing}.test_attempts where test_id = '${workflow_test_id}' and user_id in ('${student_one_id}','${student_two_id}');"
 
 workflow_questions_json="$(api_json "GET" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/testing/questions/test/${workflow_test_id}" "$teacher_alpha_token" "")"
-student_one_answers_json="$(printf '%s' "$workflow_questions_json" | python3 <<'PY'
+student_one_answers_json="$(python3 - "$workflow_questions_json" <<'PY'
 import json
 import sys
 
-questions = json.loads(sys.stdin.read() or "[]")
+questions = json.loads(sys.argv[1] or "[]")
 answers = []
 for question in questions:
     qid = question["id"]
@@ -1318,11 +1318,11 @@ for question in questions:
 print(json.dumps({"answers": answers}, separators=(",", ":")))
 PY
 )"
-student_two_answers_json="$(printf '%s' "$workflow_questions_json" | python3 <<'PY'
+student_two_answers_json="$(python3 - "$workflow_questions_json" <<'PY'
 import json
 import sys
 
-questions = json.loads(sys.stdin.read() or "[]")
+questions = json.loads(sys.argv[1] or "[]")
 answers = []
 for question in questions:
     qid = question["id"]
