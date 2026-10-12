@@ -116,6 +116,7 @@ else
 fi
 
 if [[ "${DEMO_SEED_ENABLED:-true}" == "true" && ( ! -f "$STATE_FILE" || "${STUDIUM_RESEED:-false}" == "true" ) ]]; then
+  bash "$ROOT_DIR/infra/scripts/vps/wait-for-readiness.sh"
   bash "$ROOT_DIR/infra/scripts/local/seed-demo.sh"
   touch "$STATE_FILE"
 fi
