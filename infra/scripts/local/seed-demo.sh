@@ -1140,6 +1140,7 @@ published_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:
 {"topicId":"${sorting_topic_id}","title":"Merge Sort Walkthrough","description":"Published assignment that stays pending for dashboard cards.","deadline":"${published_assignment_deadline}","allowLateSubmissions":false,"maxSubmissions":1,"allowResubmit":false,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
 JSON
 )")" | json_get id)"
+[[ -n "$published_assignment_id" ]] || { echo "ERROR: Missing published_assignment_id; stopping demo seed before further API operations." >&2; exit 1; }
 ensure_assignment_published "$admin_token" "$published_assignment_id"
 upsert_assignment_availability "$admin_token" "$published_assignment_id" "$group_one_id" "$published_assignment_deadline" "false" "1" "false"
 
@@ -1147,6 +1148,7 @@ graded_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-as
 {"topicId":"${graphs_topic_id}","title":"Graph Paths Exercise","description":"Assignment used for graded submission seed data.","deadline":"${graded_assignment_deadline}","allowLateSubmissions":false,"maxSubmissions":1,"allowResubmit":false,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
 JSON
 )")" | json_get id)"
+[[ -n "$graded_assignment_id" ]] || { echo "ERROR: Missing graded_assignment_id; stopping demo seed before further API operations." >&2; exit 1; }
 ensure_assignment_published "$admin_token" "$graded_assignment_id"
 upsert_assignment_availability "$admin_token" "$graded_assignment_id" "$group_one_id" "$graded_assignment_deadline" "false" "1" "false"
 
@@ -1154,6 +1156,7 @@ teacher_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-a
 {"topicId":"${graphs_topic_id}","title":"Teacher Alpha API Contract Drill","description":"Teacher-owned assignment for role-based detail and submission review QA.","deadline":"${teacher_assignment_deadline}","allowLateSubmissions":true,"maxSubmissions":2,"allowResubmit":true,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
 JSON
 )")" | json_get id)"
+[[ -n "$teacher_assignment_id" ]] || { echo "ERROR: Missing teacher_assignment_id; stopping demo seed before further API operations." >&2; exit 1; }
 ensure_assignment_published "$teacher_alpha_token" "$teacher_assignment_id"
 upsert_assignment_availability "$teacher_alpha_token" "$teacher_assignment_id" "$group_one_id" "$teacher_assignment_deadline" "true" "2" "true"
 
@@ -1161,6 +1164,7 @@ late_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-assi
 {"topicId":"${sql_topic_id}","title":"Late SQL Reflection","description":"Assignment intentionally backdated for late submission analytics.","deadline":"${late_assignment_initial_deadline}","allowLateSubmissions":true,"maxSubmissions":2,"allowResubmit":true,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
 JSON
 )")" | json_get id)"
+[[ -n "$late_assignment_id" ]] || { echo "ERROR: Missing late_assignment_id; stopping demo seed before further API operations." >&2; exit 1; }
 ensure_assignment_published "$admin_token" "$late_assignment_id"
 upsert_assignment_availability "$admin_token" "$late_assignment_id" "$group_one_id" "$late_assignment_initial_deadline" "true" "2" "true"
 
@@ -1168,12 +1172,14 @@ draft_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-ass
 {"topicId":"${transactions_topic_id}","title":"Draft Transaction Checklist","description":"Draft assignment for teacher dashboard.","deadline":"${draft_assignment_deadline}","allowLateSubmissions":false,"maxSubmissions":1,"allowResubmit":false,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
 JSON
 )")" | json_get id)"
+[[ -n "$draft_assignment_id" ]] || { echo "ERROR: Missing draft_assignment_id; stopping demo seed before further API operations." >&2; exit 1; }
 upsert_assignment_availability "$admin_token" "$draft_assignment_id" "$group_one_id" "$draft_assignment_deadline" "false" "1" "false"
 
 archived_assignment_id="$(printf '%s' "$(ensure_entity "${ASSIGNMENT_DB_SCHEMA:-assignment}.assignments" "title" "Archived Complexity Notes" "http://localhost:${GATEWAY_PORT:-8080}/api/v1/assignments" "$admin_token" "$(cat <<JSON
 {"topicId":"${sorting_topic_id}","title":"Archived Complexity Notes","description":"Archived assignment example.","deadline":"${archived_assignment_deadline}","allowLateSubmissions":false,"maxSubmissions":1,"allowResubmit":false,"acceptedFileTypes":["text/plain"],"maxFileSizeMb":2}
 JSON
 )")" | json_get id)"
+[[ -n "$archived_assignment_id" ]] || { echo "ERROR: Missing archived_assignment_id; stopping demo seed before further API operations." >&2; exit 1; }
 ensure_assignment_archived "$admin_token" "$archived_assignment_id"
 upsert_assignment_availability "$admin_token" "$archived_assignment_id" "$group_one_id" "$archived_assignment_deadline" "false" "1" "false"
 
