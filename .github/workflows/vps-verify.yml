@@ -1,0 +1,71 @@
+name: Studium VPS Configuration Verification
+
+on:
+  push:
+    branches:
+      - deploy/lms-vps
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-vps-deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify startup and seed scripts syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n infra/scripts/local/start-local.sh
+          bash -n infra/scripts/local/seed-demo.sh
+          bash -n infra/scripts/vps/deploy-vps.sh
+          if grep -Fq "printf '%s' \"\$workflow_questions_json\" | python3 <<'PY'" infra/scripts/local/seed-demo.sh; then
+            echo "Broken Python heredoc stdin pattern detected" >&2
+            exit 1
+          fi
+          if grep -Fq 'rg -q' infra/scripts/local/start-local.sh; then
+            echo "Unexpected ripgrep prerequisite" >&2
+            exit 1
+          fi
+
+      - name: Validate isolated Compose configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose version
+          cp .env.example .env
+          mkdir -p .secrets
+          printf 'test-placeholder-token\n' > .secrets/cloudflare-tunnel.token
+          docker compose --env-file .env \
+            -f infra/docker/docker-compose.local.yml \
+            -f infra/docker/docker-compose.vps.yml \
+            config --format json > /tmp/studium-compose.json
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/studium-compose.json", encoding="utf-8") as handle:
+              stack = json.load(handle)
+
+          assert stack["name"] == "studium-lms", stack["name"]
+          services = stack["services"]
+          forbidden = ("postgres", "pgbouncer", "redis", "kafka", "minio")
+          for name in forbidden:
+              assert not services[name].get("ports"), f"{name} is exposed"
+          assert all(
+              item.get("host_ip") == "127.0.0.1"
+              for item in services["service-lb"].get("ports", [])
+          ), "HAProxy ports must bind to 127.0.0.1"
+          for name, service in services.items():
+              if name != "service-lb":
+                  assert not service.get("ports"), f"{name} exposes ports"
+          assert "cloudflared" in services
+          assert "frontend" in services
+          assert "gateway" in services
+          assert "cloudflare_tunnel_token" in stack.get("secrets", {})
+          print("Compose isolation checks passed")
+          PY
