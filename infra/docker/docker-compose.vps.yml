@@ -120,6 +120,16 @@ services:
   cloudflared:
     mem_limit: 256m
     image: cloudflare/cloudflared:2026.8.1
+    # Compose local-file secrets are bind mounts; uid/gid/mode are not remapped.
+    # Keep the source token chmod 600; read it as root with only DAC_OVERRIDE.
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
     command:
       - tunnel
       - --no-autoupdate
