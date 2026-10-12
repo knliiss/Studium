@@ -8,10 +8,23 @@ STATE_FILE="$ROOT_DIR/.vps-demo-seeded"
 export STUDIUM_COMPOSE_OVERRIDE_FILE="$ROOT_DIR/infra/docker/docker-compose.vps.yml"
 export STUDIUM_SKIP_AUTO_SEED=true
 
-for binary in docker python3 openssl curl java; do
+for binary in docker python3 openssl curl java javac; do
   command -v "$binary" >/dev/null 2>&1 || { echo "Missing $binary" >&2; exit 1; }
 done
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2.24.4+ required" >&2; exit 1; }
+compose_version="$(docker compose version --short | sed 's/^v//')"
+if ! python3 - "$compose_version" <<'PY'
+import sys
+try:
+    version = tuple(int(item) for item in sys.argv[1].split(".")[:3])
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if version >= (2, 24, 4) else 1)
+PY
+then
+  echo "Docker Compose $compose_version is too old; require 2.24.4+" >&2
+  exit 1
+fi
 [[ -s "$TOKEN_FILE" ]] || { echo "Save the new Cloudflare Tunnel token to $TOKEN_FILE first" >&2; exit 1; }
 
 if [[ ! -f "$ENV_FILE" ]]; then
