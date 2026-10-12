@@ -107,7 +107,7 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    image: tobi312/minio:RELEASE.2025-09-07T16-13-09Z@sha256:e2226dea4b9aef896db02f7396102d48eb58cd339d930332e3d8bdac80012a78
     container_name: studium-minio
     command: server /data --console-address ":9001"
     environment:
@@ -150,7 +150,7 @@ services:
     entrypoint: ["bash", "/scripts/init-kafka.sh"]
 
   minio-init:
-    image: minio/mc:latest
+    image: tobi312/minio:RELEASE.2025-09-07T16-13-09Z@sha256:e2226dea4b9aef896db02f7396102d48eb58cd339d930332e3d8bdac80012a78
     depends_on:
       minio:
         condition: service_healthy
