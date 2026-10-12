@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: studium-vps-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-vps-deployment:
     runs-on: ubuntu-latest
