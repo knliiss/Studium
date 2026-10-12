@@ -86,6 +86,21 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# A first deployment builds 13 JVM services alongside the existing Mnemos stack.
+# Reject insufficient host resources before Gradle/Docker can disrupt Mnemos.
+if [[ "${STUDIUM_SKIP_RESOURCE_PREFLIGHT:-false}" != "true" ]] &&
+   [[ -z "$(docker ps -q --filter label=com.docker.compose.project=studium-lms | head -n 1)" ]]; then
+  available_memory_mib="$(awk '/^MemAvailable:/ { print int($2 / 1024); exit }' /proc/meminfo)"
+  available_disk_mib="$(df -Pm "$ROOT_DIR" | awk 'NR == 2 { print $4 }')"
+  echo "VPS resources before first deployment: RAM available=${available_memory_mib} MiB, disk available=${available_disk_mib} MiB"
+  if [[ "${available_memory_mib:-0}" -lt 10240 || "${available_disk_mib:-0}" -lt 15360 ]]; then
+    echo "Studium demo needs around 10 GiB available RAM and 15 GiB free disk on a shared Mnemos VPS." >&2
+    echo "No Mnemos or Studium services have been changed." >&2
+    echo "For a dedicated VPS with a known resource budget, set STUDIUM_SKIP_RESOURCE_PREFLIGHT=true." >&2
+    exit 1
+  fi
+fi
+
 rebuild_needed=false
 for service in auth-service profile-service education-service schedule-service assignment-service content-service testing-service file-service analytics-service audit-service notification-service telegram-bot-service gateway; do
   if ! compgen -G "$ROOT_DIR/apps/$service/build/libs/*.jar" >/dev/null; then
