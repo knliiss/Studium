@@ -9,6 +9,7 @@ interface AuthPasswordFieldProps {
   placeholder?: string
   autoComplete?: string
   ariaInvalid?: boolean
+  ariaDescribedBy?: string
   inputClassName?: string
   showLabel: string
   hideLabel: string
@@ -16,6 +17,7 @@ interface AuthPasswordFieldProps {
 
 export function AuthPasswordField({
   ariaInvalid,
+  ariaDescribedBy,
   autoComplete,
   hideLabel,
   inputClassName,
@@ -30,6 +32,7 @@ export function AuthPasswordField({
     <div className="relative">
       <Input
         aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         autoComplete={autoComplete}
         className={inputClassName ? `${inputClassName} pr-12` : 'pr-12'}
         placeholder={placeholder}

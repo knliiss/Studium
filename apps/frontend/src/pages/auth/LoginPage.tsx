@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 
@@ -19,6 +19,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useTranslation(['common', 'errors', 'validation'])
+  const errorId = useId()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(() => {
@@ -76,6 +77,7 @@ export function LoginPage() {
         <FormField label={t('common.labels.username')}>
           <Input
             aria-invalid={Boolean(error)}
+            aria-describedby={error ? errorId : undefined}
             autoComplete="username"
             className={error ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
             placeholder={t('auth.login.usernamePlaceholder')}
@@ -85,7 +87,8 @@ export function LoginPage() {
         </FormField>
         <FormField label={t('common.labels.password')}>
           <AuthPasswordField
-            aria-invalid={Boolean(error)}
+            ariaInvalid={Boolean(error)}
+            ariaDescribedBy={error ? errorId : undefined}
             autoComplete="current-password"
             hideLabel={t('auth.common.hidePassword')}
             inputClassName={error ? 'border-danger focus:border-danger focus:shadow-[0_0_0_4px_rgba(197,48,48,0.12)]' : undefined}
@@ -95,7 +98,7 @@ export function LoginPage() {
             onChange={setPassword}
           />
         </FormField>
-        {error ? <p className="text-sm text-danger">{error}</p> : null}
+        {error ? <p id={errorId} role="alert" className="text-sm text-danger">{error}</p> : null}
         <Button disabled={submitting} fullWidth type="submit">
           {submitting ? t('common.states.loading') : t('auth.login.submitAction')}
         </Button>

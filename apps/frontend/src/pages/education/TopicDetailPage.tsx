@@ -220,7 +220,7 @@ export function TopicDetailPage() {
                   onChange={(event) => setAssignmentForm((current) => ({ ...current, description: event.target.value }))}
                 />
               </FormField>
-              <Button disabled={createAssignmentMutation.isPending} onClick={() => createAssignmentMutation.mutate()}>
+              <Button disabled={!assignmentForm.title.trim() || !assignmentForm.deadline || createAssignmentMutation.isPending} onClick={() => createAssignmentMutation.mutate()}>
                 {t('common.actions.create')}
               </Button>
             </Card>

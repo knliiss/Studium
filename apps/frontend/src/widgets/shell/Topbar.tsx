@@ -22,7 +22,7 @@ export function Topbar() {
   const profileLabel = profileQuery.data?.displayName ?? session?.user.username ?? session?.user.email ?? ''
 
   return (
-    <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-4 border-b border-border bg-background/90 px-6 py-4 backdrop-blur">
+    <header className="sticky top-0 z-30 flex min-w-0 flex-wrap items-center justify-between gap-4 border-b border-border bg-background/90 px-4 py-4 backdrop-blur sm:px-6">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
@@ -33,7 +33,7 @@ export function Topbar() {
           </h2>
         </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
         <NotificationDropdown targetPath="/notifications" />
         <LanguageSwitcher />
         <ThemeSwitcher />

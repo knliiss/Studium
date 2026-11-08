@@ -76,7 +76,7 @@ const initialLocale = readStoredLocale() ?? detectBrowserLocale()
 
 export const i18n = i18next.createInstance()
 
-void i18n.use(initReactI18next).init({
+const initialization = i18n.use(initReactI18next).init({
   lng: initialLocale,
   fallbackLng: 'en',
   defaultNS: 'common',
@@ -96,9 +96,16 @@ void i18n.use(initReactI18next).init({
   },
 })
 
-i18n.on('languageChanged', (language) => {
+function synchronizeDocumentLanguage(language: string) {
   if (language === 'en' || language === 'uk' || language === 'pl') {
     writeStoredLocale(language)
-    document.documentElement.lang = language
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = language
+    }
   }
-})
+}
+
+// languageChanged may fire during init, before a listener is registered.
+// Synchronize the initial language as well as subsequent manual changes.
+i18n.on('languageChanged', synchronizeDocumentLanguage)
+void initialization.then(() => synchronizeDocumentLanguage(i18n.resolvedLanguage ?? i18n.language))
